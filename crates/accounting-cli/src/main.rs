@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use accounting_core::Money;
+use accounting_core::db::integrity::Severity;
 use accounting_core::db::{Db, SCHEMA_VERSION, check_all, seed_defaults};
 use accounting_core::domain::reconcile::{
     AmountEntry, AmountField, Amounts, TaxContext, reconcile,
@@ -241,14 +242,26 @@ fn run_doctor(path: &Path) -> anyhow::Result<bool> {
     println!("transactions    {}", counts.txns);
     println!("splits          {}", counts.splits);
 
+    // Errors and warnings are counted separately on purpose. A warning is
+    // legitimate user behaviour — archiving a category you have historical
+    // spend in produces one — so folding warnings into a single total would
+    // make "0 invariant violations" drift away from meaning "healthy" as soon
+    // as the database sees real use, and a number that is never zero stops
+    // being read at all.
     let violations = check_all(&db).context("integrity check failed")?;
+    let (errors, warnings): (Vec<_>, Vec<_>) = violations
+        .iter()
+        .partition(|v| v.severity() == Severity::Error);
+
     println!();
-    println!("{} invariant violations", violations.len());
-    for v in &violations {
+    println!("{} errors, {} warnings", errors.len(), warnings.len());
+    for v in errors.iter().chain(&warnings) {
         println!("  [{:?}] {v}", v.severity());
     }
 
-    let mut healthy = violations.is_empty();
+    // Only errors make the database unhealthy, and only errors set the exit
+    // code. Warnings are reported and then got out of the way of.
+    let mut healthy = errors.is_empty();
 
     if usize::try_from(user_version).unwrap_or(usize::MAX) != SCHEMA_VERSION {
         println!("  [Error] user_version is {user_version}, expected {SCHEMA_VERSION}");
