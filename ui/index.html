@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accounting</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Recent receipts</h1>
+      <p id="status" role="status">Loading…</p>
+      <table id="transactions" hidden>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Store</th>
+            <th>Categories</th>
+            <th class="amount">Total</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

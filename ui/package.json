@@ -1,0 +1,21 @@
+{
+  "name": "accounting-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Frontend for the personal accounting app. Renders what the core computes; never does money arithmetic.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit -p tsconfig.test.json && node --test --experimental-strip-types src/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "~5.9.3",
+    "vite": "~7.1.5"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  }
+}
