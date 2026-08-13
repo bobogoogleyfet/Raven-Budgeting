@@ -234,6 +234,21 @@ export async function saveSubtotals(draft: SubtotalDraft): Promise<number> {
   return await invoke<number>("save_subtotals", { draft });
 }
 
+export interface Area {
+  name: string;
+  taxRatePpm: number;
+}
+
+/**
+ * Named areas and the rate to prefill for each.
+ *
+ * Reference data, not database rows: starting points the user can override,
+ * and a receipt's own tax always wins over any of them.
+ */
+export async function listAreas(): Promise<Area[]> {
+  return await invoke<Area[]>("list_areas");
+}
+
 /** The home location, or null if none is set. */
 export async function homeLocation(): Promise<Location | null> {
   return await invoke<Location | null>("home_location");

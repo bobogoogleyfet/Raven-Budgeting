@@ -32,6 +32,7 @@
 use std::sync::Mutex;
 
 use accounting_core::db::{Db, seed_defaults};
+use accounting_core::domain::areas;
 use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::domain::reconcile::AmountEntry;
 use accounting_core::domain::splits::{SplitAmount, SplitDraft};
@@ -214,6 +215,13 @@ struct MerchantDto {
     id: i64,
     name: String,
     default_category_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AreaDto {
+    name: String,
+    tax_rate_ppm: u32,
 }
 
 #[derive(Serialize)]
@@ -488,6 +496,21 @@ fn save_subtotals(state: State<'_, AppState>, draft: SubtotalDraftDto) -> CmdRes
         .map_err(to_message)
 }
 
+/// Named areas and the rate to prefill for each, for the first-run picker.
+///
+/// Reference data, not database rows: these are starting points the user can
+/// override, and a receipt's own tax always wins over any of them.
+#[tauri::command]
+fn list_areas() -> Vec<AreaDto> {
+    areas::AREAS
+        .iter()
+        .map(|a| AreaDto {
+            name: a.name.to_string(),
+            tax_rate_ppm: a.tax_rate_ppm,
+        })
+        .collect()
+}
+
 /// The home location and its rate, for the first-run prompt.
 #[tauri::command]
 fn home_location(state: State<'_, AppState>) -> CmdResult<Option<LocationDto>> {
@@ -688,6 +711,7 @@ fn main() {
             entry_context,
             preview_subtotals,
             save_subtotals,
+            list_areas,
             home_location,
             set_home_location,
             list_merchants,

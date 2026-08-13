@@ -574,3 +574,26 @@ tr.over {
 .split-row .combo {
   max-width: 18rem;
 }
+
+/* --- first-run rate --- */
+.rate-row {
+  margin: 0.6rem 0 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  min-height: 1.6rem;
+}
+
+.rate-row input {
+  max-width: 6rem;
+}
+
+.derived-rate {
+  margin: 0;
+  font-weight: 600;
+}
+
+.setup .combo {
+  max-width: 22rem;
+}

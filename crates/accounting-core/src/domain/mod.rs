@@ -5,11 +5,13 @@
 //! the clock — dates arrive as parameters. That is what makes the money rules
 //! testable without fixtures and identical on every frontend.
 
+pub mod areas;
 pub mod budget_calc;
 pub mod reconcile;
 pub mod splits;
 pub mod tax;
 
+pub use areas::{AREAS, Area};
 pub use budget_calc::{
     BudgetLine, FundedStatus, OnTrack, Period, SpendStatus, contributions, cycle_containing,
     funded_balance, monthly_contribution,
