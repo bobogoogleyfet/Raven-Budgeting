@@ -45,6 +45,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 proptest = "1.11"
 insta = "1.48"
 tempfile = "3.27"
+# CLI black-box tests. `assert_cmd` locates the built `pacc` binary itself, so
+# the tests exercise the real argument parsing rather than a library shim.
+assert_cmd = "2.0"
+predicates = "3.1"
 
 # Bundled SQLite is C; compiling it unoptimized makes debug test runs crawl.
 [profile.dev.package.libsqlite3-sys]
