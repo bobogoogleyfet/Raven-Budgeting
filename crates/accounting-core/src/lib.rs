@@ -22,4 +22,23 @@
 //!    `total - subtotal`, floats are back and the logic has to be rewritten
 //!    per platform.
 
+//!
+//! # Milestone 1 surface
+//!
+//! [`Money`] (i64 cents, never a float), typed [`ids`], calendar-month
+//! [`time`] types, and the pure [`domain`] calculations built on them.
+
 #![doc(html_no_source)]
+
+pub mod domain;
+pub mod error;
+pub mod ids;
+pub mod money;
+pub mod time;
+
+pub use error::{CoreError, Result};
+pub use ids::{
+    BudgetLineId, CategoryGroupId, CategoryId, LineItemId, LocationId, MerchantId, SplitId, TxnId,
+};
+pub use money::{Money, MoneyParseError};
+pub use time::{MonthRange, ParseYearMonthError, YearMonth, month_short_name, quarter_of};
