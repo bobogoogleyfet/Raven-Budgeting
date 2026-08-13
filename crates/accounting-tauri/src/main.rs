@@ -19,11 +19,12 @@
 //!
 //! # The database path comes from Tauri, not from the core
 //!
-//! `accounting-core` never discovers a path — see its crate docs. Here the path
-//! comes from `app.path().app_data_dir()`, which is the only API that returns
-//! the right answer on every platform. On Android the real data directory is
-//! obtainable only through the Java `Context`, so a core that called `dirs` or
-//! read `$HOME` would have to be rewritten for the second platform.
+//! `accounting-core` never discovers a path — see its crate docs. The decision
+//! is made once, in [`database_path`], which resolves the *same file `pacc`
+//! uses* on the desktop and Tauri's per-app directory on mobile. A core that
+//! called `dirs` or read `$HOME` would have to be rewritten for the second
+//! platform, because on Android the real data directory is reachable only
+//! through the Java `Context`.
 
 // Stops a second, console window from opening alongside the app on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -31,10 +32,12 @@
 use std::sync::Mutex;
 
 use accounting_core::db::{Db, seed_defaults};
+use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::domain::reconcile::AmountEntry;
 use accounting_core::domain::splits::{SplitAmount, SplitDraft};
 use accounting_core::repo::transactions::{DetailLevel, TxnFilter};
-use accounting_core::repo::{categories, transactions};
+use accounting_core::repo::{categories, locations, transactions};
+use accounting_core::service::budgets;
 use accounting_core::service::entry::{self, TransactionDraft};
 use accounting_core::{CategoryId, Money, TxnId};
 use serde::{Deserialize, Serialize};
@@ -143,6 +146,44 @@ struct PreviewDto {
     rows: Vec<SplitRowDto>,
     warnings: Vec<String>,
     blockers: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextDto {
+    merchant_name: Option<String>,
+    location_name: Option<String>,
+    tax_rate_ppm: u32,
+    default_category_id: Option<i64>,
+    detail_level: String,
+    recent_merchants: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocationDto {
+    id: i64,
+    name: String,
+    tax_rate_ppm: u32,
+    is_home: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BudgetRowDto {
+    category_id: i64,
+    category_name: String,
+    group_name: String,
+    /// `None` throughout when the category has no budget line.
+    budgeted: Option<i64>,
+    per_month: Option<i64>,
+    funded: Option<i64>,
+    spent_cycle: Option<i64>,
+    overspent_by: Option<i64>,
+    spent_this_month: i64,
+    /// `"ahead" | "on track" | "behind" | "none"`.
+    funding: String,
+    funding_by: i64,
 }
 
 #[derive(Serialize)]
@@ -328,6 +369,109 @@ fn needs_categorizing(state: State<'_, AppState>) -> CmdResult<Vec<TxnSummaryDto
     Ok(rows.iter().map(summarise).collect())
 }
 
+/// What the app already knows about a store, so the next receipt prefills.
+///
+/// This is the store-memory feature, and it is the reason the entry flow is
+/// short: naming a merchant recalls its usual category, its location and
+/// whether you itemize there, which removes three decisions from every visit.
+/// Naming a *new* merchant is not an error and creates nothing — the row
+/// appears on save, so abandoning a half-typed receipt leaves no debris in the
+/// picker.
+#[tauri::command]
+fn entry_context(state: State<'_, AppState>, merchant: Option<String>) -> CmdResult<ContextDto> {
+    let db = state.db.lock().map_err(to_message)?;
+    let ctx = entry::entry_context(&db, merchant.as_deref()).map_err(to_message)?;
+    Ok(ContextDto {
+        merchant_name: ctx.merchant.as_ref().map(|m| m.name.clone()),
+        location_name: ctx.location.as_ref().map(|l| l.name.clone()),
+        tax_rate_ppm: ctx.tax.rate_ppm,
+        default_category_id: ctx.default_category.as_ref().map(|c| c.id.get()),
+        detail_level: ctx.detail_level.to_string(),
+        recent_merchants: ctx
+            .recent_merchants
+            .iter()
+            .map(|m| m.name.clone())
+            .collect(),
+    })
+}
+
+#[tauri::command]
+fn list_locations(state: State<'_, AppState>) -> CmdResult<Vec<LocationDto>> {
+    let db = state.db.lock().map_err(to_message)?;
+    Ok(locations::list(&db)
+        .map_err(to_message)?
+        .into_iter()
+        .map(|l| LocationDto {
+            id: l.id.get(),
+            name: l.name,
+            tax_rate_ppm: l.tax_rate_ppm,
+            is_home: l.is_home,
+        })
+        .collect())
+}
+
+/// Assign categories to a quick-added receipt and clear its review flag.
+///
+/// The amounts are already on disk and are not re-entered; this only decides
+/// which envelopes they came out of, which is why it takes splits and nothing
+/// else.
+#[tauri::command]
+fn categorize(state: State<'_, AppState>, id: i64, splits: Vec<SplitDraftDto>) -> CmdResult<()> {
+    let db = state.db.lock().map_err(to_message)?;
+    let mut drafts = Vec::with_capacity(splits.len());
+    for split in splits {
+        drafts.push(SplitDraft {
+            id: None,
+            category_id: split.category_id.map(CategoryId::new),
+            amount: split.amount.try_into()?,
+            note: split.note,
+            line_items: Vec::new(),
+        });
+    }
+    entry::categorize(&db, TxnId::new(id), &drafts).map_err(to_message)
+}
+
+/// The budget screen for one month.
+///
+/// `funding` and `overspent` are separate fields on purpose. They answer
+/// different questions and disagree in normal use: an envelope spent exactly
+/// to plan is behind on *funding* (the money was meant to be banked and is
+/// not) while being perfectly fine on *spending*. Rendering the first as "over
+/// budget" would make the screen cry wolf on every well-run category.
+#[tauri::command]
+fn budget_status(state: State<'_, AppState>, month: String) -> CmdResult<Vec<BudgetRowDto>> {
+    let db = state.db.lock().map_err(to_message)?;
+    let ym = month
+        .parse::<accounting_core::YearMonth>()
+        .map_err(to_message)?;
+    let rows = budgets::budget_status(&db, ym).map_err(to_message)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let (funding, funding_by) = match row.status.as_ref().map(|s| s.on_track) {
+                Some(OnTrack::Ahead(by)) => ("ahead", by.cents()),
+                Some(OnTrack::OnTrack) => ("on track", 0),
+                Some(OnTrack::Behind(by)) => ("behind", by.cents()),
+                None => ("none", 0),
+            };
+            BudgetRowDto {
+                category_id: row.category_id.get(),
+                category_name: row.category_name,
+                group_name: row.group_name,
+                budgeted: row.status.as_ref().map(|s| s.spend.budgeted.cents()),
+                per_month: row.status.as_ref().map(|s| s.monthly_contribution.cents()),
+                funded: row.status.as_ref().map(|s| s.funded_balance.cents()),
+                spent_cycle: row.status.as_ref().map(|s| s.spend.spent.cents()),
+                overspent_by: row.status.as_ref().map(|s| s.spend.overspent_by.cents()),
+                spent_this_month: row.spent_this_month.cents(),
+                funding: funding.to_string(),
+                funding_by,
+            }
+        })
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 
 /// Where the database lives — **the same file `pacc` uses**.
@@ -386,6 +530,10 @@ fn main() {
             save_transaction,
             list_transactions,
             needs_categorizing,
+            entry_context,
+            list_locations,
+            categorize,
+            budget_status,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start the Tauri application");

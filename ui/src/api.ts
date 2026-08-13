@@ -185,3 +185,90 @@ export async function needsCategorizing(): Promise<TxnSummary[]> {
   const rows = await invoke<RawTxnSummary[]>("needs_categorizing");
   return rows.map(brandSummary);
 }
+
+export interface EntryContext {
+  merchantName: string | null;
+  locationName: string | null;
+  taxRatePpm: number;
+  defaultCategoryId: number | null;
+  detailLevel: DetailLevel;
+  recentMerchants: string[];
+}
+
+/**
+ * What the app already remembers about a store.
+ *
+ * This is the store-memory feature and the reason the entry form is short:
+ * naming a merchant recalls its usual category, its location and whether you
+ * itemize there. Naming a new one is not an error and creates nothing — the
+ * merchant row appears on save, so an abandoned entry leaves no debris.
+ */
+export async function entryContext(merchant: string | null): Promise<EntryContext> {
+  return await invoke<EntryContext>("entry_context", { merchant });
+}
+
+export interface Location {
+  id: number;
+  name: string;
+  taxRatePpm: number;
+  isHome: boolean;
+}
+
+export async function listLocations(): Promise<Location[]> {
+  return await invoke<Location[]>("list_locations");
+}
+
+/** Assign categories to a quick-added receipt and clear its review flag. */
+export async function categorize(id: number, splits: SplitDraft[]): Promise<void> {
+  await invoke("categorize", { id, splits });
+}
+
+interface RawBudgetRow {
+  categoryId: number;
+  categoryName: string;
+  groupName: string;
+  budgeted: number | null;
+  perMonth: number | null;
+  funded: number | null;
+  spentCycle: number | null;
+  overspentBy: number | null;
+  spentThisMonth: number;
+  funding: string;
+  fundingBy: number;
+}
+
+export interface BudgetRow {
+  categoryId: number;
+  categoryName: string;
+  groupName: string;
+  budgeted: Cents | null;
+  perMonth: Cents | null;
+  funded: Cents | null;
+  spentCycle: Cents | null;
+  /** Non-zero is the real "over budget" signal. */
+  overspentBy: Cents | null;
+  spentThisMonth: Cents;
+  /** `"ahead" | "on track" | "behind" | "none"` — a *funding* measure, which
+   * is not the same question as overspending and disagrees with it in normal
+   * use. Never render "behind" as "over budget". */
+  funding: string;
+  fundingBy: Cents;
+}
+
+function optionalCents(value: number | null): Cents | null {
+  return value === null ? null : fromCore(value);
+}
+
+export async function budgetStatus(month: string): Promise<BudgetRow[]> {
+  const rows = await invoke<RawBudgetRow[]>("budget_status", { month });
+  return rows.map((r) => ({
+    ...r,
+    budgeted: optionalCents(r.budgeted),
+    perMonth: optionalCents(r.perMonth),
+    funded: optionalCents(r.funded),
+    spentCycle: optionalCents(r.spentCycle),
+    overspentBy: optionalCents(r.overspentBy),
+    spentThisMonth: fromCore(r.spentThisMonth),
+    fundingBy: fromCore(r.fundingBy),
+  }));
+}

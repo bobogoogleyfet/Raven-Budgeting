@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsc --noEmit -p tsconfig.test.json && node --test --experimental-strip-types src/**/*.test.ts"
+    "test": "tsc --noEmit -p tsconfig.test.json && node --test --experimental-strip-types src/money.test.ts src/splitspec.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
