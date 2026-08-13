@@ -10,10 +10,18 @@ license.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
+rusqlite.workspace = true
+rusqlite_migration.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
+# Hashes the shipped migration SQL so an edit to an already-applied migration
+# fails the test suite instead of silently diverging fresh DBs from existing
+# ones. See crates/accounting-core/tests/migrations.rs.
+sha2 = "0.10"
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -7,7 +7,13 @@ members = [
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.88"
+# Raised from 1.88 at M2: rusqlite_migration 2.6 declares rust-version 1.95.
+# Leaving 1.88 here is not harmless — under resolver "3" cargo prefers
+# dependency versions compatible with the declared MSRV, so an understated
+# value invites a silent downgrade to rusqlite_migration 2.5, which wants
+# rusqlite ^0.39 and therefore a *second* libsqlite3-sys and a duplicate-symbol
+# link failure. The toolchain is pinned to 1.97.1 in rust-toolchain.toml.
+rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/tanner/personal_accounting"
 

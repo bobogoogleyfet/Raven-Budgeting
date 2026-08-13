@@ -42,6 +42,18 @@ pub enum CoreError {
     /// A referenced entity does not exist.
     #[error("not found: {0}")]
     NotFound(String),
+
+    /// SQLite refused a statement, or the file could not be opened.
+    ///
+    /// Constraint violations arrive here too — a CHECK on
+    /// `subtotal + tax = total`, or one of the triggers protecting a system
+    /// category — so this variant is not only "the disk broke".
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+
+    /// The schema could not be brought to the latest version.
+    #[error("database migration failed: {0}")]
+    Migration(#[from] rusqlite_migration::Error),
 }
 
 #[cfg(test)]

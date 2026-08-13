@@ -27,15 +27,23 @@
 //!
 //! [`Money`] (i64 cents, never a float), typed [`ids`], calendar-month
 //! [`time`] types, and the pure [`domain`] calculations built on them.
+//!
+//! # Milestone 2 surface
+//!
+//! [`db`] — a `STRICT` SQLite schema, `user_version` migrations, the default
+//! chart of accounts, and [`db::check_all`] for the two aggregate invariants
+//! that no constraint in SQLite can express.
 
 #![doc(html_no_source)]
 
+pub mod db;
 pub mod domain;
 pub mod error;
 pub mod ids;
 pub mod money;
 pub mod time;
 
+pub use db::{Db, InvariantViolation, check_all, seed_defaults};
 pub use error::{CoreError, Result};
 pub use ids::{
     BudgetLineId, CategoryGroupId, CategoryId, LineItemId, LocationId, MerchantId, SplitId, TxnId,
