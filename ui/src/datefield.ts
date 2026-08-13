@@ -1,30 +1,37 @@
 /**
- * A segmented `MM / DD / YYYY` field.
+ * A segmented `MM / DD / YYYY` field with a calendar popup.
  *
  * # Why not `<input type="date">`
  *
- * The native control's segment behaviour belongs to the browser engine, and in
+ * The native control's segment behaviour belongs to the webview engine, and in
  * a WebKit webview it is neither configurable nor the same as the one you get
  * in Chrome. Typing a date is the very first thing you do for every receipt,
- * so it is worth owning outright.
+ * so it is worth owning outright — including the picker, which went away with
+ * the native input.
  *
  * # The rules this implements
  *
- * * Focusing a segment selects it whole, so typing overwrites rather than
- *   appending to whatever was there.
- * * The first digit typed replaces the selection and drops it. The caret then
- *   sits after that digit, which is what makes Backspace remove one character:
- *   with the segment still selected, Backspace would wipe all four digits of a
- *   year when the user only meant to correct the last one.
- * * A segment that fills up (2, 2, 4 digits) hands focus to the next one, and
- *   selects it.
- * * Backspace in an empty segment steps back to the previous one; Arrow keys
- *   step at the edges. Enter leaves the field entirely.
+ * * **A click anywhere on the field starts at the month** and opens the
+ *   calendar. Not "wherever you clicked": the field is small, the segments are
+ *   two characters wide, and a click that lands on the day when you meant the
+ *   month costs more than always starting from a known place.
+ * * **Typing dismisses the calendar.** Someone who has started typing digits
+ *   has already decided not to use the picker, and leaving it up covers the
+ *   form underneath.
+ * * Focusing a segment selects it whole, so typing overwrites. The first digit
+ *   replaces the selection and drops it, leaving the caret after that digit —
+ *   that is what makes Backspace remove one character rather than wiping all
+ *   four digits of a year the user only meant to correct.
+ * * A segment that fills up (2, 2, 4 digits) hands focus to the next and
+ *   selects it. Backspace in an empty segment steps back; arrows step at the
+ *   edges; Enter leaves the field.
  *
  * Three real `<input>` elements rather than one with hand-managed carets: the
- * selection and caret behaviour above is exactly what a short native input
- * already does, so this steers focus and lets the platform handle the text.
+ * selection behaviour above is exactly what a short native input already does,
+ * so this steers focus and lets the platform handle the text.
  */
+
+import { WEEKDAYS, monthGrid, monthLabel, shiftMonth } from "./calendar.ts";
 
 /** The three parts, in the order they are typed. */
 const LENGTHS = { month: 2, day: 2, year: 4 } as const;
@@ -86,7 +93,16 @@ export function dateField(options: {
   onEnter?: () => void;
 }): DateField {
   const root = document.createElement("div");
-  root.className = "datefield";
+  root.className = "datefield-wrap";
+
+  const field = document.createElement("div");
+  field.className = "datefield";
+  root.append(field);
+
+  const popup = document.createElement("div");
+  popup.className = "calendar";
+  popup.hidden = true;
+  root.append(popup);
 
   const inputs = {} as Record<SegmentName, HTMLInputElement>;
 
@@ -95,7 +111,7 @@ export function dateField(options: {
       const sep = document.createElement("span");
       sep.className = "datefield-sep";
       sep.textContent = "/";
-      root.append(sep);
+      field.append(sep);
     }
 
     const input = document.createElement("input");
@@ -108,8 +124,12 @@ export function dateField(options: {
     input.setAttribute("aria-label", name);
     if (index === 0 && options.id !== undefined) input.id = options.id;
     inputs[name] = input;
-    root.append(input);
+    field.append(input);
   });
+
+  function currentIso(): string {
+    return toIso(inputs.month.value, inputs.day.value, inputs.year.value) ?? "";
+  }
 
   function focusSegment(name: SegmentName): void {
     const input = inputs[name];
@@ -124,18 +144,121 @@ export function dateField(options: {
     if (next !== undefined) focusSegment(next);
   }
 
+  // --- calendar -------------------------------------------------------------
+
+  // What the popup is showing, which is not the same as what is selected: you
+  // can page to April while the field still holds a March date.
+  let shownYear = 0;
+  let shownMonth = 0;
+
+  function renderCalendar(): void {
+    popup.replaceChildren();
+    const selected = currentIso();
+
+    const header = document.createElement("div");
+    header.className = "calendar-head";
+
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "calendar-nav";
+    back.textContent = "‹";
+    back.setAttribute("aria-label", "previous month");
+    back.addEventListener("mousedown", (e) => {
+      // Without this the field loses focus to the button and the popup's
+      // focusout handler closes it mid-click.
+      e.preventDefault();
+      [shownYear, shownMonth] = shiftMonth(shownYear, shownMonth, -1);
+      renderCalendar();
+    });
+
+    const forward = document.createElement("button");
+    forward.type = "button";
+    forward.className = "calendar-nav";
+    forward.textContent = "›";
+    forward.setAttribute("aria-label", "next month");
+    forward.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      [shownYear, shownMonth] = shiftMonth(shownYear, shownMonth, 1);
+      renderCalendar();
+    });
+
+    const label = document.createElement("span");
+    label.className = "calendar-label";
+    label.textContent = monthLabel(shownYear, shownMonth);
+
+    header.append(back, label, forward);
+    popup.append(header);
+
+    const grid = document.createElement("div");
+    grid.className = "calendar-grid";
+    for (const name of WEEKDAYS) {
+      const cell = document.createElement("span");
+      cell.className = "calendar-weekday";
+      cell.textContent = name;
+      grid.append(cell);
+    }
+
+    const todayIso = (() => {
+      const now = new Date();
+      const pad = (n: number): string => String(n).padStart(2, "0");
+      return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    })();
+
+    for (const cell of monthGrid(shownYear, shownMonth)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "calendar-day";
+      if (!cell.inMonth) button.classList.add("outside");
+      if (cell.iso === todayIso) button.classList.add("today");
+      if (cell.iso === selected) button.classList.add("selected");
+      button.textContent = String(cell.day);
+      button.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        setSegments(cell.iso);
+        options.onChange?.();
+        closeCalendar();
+        // Focus back on the field so the next Tab or Enter behaves as if the
+        // date had been typed.
+        focusSegment("month");
+      });
+      grid.append(button);
+    }
+
+    popup.append(grid);
+  }
+
+  function openCalendar(): void {
+    const current = currentIso();
+    if (current === "") {
+      const now = new Date();
+      shownYear = now.getFullYear();
+      shownMonth = now.getMonth() + 1;
+    } else {
+      const parts = fromIso(current);
+      shownYear = Number(parts.year);
+      shownMonth = Number(parts.month);
+    }
+    renderCalendar();
+    popup.hidden = false;
+  }
+
+  function closeCalendar(): void {
+    popup.hidden = true;
+  }
+
+  function setSegments(iso: string): void {
+    const parts = fromIso(iso);
+    inputs.month.value = parts.month;
+    inputs.day.value = parts.day;
+    inputs.year.value = parts.year;
+  }
+
+  // --- segment behaviour ----------------------------------------------------
+
   for (const name of ORDER) {
     const input = inputs[name];
 
-    // Clicking a segment starts a fresh entry for it rather than dropping a
-    // caret mid-number.
     input.addEventListener("focus", () => input.select());
-    input.addEventListener("mouseup", (event) => {
-      // Chrome/WebKit clear the selection on mouseup after focus; re-selecting
-      // here is what keeps click-then-type an overwrite.
-      event.preventDefault();
-      input.select();
-    });
 
     input.addEventListener("input", () => {
       // Digits only. Stripping rather than blocking keeps paste working.
@@ -146,11 +269,21 @@ export function dateField(options: {
     });
 
     input.addEventListener("keydown", (event) => {
+      // Typing means the picker is not wanted. Checked before anything else so
+      // it applies to every digit, wherever the caret is.
+      if (/^\d$/.test(event.key)) closeCalendar();
+
       if (event.key === "Enter") {
         event.preventDefault();
+        closeCalendar();
         options.onEnter?.();
         return;
       }
+      if (event.key === "Escape") {
+        closeCalendar();
+        return;
+      }
+
       const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
       const atEnd =
         input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
@@ -186,24 +319,27 @@ export function dateField(options: {
     });
   }
 
-  // A click on the separators or the padding — "into the field" rather than
-  // onto a number — starts at the front.
-  root.addEventListener("mousedown", (event) => {
-    if (event.target === root || (event.target as HTMLElement).classList.contains("datefield-sep")) {
-      event.preventDefault();
-      focusSegment("month");
-    }
+  // A click anywhere on the field — a segment, a separator, the padding —
+  // starts at the month and raises the picker. preventDefault stops the
+  // browser placing its own caret in whichever segment was under the pointer.
+  field.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    focusSegment("month");
+    openCalendar();
+  });
+
+  // Leaving the whole component closes the picker. relatedTarget is where
+  // focus went; a click on a calendar day never lands here because those
+  // buttons preventDefault on mousedown.
+  root.addEventListener("focusout", (event) => {
+    const next = event.relatedTarget;
+    if (!(next instanceof Node) || !root.contains(next)) closeCalendar();
   });
 
   return {
     root,
-    value: () => toIso(inputs.month.value, inputs.day.value, inputs.year.value) ?? "",
-    setValue: (iso: string) => {
-      const parts = fromIso(iso);
-      inputs.month.value = parts.month;
-      inputs.day.value = parts.day;
-      inputs.year.value = parts.year;
-    },
+    value: currentIso,
+    setValue: setSegments,
     focusStart: () => focusSegment("month"),
   };
 }

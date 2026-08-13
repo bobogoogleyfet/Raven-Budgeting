@@ -389,3 +389,98 @@ tr.over {
   color: var(--muted);
   user-select: none;
 }
+
+/* --- calendar popup --- */
+.datefield-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.calendar {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.6rem;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  user-select: none;
+}
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.calendar-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.calendar-nav {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.calendar-nav:hover {
+  background: var(--panel);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 2rem);
+  gap: 1px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--muted);
+  padding-bottom: 0.2rem;
+}
+
+.calendar-day {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  height: 1.9rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.calendar-day:hover {
+  background: var(--panel);
+}
+
+/* Adjacent months stay visible but recede: the grid is a fixed six rows, so
+   the eye needs to find the current month without counting. */
+.calendar-day.outside {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.calendar-day.today {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.calendar-day.selected {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
