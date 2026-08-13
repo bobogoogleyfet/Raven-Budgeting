@@ -342,3 +342,50 @@ tr.over {
 .toolbar input {
   max-width: 12rem;
 }
+
+/* --- segmented date --- */
+/* Three real inputs that read as one control: the border lives on the
+   wrapper, and the segments are transparent so the seam is invisible. */
+.datefield {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  background: var(--bg);
+  width: max-content;
+}
+
+.datefield:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.datefield-seg {
+  border: 0;
+  border-radius: 3px;
+  padding: 0;
+  background: none;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  width: auto;
+}
+
+.datefield-seg:focus {
+  outline: none;
+}
+
+.seg-month,
+.seg-day {
+  width: 2.2ch;
+}
+
+.seg-year {
+  width: 4.2ch;
+}
+
+.datefield-sep {
+  color: var(--muted);
+  user-select: none;
+}

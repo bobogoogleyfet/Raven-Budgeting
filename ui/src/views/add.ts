@@ -32,6 +32,7 @@ import {
   previewTransaction,
   saveTransaction,
 } from "../api.ts";
+import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
 import { formatMoney, formatRatePpm, parseCents } from "../money.ts";
 import { parseSplitAmount } from "../splitspec.ts";
@@ -53,8 +54,16 @@ export function addView(onSaved: () => void): HTMLElement {
   let saving = false;
 
   // --- fields ---------------------------------------------------------------
-  const date = el("input", { type: "date", id: "f-date", value: today() });
   const merchant = el("input", { type: "text", id: "f-merchant", placeholder: "Costco" });
+  // Segmented MM/DD/YYYY rather than <input type="date">, whose per-segment
+  // typing and Backspace behaviour belong to the webview engine. Enter hands
+  // off to the store field, which is the next thing you fill in.
+  const date = dateField({
+    id: "f-date",
+    onChange: () => schedulePreview(),
+    onEnter: () => merchant.focus(),
+  });
+  date.setValue(today());
   const total = el("input", {
     type: "text",
     id: "f-total",
@@ -90,7 +99,7 @@ export function addView(onSaved: () => void): HTMLElement {
     const noteText = note.value.trim();
     return {
       id: null,
-      txnDate: date.value,
+      txnDate: date.value(),
       merchant: merchant.value.trim() || null,
       // The name is passed through only when the core already knows it; a
       // typo'd location is an error in the core rather than a silent 0% rate,
@@ -266,7 +275,7 @@ export function addView(onSaved: () => void): HTMLElement {
   });
   total.addEventListener("input", schedulePreview);
   tax.addEventListener("input", schedulePreview);
-  date.addEventListener("change", schedulePreview);
+
 
   addSplit.addEventListener("click", () => {
     splits.push({ categoryId: null, amountText: "" });
@@ -307,7 +316,7 @@ export function addView(onSaved: () => void): HTMLElement {
     el("h1", {}, ["Add a receipt"]),
     el("div", { class: "form" }, [
       el("label", { for: "f-date" }, ["Date"]),
-      date,
+      date.root,
       el("label", { for: "f-merchant" }, ["Store"]),
       el("div", {}, [merchant, chips, context]),
       el("label", { for: "f-total" }, ["Total"]),
