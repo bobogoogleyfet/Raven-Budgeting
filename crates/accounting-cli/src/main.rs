@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use accounting_core::db::integrity::Severity;
 use accounting_core::db::{Db, SCHEMA_VERSION, check_all, seed_defaults};
+use accounting_core::domain::budget_calc::{OnTrack, Period, monthly_contribution};
 use accounting_core::domain::reconcile::{
     AmountEntry, AmountField, Amounts, TaxContext, reconcile,
 };
@@ -21,13 +22,17 @@ use accounting_core::domain::splits::{
     LineItemDraft, SplitAmount, SplitDraft, SplitPlan, plan_splits,
 };
 use accounting_core::export;
+use accounting_core::repo::budgets::{self, BudgetLineRecord, StoredBudgetLine};
 use accounting_core::repo::transactions::{Txn, TxnFilter};
 use accounting_core::repo::{categories, locations, merchants, transactions};
+use accounting_core::service::budgets as budget_service;
 use accounting_core::service::entry::{
     TransactionDraft, TransactionPreview, categorize, needs_categorizing,
     preview_transaction_with_rate, quick_add, repeat_last, save_transaction_with_rate,
 };
-use accounting_core::{DetailLevel, Money, TxnId, YearMonth};
+use accounting_core::service::reports::{MonthlyMatrix, ReportBasis, monthly_matrix};
+use accounting_core::time::{MonthRange, month_short_name};
+use accounting_core::{CategoryBudgetStatus, DetailLevel, Money, TxnId, YearMonth};
 use anyhow::Context;
 use chrono::{Local, NaiveDate, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -107,6 +112,180 @@ enum Command {
     ///   pacc location --name "Boise, ID" --rate 6 --home
     #[command(verbatim_doc_comment)]
     Location(LocationArgs),
+    /// Set budgets, and see how they are funded and how they are spent.
+    ///
+    /// Examples:
+    ///   pacc budget set --category "Insurance (Auto)" --amount 1200 --period yearly
+    ///   pacc budget set --category Groceries --amount 400
+    ///   pacc budget status --month 2026-08
+    ///   pacc budget adjust --category "Insurance (Auto)" --month 2026-03 --amount 1200
+    #[command(verbatim_doc_comment)]
+    Budget(BudgetArgs),
+    /// Budgeted vs actual, categories down and months across.
+    ///
+    /// Examples:
+    ///   pacc report --year 2026
+    ///   pacc report --year 2026 --basis cashflow
+    ///   pacc report --from 2026-01 --to 2026-06
+    #[command(verbatim_doc_comment)]
+    Report(ReportArgs),
+}
+
+#[derive(Args)]
+struct BudgetArgs {
+    #[command(subcommand)]
+    command: BudgetCommand,
+}
+
+#[derive(Subcommand)]
+enum BudgetCommand {
+    /// Create or replace a category's budget.
+    Set(BudgetSetArgs),
+    /// The budget lines in force in a month.
+    List(BudgetMonthArgs),
+    /// Funding and spending for every budgeted category.
+    Status(BudgetMonthArgs),
+    /// Move money into or out of one month's envelope.
+    ///
+    /// A positive amount funds the envelope — "the annual premium was paid out
+    /// of this sinking fund, so stop calling it a shortfall". A negative one
+    /// takes money out, e.g. to move it to another envelope.
+    #[command(verbatim_doc_comment)]
+    Adjust(BudgetAdjustArgs),
+}
+
+#[derive(Args)]
+struct BudgetSetArgs {
+    /// Category name, a unique prefix, or Group/Name.
+    #[arg(long, value_name = "NAME")]
+    category: String,
+
+    /// The target amount for one *period*, not per month: a yearly budget of
+    /// 1200 contributes about $100.00 a month.
+    #[arg(long, value_parser = parse_money)]
+    amount: Money,
+
+    /// How often the amount comes due.
+    #[arg(long, value_enum, default_value_t = PeriodArg::Monthly)]
+    period: PeriodArg,
+
+    /// Cycle length in months, for `--period every-n`. 2 to 120.
+    #[arg(long, value_name = "N")]
+    every: Option<u32>,
+
+    /// The day the bill is due, for `--period by-date`.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    due: Option<NaiveDate>,
+
+    /// First month the budget applies. Defaults to this month.
+    ///
+    /// Resolved here rather than in the core: a frontend is allowed to know
+    /// what month it is, and `accounting-core` is not.
+    #[arg(long, value_name = "YYYY-MM")]
+    start: Option<YearMonth>,
+
+    /// Last month the budget applies. Omit for "until further notice".
+    #[arg(long, value_name = "YYYY-MM")]
+    end: Option<YearMonth>,
+
+    /// Carry an unspent balance into the next month. Defaults to the
+    /// category's own setting — on for the sinking-fund categories, where a
+    /// budget without carry-over cannot work at all.
+    #[arg(long, conflicts_with = "no_rollover")]
+    rollover: bool,
+
+    /// Spend it or lose it: reset the envelope every cycle.
+    #[arg(long)]
+    no_rollover: bool,
+
+    /// Free-text note on the budget line.
+    #[arg(long, value_name = "TEXT")]
+    note: Option<String>,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug, ValueEnum)]
+enum PeriodArg {
+    /// The amount, every month.
+    Monthly,
+    /// The amount once a year, saved for in twelve parts.
+    Yearly,
+    /// The amount every `--every N` months.
+    #[value(name = "every-n")]
+    EveryN,
+    /// The amount once, on `--due`, saved for from `--start` until then.
+    #[value(name = "by-date")]
+    ByDate,
+}
+
+#[derive(Args)]
+struct BudgetMonthArgs {
+    /// The month to report on. Defaults to this month.
+    #[arg(long, value_name = "YYYY-MM")]
+    month: Option<YearMonth>,
+}
+
+#[derive(Args)]
+struct BudgetAdjustArgs {
+    /// Category name, a unique prefix, or Group/Name.
+    #[arg(long, value_name = "NAME")]
+    category: String,
+
+    /// The month whose envelope moves.
+    #[arg(long, value_name = "YYYY-MM")]
+    month: YearMonth,
+
+    /// How much to add. Negative takes money out: `--amount -50`.
+    #[arg(long, value_parser = parse_money, allow_hyphen_values = true)]
+    amount: Money,
+
+    /// Why. Worth writing: an unexplained adjustment is indistinguishable from
+    /// a mistake six months later.
+    #[arg(long, value_name = "TEXT")]
+    reason: Option<String>,
+}
+
+#[derive(Args)]
+struct ReportArgs {
+    /// First month, inclusive. Defaults to January of this year; given alone,
+    /// the window runs twelve months from here.
+    #[arg(long, value_name = "YYYY-MM")]
+    from: Option<YearMonth>,
+
+    /// Last month, inclusive. Defaults to December of this year; given alone,
+    /// the window runs twelve months back from here.
+    #[arg(long, value_name = "YYYY-MM")]
+    to: Option<YearMonth>,
+
+    /// One calendar year. Sugar for `--from YYYY-01 --to YYYY-12`.
+    #[arg(long, value_name = "YYYY", conflicts_with_all = ["from", "to"])]
+    year: Option<i32>,
+
+    /// A single month.
+    #[arg(long, value_name = "YYYY-MM", conflicts_with_all = ["from", "to", "year"])]
+    month: Option<YearMonth>,
+
+    /// Which set of actuals to show. `amortized` spreads a budget cycle's
+    /// spending across that cycle's months; `cashflow` shows what left the
+    /// account each month. Money is stored cash-flow dated either way.
+    #[arg(long, value_enum, default_value_t = BasisArg::Amortized)]
+    basis: BasisArg,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug, ValueEnum)]
+enum BasisArg {
+    #[value(name = "amortized", alias = "amortised")]
+    Amortized,
+    #[value(name = "cashflow", alias = "cash-flow")]
+    CashFlow,
+}
+
+impl From<BasisArg> for ReportBasis {
+    fn from(b: BasisArg) -> ReportBasis {
+        match b {
+            BasisArg::Amortized => ReportBasis::Amortized,
+            BasisArg::CashFlow => ReportBasis::CashFlow,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -443,6 +622,8 @@ fn main() -> anyhow::Result<()> {
         Command::Categories => run_categories(&cli.db_path()?)?,
         Command::Export(args) => run_export(&cli.db_path()?, args)?,
         Command::Location(args) => run_location(&cli.db_path()?, args)?,
+        Command::Budget(args) => run_budget(&cli.db_path()?, &args.command)?,
+        Command::Report(args) => run_report(&cli.db_path()?, args)?,
     }
 
     Ok(())
@@ -970,6 +1151,515 @@ fn list_locations(db: &accounting_core::Db) -> anyhow::Result<()> {
          and `--tax` on `pacc add` is never overwritten."
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// budgets
+// ---------------------------------------------------------------------------
+
+/// The month the user means when they do not say.
+///
+/// The clock is read here, never in `accounting-core`: rule 3 forbids the core
+/// from deriving dates from it, and a frontend is exactly the layer that is
+/// allowed to know what month it is.
+fn current_month() -> YearMonth {
+    YearMonth::from_date(Local::now().date_naive())
+}
+
+fn run_budget(path: &Path, command: &BudgetCommand) -> anyhow::Result<()> {
+    match command {
+        BudgetCommand::Set(args) => run_budget_set(path, args),
+        BudgetCommand::List(args) => run_budget_list(path, args),
+        BudgetCommand::Status(args) => run_budget_status(path, args),
+        BudgetCommand::Adjust(args) => run_budget_adjust(path, args),
+    }
+}
+
+/// Set a category's budget from `--start` onward.
+///
+/// # Three cases, because a budget is a historical record
+///
+/// * Nothing is in force yet → a new line.
+/// * A line already **starts** in that month → it is restated in place. This is
+///   the "I typed the wrong number" case, and rewriting history is what the
+///   user asked for.
+/// * A line covers that month but started earlier → the old line is **closed**
+///   the month before and a new one opens. This is the "groceries are dearer
+///   now" case, and quietly editing the old line would rewrite every report
+///   back to January, which is the whole reason `period_start`/`period_end`
+///   exist.
+///
+/// All three happen inside one transaction in
+/// [`accounting_core::repo::budgets::supersede`], so a refusal — a bad `--every`,
+/// or a collision with a line further out — changes nothing at all. Doing the
+/// close and the insert as two calls from here would leave the failing case with
+/// the old budget closed and no new one, which is worse than either outcome the
+/// user was choosing between.
+fn run_budget_set(path: &Path, args: &BudgetSetArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let category = categories::resolve(&db, &args.category)?;
+    let start = args.start.unwrap_or_else(current_month);
+
+    let rec = BudgetLineRecord {
+        id: None,
+        category_id: category.id,
+        period: args.resolved_period()?,
+        period_start: start,
+        period_end: args.end,
+        amount: args.amount,
+        // The category's own default, because the sinking-fund categories are
+        // unusable without carry-over: a $1,200 annual premium budgeted at $100
+        // a month never reaches $1,200 if the envelope empties every month.
+        rollover: match (args.rollover, args.no_rollover) {
+            (true, _) => true,
+            (_, true) => false,
+            _ => category.default_rollover,
+        },
+        notes: args.note.clone(),
+    };
+    let outcome = budget_service::set_budget(&db, &rec)?;
+
+    if outcome.restated {
+        println!(
+            "restated the {} budget that starts {start}",
+            category.qualified_name()
+        );
+    }
+    if let Some((closed, last)) = outcome.closed {
+        let previous = budgets::get(&db, closed)?;
+        println!(
+            "closed the previous {} budget of {} at {last}, so earlier reports keep their \
+             own numbers",
+            category.qualified_name(),
+            previous.line.amount.to_display_string()
+        );
+    }
+
+    println!();
+    print_budget_line(&budgets::get(&db, outcome.id)?, start);
+    Ok(())
+}
+
+impl BudgetSetArgs {
+    /// `--period`, plus the flag it needs.
+    ///
+    /// `--every` and `--due` also *imply* their period, so that
+    /// `--every 3` alone cannot silently produce a monthly budget — the kind of
+    /// typo that is invisible until the quarterly bill arrives.
+    fn resolved_period(&self) -> anyhow::Result<Period> {
+        anyhow::ensure!(
+            self.every.is_none() || self.due.is_none(),
+            "--every and --due describe two different cadences; pass one"
+        );
+        let period = match (self.period, self.every, self.due) {
+            (PeriodArg::Monthly, Some(_), None) => PeriodArg::EveryN,
+            (PeriodArg::Monthly, None, Some(_)) => PeriodArg::ByDate,
+            (period, _, _) => period,
+        };
+
+        match period {
+            PeriodArg::Monthly => Ok(Period::Monthly),
+            PeriodArg::Yearly => Ok(Period::Yearly),
+            PeriodArg::EveryN => Ok(Period::EveryNMonths(self.every.context(
+                "--period every-n needs --every N, e.g. `--every 3` for a quarterly bill",
+            )?)),
+            PeriodArg::ByDate => Ok(Period::ByDate {
+                due: self.due.context(
+                    "--period by-date needs --due YYYY-MM-DD, the day the bill actually lands",
+                )?,
+            }),
+        }
+    }
+}
+
+fn run_budget_list(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let month = args.month.unwrap_or_else(current_month);
+    let lines = budgets::list(&db, Some(month))?;
+
+    if lines.is_empty() {
+        println!("no budgets in force in {month}");
+        println!("  set one with: pacc budget set --category NAME --amount N");
+        return Ok(());
+    }
+
+    let mut table = Table::new(
+        &[
+            "id",
+            "category",
+            "amount",
+            "period",
+            "per month",
+            "months",
+            "rollover",
+            "note",
+        ],
+        &[true, false, true, false, true, false, false, false],
+    );
+    for stored in &lines {
+        table.push(vec![
+            stored.line.id.to_string(),
+            stored.qualified_name(),
+            stored.line.amount.to_display_string(),
+            format_period(stored.line.period),
+            monthly_contribution(&stored.line, month).to_display_string(),
+            format_months(stored.line.period_start, stored.line.period_end),
+            yes_no(stored.line.rollover),
+            stored.notes.clone().unwrap_or_default(),
+        ]);
+    }
+    println!("budgets in force {month}");
+    table.print("  ");
+
+    println!();
+    println!(
+        "{}, {} a month in total",
+        plural(lines.len(), "line", "lines"),
+        lines
+            .iter()
+            .map(|s| monthly_contribution(&s.line, month))
+            .sum::<Money>()
+            .to_display_string()
+    );
+    println!("  `amount` is per period; `per month` is what it sets aside in {month}.");
+    Ok(())
+}
+
+/// The budget screen.
+///
+/// # Funding and overspending get their own columns
+///
+/// They answer different questions and disagree in ordinary use: a $400/month
+/// grocery envelope with $400 spent is `behind $400.00` on **funding** — the
+/// schedule says that money should be sitting there and it is not — and exactly
+/// on budget on **spending**. Collapsing them into one "status" column, or
+/// labelling `behind` as "over budget", turns the most normal month of the year
+/// into a false alarm.
+fn run_budget_status(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let month = args.month.unwrap_or_else(current_month);
+    let rows = budget_service::budget_status(&db, month)?;
+
+    let (budgeted, unbudgeted): (Vec<_>, Vec<_>) = rows.iter().partition(|r| r.status.is_some());
+
+    println!("budget status {month}");
+    if budgeted.is_empty() {
+        println!("  nothing is budgeted yet");
+    } else {
+        let mut table = Table::new(
+            &[
+                "category",
+                "per month",
+                "funded",
+                "contributed",
+                "target",
+                "left",
+                "funding",
+                "spent (cycle)",
+                "remaining",
+                "over",
+            ],
+            &[false, true, true, true, true, true, false, true, true, true],
+        );
+        for row in &budgeted {
+            let Some(status) = &row.status else { continue };
+            table.push(vec![
+                row.qualified_name(),
+                status.monthly_contribution.to_display_string(),
+                status.funded_balance.to_display_string(),
+                status.contributed_to_date.to_display_string(),
+                status.target.to_display_string(),
+                format!("{} mo", status.months_remaining),
+                format_funding(status.on_track),
+                status.spend.spent.to_display_string(),
+                status.spend.remaining.to_display_string(),
+                if status.spend.overspent_by.is_zero() {
+                    "—".to_string()
+                } else {
+                    status.spend.overspent_by.to_display_string()
+                },
+            ]);
+        }
+        table.print("  ");
+    }
+
+    if !unbudgeted.is_empty() {
+        // The ones with money moving through them are the ones worth budgeting,
+        // so they get a line each; the rest get a count. Twenty rows of "$0.00
+        // spent" is a list nobody reads, which defeats the point of offering.
+        let (spending, idle): (Vec<&CategoryBudgetStatus>, Vec<&CategoryBudgetStatus>) = unbudgeted
+            .iter()
+            .copied()
+            .partition(|r| !r.spent_this_month.is_zero());
+        let width = spending
+            .iter()
+            .map(|r| r.qualified_name().chars().count())
+            .max()
+            .unwrap_or(0);
+
+        println!();
+        println!(
+            "no budget set ({})",
+            plural(unbudgeted.len(), "category", "categories")
+        );
+        for row in &spending {
+            println!(
+                "  {:<width$}  {} spent in {month}",
+                row.qualified_name(),
+                row.spent_this_month.to_display_string()
+            );
+        }
+        if !idle.is_empty() {
+            println!("  {} more with nothing spent in {month}", idle.len());
+        }
+        println!("  set one with: pacc budget set --category NAME --amount N");
+    }
+
+    println!();
+    println!(
+        "funding asks whether the money will be there when the bill lands; over asks whether\n\
+         more has been spent than this cycle's budget. They disagree by design — an envelope\n\
+         spent exactly to plan is behind on funding and perfectly fine on spending."
+    );
+    Ok(())
+}
+
+fn run_budget_adjust(path: &Path, args: &BudgetAdjustArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let category = categories::resolve(&db, &args.category)?;
+    budgets::add_adjustment(
+        &db,
+        category.id,
+        args.month,
+        args.amount,
+        args.reason.as_deref(),
+    )?;
+
+    println!(
+        "adjusted {} for {} by {}",
+        category.qualified_name(),
+        args.month,
+        args.amount.to_display_string()
+    );
+
+    // Reported as of the later of the adjusted month and today, because what
+    // the user wants to know is where the envelope stands *now*.
+    let as_of = args.month.max(current_month());
+    let status = budget_service::budget_status_for(&db, category.id, as_of)?;
+    match &status.status {
+        Some(funded) => println!(
+            "  {as_of}  funded {}  ({})",
+            funded.funded_balance.to_display_string(),
+            format_funding(funded.on_track)
+        ),
+        None => println!("  {} has no budget line in {as_of}", category.name),
+    }
+    Ok(())
+}
+
+fn print_budget_line(stored: &StoredBudgetLine, as_of: YearMonth) {
+    println!("budget {} — {}", stored.line.id, stored.qualified_name());
+    let rows: Vec<(&str, String)> = vec![
+        (
+            "amount",
+            format!(
+                "{} {}",
+                stored.line.amount.to_display_string(),
+                format_period(stored.line.period)
+            ),
+        ),
+        (
+            "per month",
+            format!(
+                "{} (in {as_of})",
+                monthly_contribution(&stored.line, as_of).to_display_string()
+            ),
+        ),
+        (
+            "months",
+            format_months(stored.line.period_start, stored.line.period_end),
+        ),
+        ("rollover", yes_no(stored.line.rollover)),
+        (
+            "note",
+            stored.notes.clone().unwrap_or_else(|| "—".to_string()),
+        ),
+    ];
+    for (label, value) in rows {
+        println!("  {label:<10} {value}");
+    }
+}
+
+fn format_period(period: Period) -> String {
+    match period {
+        Period::Monthly => "monthly".to_string(),
+        Period::Yearly => "yearly".to_string(),
+        Period::EveryNMonths(n) => format!("every {n} months"),
+        Period::ByDate { due } => format!("by {due}"),
+    }
+}
+
+fn format_months(start: YearMonth, end: Option<YearMonth>) -> String {
+    match end {
+        Some(end) => format!("{start}..{end}"),
+        None => format!("{start} onward"),
+    }
+}
+
+/// Never the words "over budget": this is a funding measure, and
+/// [`OnTrack::Behind`] on a spent-to-plan envelope is normal.
+fn format_funding(on_track: OnTrack) -> String {
+    match on_track {
+        OnTrack::Ahead(by) => format!("ahead {}", by.to_display_string()),
+        OnTrack::OnTrack => "on track".to_string(),
+        OnTrack::Behind(by) => format!("behind {}", by.to_display_string()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// report
+// ---------------------------------------------------------------------------
+
+fn run_report(path: &Path, args: &ReportArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let matrix = monthly_matrix(&db, args.range()?, args.basis.into())?;
+    print_matrix(&matrix);
+    Ok(())
+}
+
+impl ReportArgs {
+    /// `--month`, else `--year`, else `--from`/`--to`, else this calendar year.
+    ///
+    /// One bound given alone opens a twelve-month window rather than running to
+    /// the end of the year, so `--from 2026-09` is nine months of report rather
+    /// than four.
+    fn range(&self) -> anyhow::Result<MonthRange> {
+        if let Some(month) = self.month {
+            return Ok(MonthRange::single(month));
+        }
+        if let Some(year) = self.year {
+            let january =
+                YearMonth::new(year, 1).with_context(|| format!("{year} is not a year"))?;
+            return Ok(MonthRange::new(january, january.add_months(11)));
+        }
+
+        let range = match (self.from, self.to) {
+            (Some(from), Some(to)) => MonthRange::new(from, to),
+            (Some(from), None) => MonthRange::new(from, from.add_months(11)),
+            (None, Some(to)) => MonthRange::new(to.add_months(-11), to),
+            (None, None) => {
+                let year = current_month().year;
+                let january =
+                    YearMonth::new(year, 1).with_context(|| format!("{year} is not a year"))?;
+                MonthRange::new(january, january.add_months(11))
+            }
+        };
+        anyhow::ensure!(
+            !range.is_empty(),
+            "--from {} is after --to {}",
+            range.start,
+            range.end
+        );
+        Ok(range)
+    }
+}
+
+/// The grid: two lines per category, budgeted over actual.
+///
+/// Two lines rather than one cell holding both, because a twelve-month grid of
+/// `$100.00/$1,200.00` cells is unreadable, and because the two rows are what a
+/// reader actually compares — along a row, not across a cell.
+fn print_matrix(matrix: &MonthlyMatrix) {
+    let Some(first) = matrix.months.first().copied() else {
+        println!("that range covers no months");
+        return;
+    };
+    let last = matrix.months.last().copied().unwrap_or(first);
+
+    println!("report {first}..{last} — {} basis", matrix.basis);
+    println!("  {}", matrix.basis.describe());
+    println!("  amounts are stored cash-flow dated; the basis is a view, never a rewrite");
+    println!();
+
+    if matrix.rows.is_empty() {
+        println!("nothing budgeted or spent in this window");
+        return;
+    }
+
+    // Bare month names when the window sits inside one year, `YYYY-MM` when it
+    // spans two — otherwise a two-year report shows "Jan" twice.
+    let one_year = matrix.months.iter().all(|m| m.year == first.year);
+    let mut headers = vec!["category".to_string(), String::new()];
+    headers.extend(matrix.months.iter().map(|m| {
+        if one_year {
+            month_short_name(m.month).to_string()
+        } else {
+            m.to_string()
+        }
+    }));
+    headers.push("total".to_string());
+
+    let mut right = vec![false, false];
+    right.extend(std::iter::repeat_n(true, matrix.months.len() + 1));
+
+    let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
+    let mut table = Table::new(&refs, &right);
+
+    for row in &matrix.rows {
+        let mut budgeted = vec![row.qualified_name(), "budget".to_string()];
+        let mut actual = vec![String::new(), "actual".to_string()];
+        for cell in &row.cells {
+            budgeted.push(amount_cell(cell.budgeted));
+            actual.push(amount_cell(cell.actual));
+        }
+        budgeted.push(amount_cell(row.total.budgeted));
+        actual.push(amount_cell(row.total.actual));
+        table.push(budgeted);
+        table.push(actual);
+    }
+
+    let mut budgeted = vec!["TOTAL".to_string(), "budget".to_string()];
+    let mut actual = vec![String::new(), "actual".to_string()];
+    for cell in &matrix.totals {
+        budgeted.push(amount_cell(cell.budgeted));
+        actual.push(amount_cell(cell.actual));
+    }
+    budgeted.push(amount_cell(matrix.grand_total.budgeted));
+    actual.push(amount_cell(matrix.grand_total.actual));
+    table.push(budgeted);
+    table.push(actual);
+    table.print("  ");
+
+    println!();
+    println!(
+        "{} over {} — budgeted {}, actual {}, difference {}",
+        plural(matrix.rows.len(), "category", "categories"),
+        plural(matrix.months.len(), "month", "months"),
+        matrix.grand_total.budgeted.to_display_string(),
+        matrix.grand_total.actual.to_display_string(),
+        matrix.grand_total.variance().to_display_string(),
+    );
+    if matrix.basis == ReportBasis::Amortized {
+        println!(
+            "  a window that does not cover whole budget cycles will not total the same as\n  \
+             --basis cashflow. That is arithmetic, not a discrepancy."
+        );
+    }
+}
+
+/// `"1 category"`, `"2 categories"`. These footers are read out loud in bug
+/// reports, and "1 categories" reads like the count is wrong.
+fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// `$0.00` twelve times across is noise; a dash is a reading aid.
+fn amount_cell(amount: Money) -> String {
+    if amount.is_zero() {
+        "—".to_string()
+    } else {
+        amount.to_display_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
