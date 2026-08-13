@@ -89,7 +89,7 @@ fn line_of(status: &CategoryBudgetStatus) -> &BudgetLine {
 fn spend_by_month_files_each_transaction_under_the_month_it_is_dated() {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let restaurants = cat(&db, "Restaurants & Takeout");
+    let restaurants = cat(&db, "Restaurants");
 
     spend_on(&db, "2026-01-31", groceries, 10_000);
     spend_on(&db, "2026-02-01", groceries, 25_000);
@@ -123,7 +123,7 @@ fn spend_by_month_sums_several_splits_landing_in_the_same_month() {
     // share of a mixed receipt counts, and the rest of it does not.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
 
     save(
         &db,
@@ -291,7 +291,7 @@ fn a_twelve_hundred_a_year_line_is_a_hundred_a_month_and_eight_hundred_funded_by
     // $1200/yr from 2026-01 with nothing spent reads, in August, as $100.00
     // this month, 8 x $100.00 = $800.00 contributed, and exactly on schedule.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
 
     let status = status_for(&db, insurance, ym(2026, 8));
@@ -307,7 +307,7 @@ fn a_twelve_hundred_a_year_line_is_a_hundred_a_month_and_eight_hundred_funded_by
 
     // …and the same row read through the whole-screen call agrees.
     let rows = service::budget_status(&db, ym(2026, 8)).expect("budget_status");
-    let listed = row(&rows, "Insurance (Auto)");
+    let listed = row(&rows, "Car Insurance");
     assert_eq!(
         listed.status.as_ref().map(|s| s.funded_balance),
         Some(m(80_000))
@@ -322,7 +322,7 @@ fn an_adjustment_moves_the_funded_balance_by_exactly_its_amount() {
     // off so it stops propagating through every later rollover" lever, are the
     // same lever.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
 
     let before = status_for(&db, insurance, ym(2026, 8));
@@ -350,7 +350,7 @@ fn an_adjustment_moves_the_funded_balance_by_exactly_its_amount() {
 #[test]
 fn spending_shows_up_against_the_line_it_belongs_to() {
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
     spend_on(&db, "2026-03-14", insurance, 120_000);
 
@@ -407,7 +407,7 @@ fn a_non_rollover_yearly_line_still_accumulates_inside_its_year() {
     // line that reset monthly could never reach its own target, which would
     // make the yearly period useless.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     let mut line = record(insurance, Period::Yearly, (2026, 1), 120_000);
     line.rollover = false;
     set_line(&db, &line);
@@ -557,7 +557,7 @@ fn a_lines_own_contribution_schedule_is_what_the_status_reports() {
     // Guards the join, not the arithmetic: two categories with different
     // cadences must not be handed each other's schedule.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     let travel = cat(&db, "Travel");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
     set_line(
@@ -566,7 +566,7 @@ fn a_lines_own_contribution_schedule_is_what_the_status_reports() {
     );
 
     let rows = service::budget_status(&db, ym(2026, 8)).expect("budget_status");
-    for name in ["Insurance (Auto)", "Travel"] {
+    for name in ["Car Insurance", "Travel"] {
         let r = row(&rows, name);
         let line = line_of(r);
         assert_eq!(
@@ -578,10 +578,7 @@ fn a_lines_own_contribution_schedule_is_what_the_status_reports() {
 
     // $1200/yr is $100/month; $300/quarter is also $100/month, and they must
     // arrive at it through their own cadence rather than by coincidence.
-    assert_eq!(
-        line_of(row(&rows, "Insurance (Auto)")).period,
-        Period::Yearly
-    );
+    assert_eq!(line_of(row(&rows, "Car Insurance")).period, Period::Yearly);
     assert_eq!(
         line_of(row(&rows, "Travel")).period,
         Period::EveryNMonths(3)
@@ -592,7 +589,7 @@ fn a_lines_own_contribution_schedule_is_what_the_status_reports() {
 #[test]
 fn a_month_before_the_line_starts_reports_no_contribution_yet() {
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
 
     // The status is *as of* a month, and in December 2025 the line is not in

@@ -1,7 +1,7 @@
 //! The shape of an export, before any file format gets involved.
 //!
 //! An export row is **one split**, not one transaction. That is the whole
-//! design: a $100 receipt divided between Groceries and Household Supplies is
+//! design: a $100 receipt divided between Groceries and Household is
 //! two facts about where money went, and a per-transaction export can only
 //! answer "how much did I spend at Costco", never "how much did I spend on
 //! groceries" — which is the question the app exists to answer. So the claims
@@ -54,8 +54,8 @@ fn of_txn(rows: &[ExportRow], id: TxnId) -> Vec<&ExportRow> {
 fn a_three_way_split_becomes_three_rows_whose_columns_sum_back_to_the_transaction() {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
-    let personal = cat(&db, "Personal Care");
+    let household = cat(&db, "Household");
+    let personal = cat(&db, "Toiletries");
 
     // $90.00 + $10.00 tax = $100.00, divided so that every column adds up on
     // its own:
@@ -118,8 +118,8 @@ fn a_three_way_split_becomes_three_rows_whose_columns_sum_back_to_the_transactio
     // Each split's own numbers, not an even third of anything.
     let household_row = mine
         .iter()
-        .find(|r| r.category == "Household Supplies")
-        .expect("the Household Supplies split must be exported");
+        .find(|r| r.category == "Household")
+        .expect("the Household split must be exported");
     assert_eq!(household_row.subtotal, m(3000));
     assert_eq!(household_row.tax, m(333));
     assert_eq!(household_row.total, m(3333));
@@ -138,7 +138,7 @@ fn every_row_of_a_receipt_repeats_the_transactions_own_facts() {
     // filtered to one category loses the date and the store.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let fuel = cat(&db, "Gas/Fuel");
+    let fuel = cat(&db, "Gas");
     let costco = merchant(&db, "Costco");
     let sunnyvale = location(&db, "Costco Sunnyvale", 91_250);
 
@@ -244,7 +244,7 @@ fn rows_come_back_oldest_first_even_though_the_repository_lists_newest_first() {
     // exporter's job, and this is the test that says so.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let fuel = cat(&db, "Gas/Fuel");
+    let fuel = cat(&db, "Gas");
 
     // Saved deliberately out of order, so passing cannot be an accident of
     // insertion order either.
@@ -309,7 +309,7 @@ fn rows_come_back_oldest_first_even_though_the_repository_lists_newest_first() {
         .collect();
     assert_eq!(
         within,
-        vec!["Groceries", "Gas/Fuel"],
+        vec!["Groceries", "Gas"],
         "the splits of one receipt must export in sort_order (100 before 200), \
          not in category or insertion order"
     );
@@ -335,7 +335,7 @@ struct Fixture {
 fn fixture() -> Fixture {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let fuel = cat(&db, "Gas/Fuel");
+    let fuel = cat(&db, "Gas");
     let costco = merchant(&db, "Costco");
     let shell = merchant(&db, "Shell");
 
@@ -438,7 +438,7 @@ fn a_category_filter_narrows_the_export_to_receipts_touching_that_category() {
     assert!(
         exported
             .iter()
-            .any(|r| r.txn_id == f.july && r.category == "Gas/Fuel"),
+            .any(|r| r.txn_id == f.july && r.category == "Gas"),
         "July's fuel split is the row the filter was asked for"
     );
     assert!(
@@ -571,7 +571,7 @@ fn tax_estimated_is_carried_per_transaction_and_is_false_for_a_typed_in_tax() {
     // numbers in front of them this app made up.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
 
     // $50.12 + $4.20 tax, read straight off the paper.
     let typed = save(

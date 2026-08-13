@@ -119,6 +119,29 @@ pub fn get_or_create(db: &Db, name: &str, tax_rate_ppm: u32) -> Result<Location>
 }
 
 /// Set the tax rate that prefills future entries at this location.
+/// Rename a location.
+///
+/// Used when the user names where they live on first run: the seed installs a
+/// placeholder "Home", and this replaces it rather than adding a second row,
+/// so every receipt already pointing at it follows automatically — they hold
+/// its id, not its name.
+pub fn rename(db: &Db, id: LocationId, name: &str) -> Result<()> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(CoreError::Invalid("a location needs a name".to_string()));
+    }
+    let changed = db.conn().execute(
+        "UPDATE location
+            SET name = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE id = ?1",
+        params![id, trimmed],
+    )?;
+    if changed == 0 {
+        return Err(CoreError::NotFound(format!("location {id}")));
+    }
+    Ok(())
+}
+
 pub fn set_rate(db: &Db, id: LocationId, tax_rate_ppm: u32) -> Result<()> {
     check_rate(tax_rate_ppm)?;
     let changed = db.conn().execute(

@@ -179,10 +179,10 @@ pub fn find_by_name(db: &Db, name: &str) -> Result<Option<Category>> {
 ///
 /// # The slash is tried first but is not a commitment
 ///
-/// The default taxonomy ships `Rent/Mortgage` and `Gas/Fuel`, whose *names*
-/// contain a slash. So a failed `Group/Name` interpretation falls through to
-/// the whole-string strategies rather than reporting "not found" — otherwise
-/// `--category Rent/Mortgage` would be unusable out of the box.
+/// A category *name* may itself contain a slash — "Rent/Mortgage" is the
+/// obvious one, and users create names like it. So a failed `Group/Name`
+/// interpretation falls through to the whole-string strategies rather than
+/// reporting "not found", or such a category would be unreachable by name.
 ///
 /// # Ambiguity is an error, never a guess
 ///
@@ -199,7 +199,7 @@ pub fn resolve(db: &Db, needle: &str) -> Result<Category> {
     }
     let all = list(db)?;
 
-    // 1. Group/Name. split_once (not rsplit) so "Bills/Rent/Mortgage" reads as
+    // 1. Group/Name. split_once (not rsplit) so "Bills/Rent" reads as
     //    group "Bills" and the category name that itself contains a slash.
     if let Some((group, name)) = q.split_once('/') {
         let (group, name) = (fold(group), fold(name));
@@ -352,7 +352,7 @@ mod tests {
         // Bills (group 100) before Frequent (group 200), and within Bills the
         // seed order is preserved rather than alphabetised.
         let names: Vec<&str> = all.iter().map(|c| c.name.as_str()).collect();
-        let rent = names.iter().position(|n| *n == "Rent/Mortgage").unwrap();
+        let rent = names.iter().position(|n| *n == "Rent").unwrap();
         let groceries = names.iter().position(|n| *n == "Groceries").unwrap();
         let electric = names.iter().position(|n| *n == "Electric").unwrap();
         assert!(rent < electric && electric < groceries);
@@ -391,11 +391,20 @@ mod tests {
 
     #[test]
     fn a_category_name_containing_a_slash_still_resolves() {
-        // The seed ships Rent/Mortgage and Gas/Fuel. Reading the slash as a
-        // group separator and stopping there would make both unreachable.
+        // Built rather than taken from the seed, whose names no longer contain
+        // slashes: the guarantee is about what a *user* may name a category,
+        // not about what ships. Reading the slash as a group separator and
+        // stopping there would make such a category unreachable by name.
         let db = seeded();
+        let bills = list_groups(&db)
+            .unwrap()
+            .into_iter()
+            .find(|g| g.name == "Bills")
+            .expect("Bills is seeded");
+        create(&db, bills.id, "Rent/Mortgage").expect("create a slashed name");
+
         assert_eq!(resolve(&db, "Rent/Mortgage").unwrap().name, "Rent/Mortgage");
-        assert_eq!(resolve(&db, "Gas/Fuel").unwrap().name, "Gas/Fuel");
+        // And the Group/Name form still wins when it does match.
         assert_eq!(
             resolve(&db, "Bills/Rent/Mortgage").unwrap().name,
             "Rent/Mortgage"
@@ -405,12 +414,14 @@ mod tests {
     #[test]
     fn an_ambiguous_needle_lists_the_candidates() {
         let db = seeded();
-        // "Insurance (Auto)" and "Insurance (Health)" both start with "ins".
-        let err = resolve(&db, "ins").unwrap_err();
+        // "Car Insurance" and "Car Repair" both start with "car", and they
+        // live in different groups — so the message has to name the group to
+        // be actionable at all.
+        let err = resolve(&db, "car").unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("`ins`"), "{msg}");
-        assert!(msg.contains("Bills/Insurance (Auto)"), "{msg}");
-        assert!(msg.contains("Bills/Insurance (Health)"), "{msg}");
+        assert!(msg.contains("`car`"), "{msg}");
+        assert!(msg.contains("Bills/Car Insurance"), "{msg}");
+        assert!(msg.contains("Non-Monthly/Car Repair"), "{msg}");
         assert!(matches!(err, CoreError::Invalid(_)));
     }
 

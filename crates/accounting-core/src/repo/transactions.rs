@@ -1003,7 +1003,7 @@ mod tests {
     fn a_saved_transaction_loads_back_identically() {
         let db = seeded();
         let groceries = categories::resolve(&db, "Groceries").unwrap();
-        let household = categories::resolve(&db, "Household Supplies").unwrap();
+        let household = categories::resolve(&db, "Household").unwrap();
         let store = merchants::get_or_create(&db, "H-E-B").unwrap();
         let home = locations::home(&db).unwrap().unwrap();
 
@@ -1045,7 +1045,7 @@ mod tests {
     fn saving_over_a_transaction_replaces_its_children_wholesale() {
         let db = seeded();
         let groceries = categories::resolve(&db, "Groceries").unwrap();
-        let fuel = categories::resolve(&db, "Gas/Fuel").unwrap();
+        let fuel = categories::resolve(&db, "Gas").unwrap();
 
         let id = save(&db, &draft(vec![split(groceries.id, 5000, 0)])).unwrap();
         let first = get(&db, id).unwrap();
@@ -1057,7 +1057,7 @@ mod tests {
         let after = get(&db, id).unwrap();
         assert_eq!(after.uuid, first.uuid, "identity survives an edit");
         assert_eq!(after.splits.len(), 2);
-        assert_eq!(after.splits[0].category_name, "Gas/Fuel");
+        assert_eq!(after.splits[0].category_name, "Gas");
         // The old split row is gone rather than orphaned.
         let rows: i64 = db
             .conn()
@@ -1204,7 +1204,7 @@ mod tests {
     fn list_filters_and_orders_newest_first() {
         let db = seeded();
         let groceries = categories::resolve(&db, "Groceries").unwrap();
-        let fuel = categories::resolve(&db, "Gas/Fuel").unwrap();
+        let fuel = categories::resolve(&db, "Gas").unwrap();
         let heb = merchants::get_or_create(&db, "H-E-B").unwrap();
 
         let mut a = draft(vec![split(groceries.id, 1000, 0)]);
@@ -1372,7 +1372,7 @@ mod tests {
         // the right parent, which is the part a bulk fetch can get wrong.
         let db = seeded();
         let groceries = categories::resolve(&db, "Groceries").unwrap();
-        let fuel = categories::resolve(&db, "Gas/Fuel").unwrap();
+        let fuel = categories::resolve(&db, "Gas").unwrap();
 
         for day in 1..=10 {
             let mut s = split(groceries.id, 1000 * i64::from(day), 0);
@@ -1407,7 +1407,7 @@ mod tests {
     fn spend_groups_by_category_and_month_and_ignores_archived() {
         let db = seeded();
         let groceries = categories::resolve(&db, "Groceries").unwrap();
-        let fuel = categories::resolve(&db, "Gas/Fuel").unwrap();
+        let fuel = categories::resolve(&db, "Gas").unwrap();
 
         let save_on = |date_str: &str, splits: Vec<SplitRecord>| {
             let mut new = draft(splits);
@@ -1476,14 +1476,14 @@ mod tests {
     fn explicit_sort_orders_are_honoured() {
         let db = seeded();
         let groceries = categories::resolve(&db, "Groceries").unwrap();
-        let fuel = categories::resolve(&db, "Gas/Fuel").unwrap();
+        let fuel = categories::resolve(&db, "Gas").unwrap();
         let mut new = draft(vec![split(groceries.id, 1000, 0), split(fuel.id, 1000, 0)]);
         new.splits[0].sort_order = 500;
         new.splits[1].sort_order = 250;
 
         let id = save(&db, &new).unwrap();
         let got = get(&db, id).unwrap();
-        assert_eq!(got.splits[0].category_name, "Gas/Fuel");
+        assert_eq!(got.splits[0].category_name, "Gas");
         assert_eq!(got.splits[0].sort_order, 250);
         assert_eq!(got.splits[1].sort_order, 500);
     }

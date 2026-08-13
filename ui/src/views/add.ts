@@ -1,65 +1,57 @@
 /**
  * The receipt entry form.
  *
+ * # You type what the receipt shows, and nothing else
+ *
+ * A receipt gives you a subtotal per category. It also gives you a tax line
+ * and a total, but both of those are *derivable* — and asking for a number the
+ * app can work out means the two can disagree, which is then the user's problem
+ * to adjudicate. So this form asks for the parts only: tax comes from the
+ * location's sales-tax rate, and the total is the sum plus that tax.
+ *
  * # Why the preview panel is the whole design
  *
- * Every field change sends the draft to `preview_transaction`, which reconciles
- * the amounts and plans the splits in Rust and sends back exactly what `save`
- * would write. The panel renders that answer verbatim. So the numbers on
- * screen are not the UI's opinion of the receipt — they *are* the receipt, and
- * there is no way for the display and the stored row to disagree.
+ * Every change sends the rows to `preview_subtotals`, which reconciles the
+ * amounts and apportions the tax in Rust and returns exactly what `save` would
+ * write. The panel renders that answer verbatim, so the numbers on screen are
+ * not the UI's opinion of the receipt — they *are* the receipt.
  *
- * That is also why this file contains no arithmetic. It never subtracts tax
- * from a total or divides a split; it asks and it renders.
- *
- * # The flow, and why it is this short
- *
- * Date, store, amount, category — and the last two usually fill themselves in.
- * Naming a store recalls what was learned last time you shopped there: its
- * category, its location, and therefore its tax rate. The original design had
- * the user declare up front how many categories a receipt had; this asks for
- * one and offers "+ Add split", so the common single-category receipt costs
- * nothing and a split one is still possible.
+ * That is also why this file contains no arithmetic. It never adds two
+ * subtotals and never applies a rate; it asks, and it renders.
  */
 
 import {
   type Category,
   type Preview,
-  type SplitDraft,
-  type TransactionDraft,
+  type SubtotalDraft,
+  type SubtotalRow,
   entryContext,
   listCategories,
   listMerchants,
-  previewTransaction,
-  saveTransaction,
+  previewSubtotals,
+  saveSubtotals,
 } from "../api.ts";
 import { combobox } from "../combobox.ts";
 import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
 import { formatMoney, formatRatePpm, parseCents } from "../money.ts";
-import { parseSplitAmount } from "../splitspec.ts";
 
-/** One split row's state. `amountText` empty means "the rest". */
-interface SplitState {
+/** One entered line: a category and what it came to before tax. */
+interface RowState {
   categoryId: number | null;
-  amountText: string;
+  subtotalText: string;
 }
 
 export function addView(onSaved: () => void): HTMLElement {
   const root = el("section", { class: "view" });
 
   let categories: Category[] = [];
-  let splits: SplitState[] = [{ categoryId: null, amountText: "" }];
+  let rows: RowState[] = [{ categoryId: null, subtotalText: "" }];
   let locationName: string | null = null;
   let taxRatePpm = 0;
-  let recent: string[] = [];
+  let favourites: string[] = [];
   let saving = false;
 
-  // --- fields ---------------------------------------------------------------
-  // A combobox rather than a plain field: the store is the one thing that
-  // recalls a category, a location and a tax rate, so picking the *same*
-  // spelling as last time matters. A name nobody has used joins the list on
-  // Enter and reaches the database only on save.
   const merchant = combobox({
     id: "f-merchant",
     placeholder: "Costco",
@@ -67,61 +59,42 @@ export function addView(onSaved: () => void): HTMLElement {
       void loadContext(name === "" ? null : name).then(() => schedulePreview());
     },
   });
-  // Segmented MM/DD/YYYY rather than <input type="date">, whose per-segment
-  // typing and Backspace behaviour belong to the webview engine. Enter hands
-  // off to the store field, which is the next thing you fill in.
+
   const date = dateField({
     id: "f-date",
     onChange: () => schedulePreview(),
     onEnter: () => merchant.input.focus(),
   });
   date.setValue(today());
-  const total = el("input", {
-    type: "text",
-    id: "f-total",
-    inputmode: "decimal",
-    placeholder: "0.00",
-  });
-  const tax = el("input", {
-    type: "text",
-    id: "f-tax",
-    inputmode: "decimal",
-    placeholder: "off the receipt",
-  });
-  const note = el("input", { type: "text", id: "f-note", placeholder: "optional" });
 
+  const note = el("input", { type: "text", id: "f-note", placeholder: "optional" });
   const chips = el("div", { class: "chips" });
   const context = el("p", { class: "hint" });
-  const splitRows = el("div", { class: "splits" });
-  const addSplit = el("button", { type: "button", class: "link" }, ["+ Add split"]);
+  const rowsBox = el("div", { class: "splits" });
+  const addRow = el("button", { type: "button", class: "link" }, ["+ Add category"]);
   const panel = el("div", { class: "preview" });
   const save = el("button", { type: "button", class: "primary" }, ["Save receipt"]);
   const feedback = el("p", { class: "hint", role: "status" });
 
-  // --- draft assembly -------------------------------------------------------
+  // --- draft ----------------------------------------------------------------
 
-  function draft(): TransactionDraft {
-    const rows: SplitDraft[] = [];
-    splits.forEach((state, i) => {
-      const amount = parseSplitAmount(state.amountText, i === splits.length - 1);
-      if (amount !== null) {
-        rows.push({ categoryId: state.categoryId, amount, note: null });
+  function draft(): SubtotalDraft {
+    const entered: SubtotalRow[] = [];
+    for (const row of rows) {
+      const cents = parseCents(row.subtotalText);
+      // A row still being typed is left out rather than sent as zero: a $0.00
+      // line would claim the user meant to file nothing under that category.
+      if (cents !== null) {
+        entered.push({ categoryId: row.categoryId, subtotal: cents, note: null });
       }
-    });
+    }
     const noteText = note.value.trim();
     return {
       id: null,
       txnDate: date.value(),
       merchant: merchant.value() || null,
-      // The name is passed through only when the core already knows it; a
-      // typo'd location is an error in the core rather than a silent 0% rate,
-      // and there is no field here for inventing one.
       location: locationName,
-      subtotal: null,
-      tax: parseCents(tax.value),
-      total: parseCents(total.value),
-      splits: rows,
-      detailLevel: null,
+      rows: entered,
       notes: noteText === "" ? null : noteText,
       needsReview: false,
       rememberDefaults: true,
@@ -130,69 +103,65 @@ export function addView(onSaved: () => void): HTMLElement {
 
   // --- rendering ------------------------------------------------------------
 
-  function renderSplits(): void {
-    clear(splitRows);
-    splits.forEach((state, index) => {
-      const picker = el("select", { class: "category" });
-      picker.append(el("option", { value: "" }, ["Choose a category…"]));
-      for (const c of categories) {
-        const option = el("option", { value: String(c.id) }, [`${c.groupName} / ${c.name}`]);
-        if (state.categoryId === c.id) option.selected = true;
-        picker.append(option);
-      }
-      picker.addEventListener("change", () => {
-        const value = picker.value;
-        state.categoryId = value === "" ? null : Number(value);
-        schedulePreview();
+  function renderRows(): void {
+    clear(rowsBox);
+    rows.forEach((state, index) => {
+      // The same filtering combobox as the store field: two dozen categories
+      // is more than a dropdown is comfortable to scan, and typing three
+      // letters beats scrolling on every receipt.
+      const picker = combobox({
+        placeholder: "Groceries",
+        onCommit: (name) => {
+          const match = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+          state.categoryId = match?.id ?? null;
+          schedulePreview();
+        },
       });
+      picker.setOptions(categories.map((c) => c.name));
+      const chosen = categories.find((c) => c.id === state.categoryId);
+      if (chosen !== undefined) picker.input.value = chosen.name;
 
-      const isLast = index === splits.length - 1;
       const amount = el("input", {
         type: "text",
         class: "amount-in",
         inputmode: "decimal",
-        value: state.amountText,
-        placeholder: isLast ? "the rest" : "0.00 or 25%",
+        value: state.subtotalText,
+        placeholder: "0.00",
       });
       amount.addEventListener("input", () => {
-        state.amountText = amount.value;
+        state.subtotalText = amount.value;
         schedulePreview();
       });
 
-      const row = el("div", { class: "split-row" }, [picker, amount]);
-      if (splits.length > 1) {
+      const row = el("div", { class: "split-row" }, [picker.root, amount]);
+      if (rows.length > 1) {
         const remove = el("button", { type: "button", class: "link remove" }, ["×"]);
         remove.addEventListener("click", () => {
-          splits.splice(index, 1);
-          renderSplits();
+          rows.splice(index, 1);
+          renderRows();
           schedulePreview();
         });
         row.append(remove);
       }
-      splitRows.append(row);
+      rowsBox.append(row);
     });
   }
 
   function renderPreview(p: Preview): void {
     clear(panel);
 
-    const summary = el("dl", { class: "totals" }, [
-      el("dt", {}, ["Subtotal"]),
-      el("dd", {}, [formatMoney(p.subtotal)]),
-      el("dt", {}, ["Tax"]),
-      el("dd", {}, [
-        formatMoney(p.tax),
-        ...(p.taxIsEstimated
-          ? [el("span", { class: "estimated", title: "estimated, not read off the receipt" }, ["≈"])]
-          : []),
+    panel.append(
+      el("dl", { class: "totals" }, [
+        el("dt", {}, ["Subtotal"]),
+        el("dd", {}, [formatMoney(p.subtotal)]),
+        el("dt", {}, [`Tax (${formatRatePpm(p.taxRatePpm)})`]),
+        el("dd", {}, [formatMoney(p.tax)]),
+        el("dt", { class: "grand" }, ["Total"]),
+        el("dd", { class: "grand" }, [formatMoney(p.total)]),
       ]),
-      el("dt", { class: "grand" }, ["Total"]),
-      el("dd", { class: "grand" }, [formatMoney(p.total)]),
-    ]);
-    panel.append(summary);
+    );
 
     if (p.rows.length > 0) {
-      const table = el("table", { class: "split-preview" });
       const body = el("tbody");
       for (const row of p.rows) {
         body.append(
@@ -202,15 +171,12 @@ export function addView(onSaved: () => void): HTMLElement {
           ]),
         );
       }
-      table.append(body);
-      panel.append(table);
-    }
-
-    if (p.unassigned !== 0) {
       panel.append(
-        el("p", { class: "blocker" }, [`${formatMoney(p.unassigned)} still unassigned`]),
+        el("p", { class: "preview-caption" }, ["Each category, with its share of the tax"]),
+        el("table", { class: "split-preview" }, [body]),
       );
     }
+
     for (const b of p.blockers) panel.append(el("p", { class: "blocker" }, [b]));
     for (const w of p.warnings) panel.append(el("p", { class: "warning" }, [w]));
 
@@ -220,14 +186,14 @@ export function addView(onSaved: () => void): HTMLElement {
   // --- behaviour ------------------------------------------------------------
 
   async function refreshPreview(): Promise<void> {
-    if (parseCents(total.value) === null) {
+    if (draft().rows.length === 0) {
       clear(panel);
-      panel.append(el("p", { class: "hint" }, ["Enter a total to see the breakdown."]));
+      panel.append(el("p", { class: "hint" }, ["Enter what each category came to."]));
       save.disabled = true;
       return;
     }
     try {
-      renderPreview(await previewTransaction(draft()));
+      renderPreview(await previewSubtotals(draft()));
     } catch (error) {
       clear(panel);
       panel.append(el("p", { class: "blocker" }, [String(error)]));
@@ -241,38 +207,28 @@ export function addView(onSaved: () => void): HTMLElement {
     const ctx = await entryContext(name);
     locationName = ctx.locationName;
     taxRatePpm = ctx.taxRatePpm;
-    recent = ctx.recentMerchants;
+    favourites = ctx.recentMerchants;
 
     clear(context);
-    const where = locationName ?? "no location";
-    context.append(`${where} · ${formatRatePpm(taxRatePpm)} tax`);
-    if (taxRatePpm === 0) {
-      // Actionable, because the fix is one command away and otherwise every
-      // receipt silently records no tax.
-      context.append(
-        el("span", { class: "warning-inline" }, [
-          "  no rate set — `pacc location --name Home --rate 7.75`",
-        ]),
-      );
-    }
+    context.append(`${locationName ?? "no location"} · ${formatRatePpm(taxRatePpm)} sales tax`);
 
     // Only prefill an untouched first row, so recalling a store's usual
     // category never overwrites a choice already made.
     if (
       ctx.defaultCategoryId !== null &&
-      splits.length === 1 &&
-      splits[0] !== undefined &&
-      splits[0].categoryId === null
+      rows.length === 1 &&
+      rows[0] !== undefined &&
+      rows[0].categoryId === null
     ) {
-      splits[0].categoryId = ctx.defaultCategoryId;
-      renderSplits();
+      rows[0].categoryId = ctx.defaultCategoryId;
+      renderRows();
     }
     renderChips();
   }
 
   function renderChips(): void {
     clear(chips);
-    for (const name of recent.slice(0, 6)) {
+    for (const name of favourites) {
       const chip = el("button", { type: "button", class: "chip" }, [name]);
       chip.addEventListener("click", () => {
         merchant.input.value = name;
@@ -282,13 +238,9 @@ export function addView(onSaved: () => void): HTMLElement {
     }
   }
 
-  total.addEventListener("input", schedulePreview);
-  tax.addEventListener("input", schedulePreview);
-
-
-  addSplit.addEventListener("click", () => {
-    splits.push({ categoryId: null, amountText: "" });
-    renderSplits();
+  addRow.addEventListener("click", () => {
+    rows.push({ categoryId: null, subtotalText: "" });
+    renderRows();
     schedulePreview();
   });
 
@@ -297,16 +249,14 @@ export function addView(onSaved: () => void): HTMLElement {
     saving = true;
     save.disabled = true;
     clear(feedback);
-    void saveTransaction(draft())
+    void saveSubtotals(draft())
       .then((id) => {
         // Reset to a fresh receipt rather than leaving the saved one on
         // screen, where a second click would file it twice.
         feedback.textContent = `Saved receipt #${id}.`;
-        total.value = "";
-        tax.value = "";
         note.value = "";
-        splits = [{ categoryId: null, amountText: "" }];
-        renderSplits();
+        rows = [{ categoryId: null, subtotalText: "" }];
+        renderRows();
         clear(panel);
         void loadContext(merchant.value() || null);
         onSaved();
@@ -319,8 +269,6 @@ export function addView(onSaved: () => void): HTMLElement {
       });
   });
 
-  // --- layout ---------------------------------------------------------------
-
   root.append(
     el("h1", {}, ["Add a receipt"]),
     el("div", { class: "form" }, [
@@ -328,12 +276,8 @@ export function addView(onSaved: () => void): HTMLElement {
       date.root,
       el("label", { for: "f-merchant" }, ["Store"]),
       el("div", {}, [merchant.root, chips, context]),
-      el("label", { for: "f-total" }, ["Total"]),
-      total,
-      el("label", { for: "f-tax" }, ["Tax"]),
-      tax,
       el("label", {}, ["Categories"]),
-      el("div", {}, [splitRows, addSplit]),
+      el("div", {}, [rowsBox, addRow]),
       el("label", { for: "f-note" }, ["Note"]),
       note,
     ]),
@@ -345,7 +289,7 @@ export function addView(onSaved: () => void): HTMLElement {
     const [cats, stores] = await Promise.all([listCategories(), listMerchants()]);
     categories = cats;
     merchant.setOptions(stores.map((m) => m.name));
-    renderSplits();
+    renderRows();
     await loadContext(null);
   })();
 

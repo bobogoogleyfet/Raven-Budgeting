@@ -120,7 +120,7 @@ fn the_two_bases_disagree_month_by_month_and_agree_over_the_cycle() {
     // Both add to $1,200.00, because they are the same money arranged
     // differently — not two different stored numbers.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
     spend_on(&db, "2026-03-14", insurance, 120_000);
 
@@ -128,23 +128,14 @@ fn the_two_bases_disagree_month_by_month_and_agree_over_the_cycle() {
     let amortized = matrix(&db, year, ReportBasis::Amortized);
     let cashflow = matrix(&db, year, ReportBasis::CashFlow);
 
+    assert_eq!(actual(&amortized, "Car Insurance", ym(2026, 3)), m(10_000));
+    assert_eq!(actual(&cashflow, "Car Insurance", ym(2026, 3)), m(120_000));
     assert_eq!(
-        actual(&amortized, "Insurance (Auto)", ym(2026, 3)),
-        m(10_000)
-    );
-    assert_eq!(
-        actual(&cashflow, "Insurance (Auto)", ym(2026, 3)),
-        m(120_000)
-    );
-    assert_eq!(
-        actual(&amortized, "Insurance (Auto)", ym(2026, 1)),
+        actual(&amortized, "Car Insurance", ym(2026, 1)),
         m(10_000),
         "January carries its share even though no money moved in January"
     );
-    assert_eq!(
-        actual(&cashflow, "Insurance (Auto)", ym(2026, 1)),
-        Money::ZERO
-    );
+    assert_eq!(actual(&cashflow, "Car Insurance", ym(2026, 1)), Money::ZERO);
 
     assert_eq!(total_actual(&amortized), m(120_000));
     assert_eq!(total_actual(&cashflow), m(120_000));
@@ -153,8 +144,8 @@ fn the_two_bases_disagree_month_by_month_and_agree_over_the_cycle() {
         total_actual(&cashflow),
         "the basis is a presentation transform; it may not create or destroy money"
     );
-    assert_eq!(row(&amortized, "Insurance (Auto)").total.actual, m(120_000));
-    assert_eq!(row(&cashflow, "Insurance (Auto)").total.actual, m(120_000));
+    assert_eq!(row(&amortized, "Car Insurance").total.actual, m(120_000));
+    assert_eq!(row(&cashflow, "Car Insurance").total.actual, m(120_000));
 
     // The matrix says which view it is, so a UI cannot label one as the other.
     assert!(matches!(amortized.basis, ReportBasis::Amortized));
@@ -277,7 +268,7 @@ fn only_non_monthly_budgets_amortize() {
     // here, the report is spreading money across a window it invented.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let restaurants = cat(&db, "Restaurants & Takeout");
+    let restaurants = cat(&db, "Restaurants");
     set_line(&db, &record(groceries, Period::Monthly, (2026, 1), 40_000));
 
     spend_on(&db, "2026-02-10", groceries, 37_500);
@@ -288,7 +279,7 @@ fn only_non_monthly_budgets_amortize() {
     let amortized = matrix(&db, year, ReportBasis::Amortized);
     let cashflow = matrix(&db, year, ReportBasis::CashFlow);
 
-    for name in ["Groceries", "Restaurants & Takeout"] {
+    for name in ["Groceries", "Restaurants"] {
         for month in year.iter() {
             assert_eq!(
                 actual(&amortized, name, month),
@@ -306,10 +297,7 @@ fn only_non_monthly_budgets_amortize() {
     // And the spending really is where it was dated, in both.
     assert_eq!(actual(&amortized, "Groceries", ym(2026, 2)), m(37_500));
     assert_eq!(actual(&amortized, "Groceries", ym(2026, 3)), Money::ZERO);
-    assert_eq!(
-        actual(&cashflow, "Restaurants & Takeout", ym(2026, 2)),
-        m(6_400)
-    );
+    assert_eq!(actual(&cashflow, "Restaurants", ym(2026, 2)), m(6_400));
     assert_clean(&db);
 }
 
@@ -396,7 +384,7 @@ fn the_budgeted_column_is_the_monthly_contribution_in_both_bases() {
     // views, and it must be the line's own schedule rather than
     // `amount / months_in_range`.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     let groceries = cat(&db, "Groceries");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 100_000));
     spend_on(&db, "2026-03-01", groceries, 5_000);
@@ -410,7 +398,7 @@ fn the_budgeted_column_is_the_monthly_contribution_in_both_bases() {
         let mx = matrix(&db, year, basis);
         for month in year.iter() {
             assert_eq!(
-                budgeted(&mx, "Insurance (Auto)", month),
+                budgeted(&mx, "Car Insurance", month),
                 monthly_contribution(&stored.line, month),
                 "{month} in {:?}",
                 mx.basis
@@ -418,7 +406,7 @@ fn the_budgeted_column_is_the_monthly_contribution_in_both_bases() {
         }
         // $1000.00 a year is $1000.00 a year however it is sliced.
         assert_eq!(
-            row(&mx, "Insurance (Auto)").total.budgeted,
+            row(&mx, "Car Insurance").total.budgeted,
             m(100_000),
             "the year's contributions must sum to the year's budget"
         );
@@ -444,7 +432,7 @@ fn amortization_reaches_into_the_range_from_a_month_outside_it() {
     // paid in March and the report starts in May — which is precisely the
     // number the amortized view exists to avoid.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
     spend_on(&db, "2026-03-14", insurance, 120_000);
 
@@ -454,7 +442,7 @@ fn amortization_reaches_into_the_range_from_a_month_outside_it() {
 
     for month in summer.iter() {
         assert_eq!(
-            actual(&amortized, "Insurance (Auto)", month),
+            actual(&amortized, "Car Insurance", month),
             m(10_000),
             "{month} carries its $100.00 share of the March premium"
         );
@@ -481,7 +469,7 @@ fn a_range_narrower_than_a_cycle_deliberately_does_not_reconcile() {
     // view shows six months x $100.00 = $600.00 of it. The totals-agree
     // property holds over cycle-aligned ranges and nowhere else.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
     spend_on(&db, "2026-03-14", insurance, 120_000);
 
@@ -516,7 +504,7 @@ fn column_totals_and_the_grand_total_are_the_sums_of_the_cells_they_cover() {
     // A total is not an independently computed figure; it is the sum of what is
     // above it. If it is not, the report disagrees with itself on screen.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     let groceries = cat(&db, "Groceries");
     let travel = cat(&db, "Travel");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
@@ -587,8 +575,8 @@ fn rows_cover_a_budget_with_no_spending_and_spending_with_no_budget() {
     // never planned for. A matrix built by joining budgets to actuals one way
     // or the other loses one of them.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
-    let restaurants = cat(&db, "Restaurants & Takeout");
+    let insurance = cat(&db, "Car Insurance");
+    let restaurants = cat(&db, "Restaurants");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
     spend_on(&db, "2026-04-18", restaurants, 8_800);
 
@@ -596,15 +584,15 @@ fn rows_cover_a_budget_with_no_spending_and_spending_with_no_budget() {
     for basis in [ReportBasis::Amortized, ReportBasis::CashFlow] {
         let mx = matrix(&db, year, basis);
 
-        let budgeted_only = row(&mx, "Insurance (Auto)");
+        let budgeted_only = row(&mx, "Car Insurance");
         assert_eq!(budgeted_only.total.budgeted, m(120_000));
         assert_eq!(budgeted_only.total.actual, Money::ZERO);
         assert_eq!(budgeted_only.group_name, "Bills");
 
-        let spent_only = row(&mx, "Restaurants & Takeout");
+        let spent_only = row(&mx, "Restaurants");
         assert_eq!(spent_only.total.budgeted, Money::ZERO);
         assert_eq!(spent_only.total.actual, m(8_800));
-        assert_eq!(actual(&mx, "Restaurants & Takeout", ym(2026, 4)), m(8_800));
+        assert_eq!(actual(&mx, "Restaurants", ym(2026, 4)), m(8_800));
         assert_eq!(spent_only.category_id, restaurants);
     }
     assert_clean(&db);

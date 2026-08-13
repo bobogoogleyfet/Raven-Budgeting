@@ -106,7 +106,7 @@ fn every_period_variant_comes_back_out_exactly_as_it_went_in() {
     // the line goes on contributing the wrong amount every month with nothing
     // to flag it.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     let travel = cat(&db, "Travel");
     let clothing = cat(&db, "Clothing");
     let gifts = cat(&db, "Gifts");
@@ -268,7 +268,7 @@ fn a_second_line_overlapping_the_first_is_refused_and_the_conflict_is_named() {
     // whose numbers are too large. The schema's unique index does not catch
     // this: the two `period_start`s differ.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
 
     let mut first = record(insurance, Period::Monthly, (2026, 1));
     first.period_end = Some(ym(2026, 6));
@@ -294,7 +294,7 @@ fn overlap_is_refused_from_either_direction() {
     // The open-ended line is written first this time, so a check that only
     // looks *backwards* from the new line's start would let this through.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
 
     upsert(&db, &record(insurance, Period::Monthly, (2026, 4)));
 
@@ -314,7 +314,7 @@ fn a_line_wholly_inside_another_is_refused() {
     // Containment is the case a naive "do the endpoints interleave?" test
     // misses: 2026-03..2026-04 sits entirely within 2026-01..2026-12.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
 
     let mut outer = record(insurance, Period::Monthly, (2026, 1));
     outer.period_end = Some(ym(2026, 12));
@@ -338,7 +338,7 @@ fn touching_but_not_overlapping_spans_are_permitted() {
     // the month *after* the first line ends, so nothing is double-counted and
     // "we raised the budget in July" must remain expressible.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
 
     let mut first = record(insurance, Period::Monthly, (2026, 1));
     first.period_end = Some(ym(2026, 6));
@@ -372,7 +372,7 @@ fn the_same_span_for_a_different_category_is_permitted() {
     // Overlap is per category. Two envelopes budgeted over the same months is
     // the normal case — it is what a budget *is*.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     let travel = cat(&db, "Travel");
 
     let mut first = record(insurance, Period::Monthly, (2026, 1));
@@ -398,7 +398,7 @@ fn updating_a_line_in_place_does_not_collide_with_itself() {
     // row it is updating, decides the line overlaps itself, and makes every
     // budget permanently uneditable.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
 
     let mut rec = record(insurance, Period::Monthly, (2026, 1));
     rec.period_end = Some(ym(2026, 6));
@@ -432,7 +432,7 @@ fn an_archived_line_leaves_the_list_and_frees_its_span() {
     // has to be expressible as archive-then-recreate — including recreating it
     // over exactly the same months.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
 
     let mut rec = record(insurance, Period::Monthly, (2026, 1));
     rec.period_end = Some(ym(2026, 6));
@@ -474,7 +474,7 @@ fn an_archived_line_leaves_the_list_and_frees_its_span() {
 #[test]
 fn list_filtered_by_month_returns_only_the_lines_in_force_that_month() {
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
     let travel = cat(&db, "Travel");
 
     let mut early = record(insurance, Period::Monthly, (2026, 1));
@@ -516,7 +516,7 @@ fn for_category_picks_the_line_covering_the_month_out_of_a_history_of_them() {
     // accumulates over years. Picking the newest, or the first row the query
     // happened to return, would restate history.
     let db = seeded_db();
-    let insurance = cat(&db, "Insurance (Auto)");
+    let insurance = cat(&db, "Car Insurance");
 
     let mut y2024 = record(insurance, Period::Monthly, (2024, 1));
     y2024.period_end = Some(ym(2024, 12));

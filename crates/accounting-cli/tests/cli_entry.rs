@@ -338,9 +338,9 @@ fn percent_and_remainder_splits_consume_the_total_exactly() {
         "--split",
         "Groceries=33.33%",
         "--split",
-        "Household Supplies=33.33%",
+        "Household=33.33%",
         "--split",
-        "Personal Care=remainder",
+        "Toiletries=remainder",
     ])
     .expect_ok("add with percent and remainder splits");
 
@@ -360,7 +360,7 @@ fn percent_and_remainder_splits_consume_the_total_exactly() {
         .collect();
     assert_eq!(
         names,
-        vec!["Groceries", "Household Supplies", "Personal Care"],
+        vec!["Groceries", "Household", "Toiletries"],
         "splits must keep the order they were given on the command line"
     );
     assert_clean(&db);
@@ -380,7 +380,7 @@ fn show_prints_the_splits_of_a_receipt() {
         "--split",
         "Groceries=60.00",
         "--split",
-        "Household Supplies=remainder",
+        "Household=remainder",
     ])
     .expect_ok("add");
 
@@ -392,7 +392,7 @@ fn show_prints_the_splits_of_a_receipt() {
     let out = f.run(&["show", &id.to_string()]);
     let out = out.expect_ok("show");
     assert!(out.contains("Groceries"), "got:\n{out}");
-    assert!(out.contains("Household Supplies"), "got:\n{out}");
+    assert!(out.contains("Household"), "got:\n{out}");
     assert!(out.contains("60.00"), "got:\n{out}");
     assert!(out.contains("40.00"), "the remainder's amount; got:\n{out}");
 }
@@ -492,9 +492,9 @@ fn the_whole_write_path_leaves_the_database_healthy() {
         "--split",
         "Groceries=33.33%",
         "--split",
-        "Household Supplies=33.33%",
+        "Household=33.33%",
         "--split",
-        "Personal Care=remainder",
+        "Toiletries=remainder",
     ])
     .expect_ok("add with splits");
 

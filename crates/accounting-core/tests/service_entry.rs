@@ -230,7 +230,7 @@ fn previewing_a_transaction_writes_nothing_at_all() {
 fn an_unassigned_remainder_blocks_saving_until_it_is_claimed() {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
 
     // $100.00 entered, $60.00 assigned. The missing $40.00 belongs to no
     // category, and a saved transaction whose splits do not sum to its total
@@ -476,8 +476,8 @@ fn saving_a_three_way_split_teaches_the_store_nothing_about_categories() {
     // an invented fact that then autofills every future visit.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
-    let personal = cat(&db, "Personal Care");
+    let household = cat(&db, "Household");
+    let personal = cat(&db, "Toiletries");
     locations::get_or_create(&db, "Costco Sunnyvale", 91_250).expect("create location");
     let store = locations::find_by_name(&db, "Costco Sunnyvale")
         .unwrap()
@@ -559,7 +559,7 @@ fn quick_add_files_an_uncategorized_receipt_into_the_inbox() {
 fn categorizing_clears_the_inbox_and_preserves_the_total_and_the_uuid() {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
 
     let id = entry::quick_add(&db, day("2026-08-13"), m(2001), Some("Corner Store"), NOW)
         .expect("quick_add");
@@ -611,8 +611,8 @@ fn a_quick_add_and_categorize_round_trip_keeps_every_cent() {
     // three rows are 667 / 667 / 667 and sum to exactly 2001.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
-    let personal = cat(&db, "Personal Care");
+    let household = cat(&db, "Household");
+    let personal = cat(&db, "Toiletries");
 
     let id = entry::quick_add(&db, day("2026-08-13"), m(2001), None, NOW).expect("quick_add");
 
@@ -661,7 +661,7 @@ fn repeat_last_returns_a_draft_and_writes_absolutely_nothing() {
     // would have booked it again.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
 
     let mut original = draft(
         AmountEntry {

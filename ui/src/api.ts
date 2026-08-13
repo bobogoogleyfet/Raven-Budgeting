@@ -207,6 +207,43 @@ export async function entryContext(merchant: string | null): Promise<EntryContex
   return await invoke<EntryContext>("entry_context", { merchant });
 }
 
+export interface SubtotalRow {
+  categoryId: number | null;
+  subtotal: number;
+  note: string | null;
+}
+
+/** A receipt entered the way it is read: a subtotal per category, no total. */
+export interface SubtotalDraft {
+  id: number | null;
+  txnDate: string;
+  merchant: string | null;
+  location: string | null;
+  rows: SubtotalRow[];
+  notes: string | null;
+  needsReview: boolean;
+  rememberDefaults: boolean;
+}
+
+/** Reconcile a subtotal-entered receipt. Writes nothing; safe per keystroke. */
+export async function previewSubtotals(draft: SubtotalDraft): Promise<Preview> {
+  return brandPreview(await invoke<RawPreview>("preview_subtotals", { draft }));
+}
+
+export async function saveSubtotals(draft: SubtotalDraft): Promise<number> {
+  return await invoke<number>("save_subtotals", { draft });
+}
+
+/** The home location, or null if none is set. */
+export async function homeLocation(): Promise<Location | null> {
+  return await invoke<Location | null>("home_location");
+}
+
+/** Name where the user lives and set its sales-tax rate. Asked on first run. */
+export async function setHomeLocation(name: string, taxRatePpm: number): Promise<void> {
+  await invoke("set_home_location", { name, taxRatePpm });
+}
+
 export interface Merchant {
   id: number;
   name: string;

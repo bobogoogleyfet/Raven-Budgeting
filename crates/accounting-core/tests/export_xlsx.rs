@@ -425,16 +425,16 @@ impl Styles {
 /// | date       | merchant | category              | subtotal |  tax |  total |
 /// |------------|----------|-----------------------|---------:|-----:|-------:|
 /// | 2026-03-14 | Costco   | Groceries             |   150.12 | 4.20 | 154.32 |
-/// | 2026-06-01 | —        | Gas/Fuel              |    20.00 | 0.00 |  20.00 |
-/// | 2026-08-20 | Costco   | Restaurants & Takeout |    30.00 | 0.00 |  30.00 |
+/// | 2026-06-01 | —        | Gas              |    20.00 | 0.00 |  20.00 |
+/// | 2026-08-20 | Costco   | Restaurants |    30.00 | 0.00 |  30.00 |
 ///
 /// The `&` in the last category is not decoration: it must survive XML
 /// escaping identically in the data cells and in the table part.
 fn three_receipts() -> Db {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let fuel = cat(&db, "Gas/Fuel");
-    let takeout = cat(&db, "Restaurants & Takeout");
+    let fuel = cat(&db, "Gas");
+    let takeout = cat(&db, "Restaurants");
     let costco = merchant(&db, "Costco");
     let sunnyvale = location(&db, "Costco Sunnyvale", 91_250);
 

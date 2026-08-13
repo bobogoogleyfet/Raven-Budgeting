@@ -498,7 +498,7 @@ mod tests {
     fn the_stated_property_a_yearly_premium_paid_in_march() {
         // $1,200/yr from January, $1,200 paid on 2026-03-14.
         let db = seeded();
-        let insurance = category(&db, "Insurance (Auto)");
+        let insurance = category(&db, "Car Insurance");
         budget(&db, insurance, Period::Yearly, 1_200, ym(2026, 1));
         spend_on(&db, insurance, "2026-03-14", Money::from_dollars(1_200));
 
@@ -507,27 +507,27 @@ mod tests {
         let march = 2_usize; // zero-based index of 2026-03
 
         assert_eq!(
-            row(&amortized, "Insurance (Auto)").cells[march].actual,
+            row(&amortized, "Car Insurance").cells[march].actual,
             Money::from_dollars(100)
         );
         assert_eq!(
-            row(&cash, "Insurance (Auto)").cells[march].actual,
+            row(&cash, "Car Insurance").cells[march].actual,
             Money::from_dollars(1_200)
         );
         // Every other month of the cycle carries its twelfth too.
         assert_eq!(
-            row(&amortized, "Insurance (Auto)").cells[0].actual,
+            row(&amortized, "Car Insurance").cells[0].actual,
             Money::from_dollars(100)
         );
-        assert_eq!(row(&cash, "Insurance (Auto)").cells[0].actual, Money::ZERO);
+        assert_eq!(row(&cash, "Car Insurance").cells[0].actual, Money::ZERO);
 
         // …and the transform creates and destroys nothing.
         assert_eq!(
-            row(&amortized, "Insurance (Auto)").total.actual,
+            row(&amortized, "Car Insurance").total.actual,
             Money::from_dollars(1_200)
         );
         assert_eq!(
-            row(&cash, "Insurance (Auto)").total.actual,
+            row(&cash, "Car Insurance").total.actual,
             Money::from_dollars(1_200)
         );
         assert_eq!(amortized.grand_total.actual, cash.grand_total.actual);
@@ -535,11 +535,11 @@ mod tests {
         // The budget row is the per-month schedule in both bases.
         for basis in [&amortized, &cash] {
             assert_eq!(
-                row(basis, "Insurance (Auto)").cells[march].budgeted,
+                row(basis, "Car Insurance").cells[march].budgeted,
                 Money::from_dollars(100)
             );
             assert_eq!(
-                row(basis, "Insurance (Auto)").total.budgeted,
+                row(basis, "Car Insurance").total.budgeted,
                 Money::from_dollars(1_200)
             );
         }
@@ -549,7 +549,7 @@ mod tests {
     fn a_monthly_budget_and_an_unbudgeted_category_never_move() {
         let db = seeded();
         let groceries = category(&db, "Groceries");
-        let fuel = category(&db, "Gas/Fuel");
+        let fuel = category(&db, "Gas");
         budget(&db, groceries, Period::Monthly, 400, ym(2026, 1));
         spend_on(&db, groceries, "2026-02-10", Money::from_dollars(380));
         spend_on(&db, fuel, "2026-05-02", Money::from_dollars(60));
@@ -560,10 +560,7 @@ mod tests {
             row(&amortized, "Groceries").cells,
             row(&cash, "Groceries").cells
         );
-        assert_eq!(
-            row(&amortized, "Gas/Fuel").cells,
-            row(&cash, "Gas/Fuel").cells
-        );
+        assert_eq!(row(&amortized, "Gas").cells, row(&cash, "Gas").cells);
         assert_eq!(
             row(&amortized, "Groceries").cells[1].actual,
             Money::from_dollars(380)
@@ -573,7 +570,7 @@ mod tests {
             Money::from_dollars(400)
         );
         assert_eq!(
-            row(&amortized, "Gas/Fuel").cells[4].actual,
+            row(&amortized, "Gas").cells[4].actual,
             Money::from_dollars(60)
         );
     }
@@ -584,7 +581,7 @@ mod tests {
         // across a January–June report. Computing the spread from the in-range
         // months alone would show nothing at all.
         let db = seeded();
-        let insurance = category(&db, "Insurance (Auto)");
+        let insurance = category(&db, "Car Insurance");
         budget(&db, insurance, Period::Yearly, 1_200, ym(2026, 1));
         spend_on(&db, insurance, "2026-11-20", Money::from_dollars(1_200));
 
@@ -593,12 +590,12 @@ mod tests {
         let cash = monthly_matrix(&db, half, ReportBasis::CashFlow).unwrap();
 
         assert_eq!(
-            row(&amortized, "Insurance (Auto)").total.actual,
+            row(&amortized, "Car Insurance").total.actual,
             Money::from_dollars(600),
             "six twelfths of the annual premium"
         );
         assert_eq!(
-            row(&cash, "Insurance (Auto)").total.actual,
+            row(&cash, "Car Insurance").total.actual,
             Money::ZERO,
             "nothing was paid in the first half"
         );
@@ -629,13 +626,13 @@ mod tests {
     #[test]
     fn a_quarterly_cycle_spreads_within_its_own_quarter_only() {
         let db = seeded();
-        let auto = category(&db, "Auto Maintenance");
+        let auto = category(&db, "Car Repair");
         budget(&db, auto, Period::EveryNMonths(3), 300, ym(2026, 1));
         spend_on(&db, auto, "2026-02-10", Money::from_dollars(300));
         spend_on(&db, auto, "2026-08-01", Money::from_dollars(600));
 
         let matrix = monthly_matrix(&db, year_2026(), ReportBasis::Amortized).unwrap();
-        let cells = &row(&matrix, "Auto Maintenance").cells;
+        let cells = &row(&matrix, "Car Repair").cells;
         // Q1 spreads $300 over Jan–Mar; Q3 spreads $600 over Jul–Sep; Q2 and Q4
         // saw nothing and stay empty, which is the point of a *cycle* boundary.
         let by_quarter: Vec<Money> = cells.iter().map(|c| c.actual).collect();
@@ -653,7 +650,7 @@ mod tests {
     fn rows_totals_and_ordering_hold_together() {
         let db = seeded();
         let groceries = category(&db, "Groceries");
-        let insurance = category(&db, "Insurance (Auto)");
+        let insurance = category(&db, "Car Insurance");
         budget(&db, groceries, Period::Monthly, 400, ym(2026, 1));
         budget(&db, insurance, Period::Yearly, 1_200, ym(2026, 1));
         spend_on(&db, groceries, "2026-02-10", Money::from_dollars(380));
@@ -665,8 +662,8 @@ mod tests {
         assert_eq!(matrix.basis, ReportBasis::Amortized);
 
         // Bills before Frequent.
-        assert_eq!(matrix.rows[0].category_name, "Insurance (Auto)");
-        assert_eq!(matrix.rows[0].qualified_name(), "Bills/Insurance (Auto)");
+        assert_eq!(matrix.rows[0].category_name, "Car Insurance");
+        assert_eq!(matrix.rows[0].qualified_name(), "Bills/Car Insurance");
         assert_eq!(matrix.rows[1].category_name, "Groceries");
         assert_eq!(matrix.rows.len(), 2, "only rows with a budget or spending");
 

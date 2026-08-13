@@ -11,7 +11,7 @@
 //!
 //! # One row per split, not per transaction
 //!
-//! A receipt split across Groceries and Household Supplies is two rows. That is
+//! A receipt split across Groceries and Household is two rows. That is
 //! the entire reason splits exist: a per-transaction export would force the
 //! reader to pick one category for a $54 shop that was really $30 of food and
 //! $24 of soap, and every category total downstream would be wrong.
@@ -365,7 +365,7 @@ mod tests {
     pub(super) fn sample_rows() -> Vec<ExportRow> {
         let db = seeded();
         let groceries = categories::resolve(&db, "Groceries").expect("category");
-        let household = categories::resolve(&db, "Household Supplies").expect("category");
+        let household = categories::resolve(&db, "Household").expect("category");
         let heb = merchants::get_or_create(&db, "H-E-B").expect("merchant");
 
         let mut july = draft("2026-07-31", vec![split(groceries.id, 1000, 0)]);
@@ -428,7 +428,7 @@ mod tests {
         let two_way: Vec<&ExportRow> = rows.iter().filter(|r| r.date.day() == 2).collect();
         assert_eq!(two_way[0].category, "Groceries");
         assert_eq!(two_way[0].total, m(3000));
-        assert_eq!(two_way[1].category, "Household Supplies");
+        assert_eq!(two_way[1].category, "Household");
         assert_eq!(two_way[1].subtotal, m(2000));
         assert_eq!(two_way[1].tax, m(419));
         assert_eq!(two_way[1].total, m(2419));

@@ -205,8 +205,8 @@ fn a_grouped_single_category_receipt_round_trips_unchanged() {
 fn a_three_way_split_round_trips_in_sort_order() {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
-    let personal = cat(&db, "Personal Care");
+    let household = cat(&db, "Household");
+    let personal = cat(&db, "Toiletries");
 
     // $90.00 + $10.00 tax = $100.00, divided so that each column adds up
     // independently:
@@ -238,7 +238,7 @@ fn a_three_way_split_round_trips_in_sort_order() {
         .collect();
     assert_eq!(
         names,
-        vec!["Household Supplies", "Personal Care", "Groceries"],
+        vec!["Household", "Toiletries", "Groceries"],
         "splits must come back in sort_order, not insertion order"
     );
     assert!(
@@ -274,7 +274,7 @@ fn split_sort_order_defaults_to_sparse_hundreds() {
     // one-row write instead of a renumbering of every sibling.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
 
     let new = txn(
         day("2026-08-13"),
@@ -358,7 +358,7 @@ fn valid(groceries: CategoryId) -> NewTransaction {
 fn every_validation_branch_rejects_before_touching_the_database() {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
     let before = row_counts(&db);
 
     let cases: Vec<(&str, NewTransaction)> = vec![
@@ -601,8 +601,8 @@ fn a_rejected_save_leaves_the_database_untouched() {
 fn re_saving_replaces_the_old_splits_and_keeps_the_uuid() {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
-    let personal = cat(&db, "Personal Care");
+    let household = cat(&db, "Household");
+    let personal = cat(&db, "Toiletries");
 
     // Three splits, two of them itemised, so the re-save has both splits and
     // line items to clean up. $30.00 total, no tax.
@@ -735,7 +735,7 @@ struct Listing {
 fn listing() -> Listing {
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let fuel = cat(&db, "Gas/Fuel");
+    let fuel = cat(&db, "Gas");
     let costco = merchant(&db, "Costco");
     let shell = merchant(&db, "Shell");
 
@@ -1075,7 +1075,7 @@ fn fifty_transactions_all_load_with_their_splits_intact() {
     // stops being acceptable*, and leaves the query shape to review.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
-    let household = cat(&db, "Household Supplies");
+    let household = cat(&db, "Household");
     let base = day("2026-01-01");
 
     for i in 0..50_i64 {

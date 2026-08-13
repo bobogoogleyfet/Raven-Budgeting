@@ -62,6 +62,36 @@ pub fn list(db: &Db) -> Result<Vec<Merchant>> {
     Ok(rows)
 }
 
+/// The stores shopped at most often, most first.
+///
+/// Counted over non-archived transactions rather than read from
+/// `last_used_at`, because "where do I shop" and "where was I last" are
+/// different questions: one trip to a furniture shop should not outrank the
+/// grocery run that happens weekly. Stores with no transactions are excluded
+/// outright — the picker already lists every known store, and a shortcut that
+/// suggests somewhere you have never been is not a shortcut.
+///
+/// Ties break on recency, then name, so the order is stable rather than
+/// whatever the query planner returns.
+pub fn most_used(db: &Db, limit: usize) -> Result<Vec<Merchant>> {
+    let sql = format!(
+        "{SELECT_MERCHANT}
+          WHERE archived_at IS NULL
+            AND (SELECT COUNT(*) FROM txn t
+                  WHERE t.merchant_id = merchant.id AND t.archived_at IS NULL) > 0
+          ORDER BY (SELECT COUNT(*) FROM txn t
+                     WHERE t.merchant_id = merchant.id AND t.archived_at IS NULL) DESC,
+                   last_used_at DESC,
+                   name
+          LIMIT ?1"
+    );
+    let mut stmt = db.conn().prepare(&sql)?;
+    let rows = stmt
+        .query_map([i64::try_from(limit).unwrap_or(i64::MAX)], map_merchant)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// The most recently used merchants, newest first.
 ///
 /// Never-used merchants sort last rather than first: SQLite orders `NULL`

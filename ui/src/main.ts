@@ -7,11 +7,13 @@
  * against a local SQLite file.
  */
 
+import { homeLocation } from "./api.ts";
 import { need } from "./dom.ts";
 import { addView } from "./views/add.ts";
 import { budgetView } from "./views/budget.ts";
 import { inboxView } from "./views/inbox.ts";
 import { receiptsView } from "./views/receipts.ts";
+import { setupView } from "./views/setup.ts";
 
 type TabName = "add" | "receipts" | "inbox" | "budget";
 
@@ -51,4 +53,32 @@ tabs.addEventListener("click", (event) => {
   show(tab as TabName);
 });
 
-show("add");
+/**
+ * First run asks where the user lives before anything else.
+ *
+ * Detected by the home location still carrying a 0% rate, which is what the
+ * seed installs: no rate means every receipt would record $0.00 of tax, and
+ * the app cannot guess the right one. A user who genuinely lives somewhere
+ * without sales tax types 0 and is not asked again.
+ */
+void (async () => {
+  let home = null;
+  try {
+    home = await homeLocation();
+  } catch {
+    // A failure here is not worth blocking entry over; the Add tab will
+    // surface the real error when it calls the same backend.
+  }
+
+  if (home === null || home.taxRatePpm === 0) {
+    tabs.hidden = true;
+    main.replaceChildren(
+      setupView(() => {
+        tabs.hidden = false;
+        show("add");
+      }),
+    );
+    return;
+  }
+  show("add");
+})();

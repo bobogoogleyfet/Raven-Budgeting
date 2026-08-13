@@ -552,3 +552,25 @@ tr.over {
   color: var(--muted);
   font-size: 0.9rem;
 }
+
+/* --- first-run setup --- */
+.setup {
+  max-width: 34rem;
+}
+
+.setup .form {
+  margin-top: 1rem;
+}
+
+.preview-caption {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0.75rem 0 0.2rem;
+}
+
+/* A category picker inside a row is a combobox, not a bare select. */
+.split-row .combo {
+  max-width: 18rem;
+}

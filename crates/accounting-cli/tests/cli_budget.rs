@@ -106,7 +106,7 @@ impl Fixture {
             "budget",
             "set",
             "--category",
-            "Insurance (Auto)",
+            "Car Insurance",
             "--amount",
             "1200",
             "--period",
@@ -202,14 +202,14 @@ fn a_budget_line_that_was_set_shows_up_in_the_list() {
 
     let listed = f.run(&["budget", "list"]).expect_ok("budget list");
     assert!(
-        listed.contains("Insurance (Auto)"),
+        listed.contains("Car Insurance"),
         "the list must name the category; got:\n{listed}"
     );
     assert_shows(&listed, "1200.00", "the budgeted amount");
 
     // And the stored shape, which the output format cannot tell us about.
     let db = f.open();
-    let insurance = category(&db, "Insurance (Auto)");
+    let insurance = category(&db, "Car Insurance");
     let stored = budgets::for_category(&db, insurance, ym(2026, 8))
         .expect("for_category")
         .expect("the line must be in force in August");
@@ -231,7 +231,7 @@ fn budget_list_filtered_by_month_shows_only_the_lines_in_force() {
         .run(&["budget", "list", "--month", "2026-06"])
         .expect_ok("budget list --month 2026-06");
     assert!(
-        in_force.contains("Insurance (Auto)"),
+        in_force.contains("Car Insurance"),
         "the line is in force in June; got:\n{in_force}"
     );
 
@@ -239,7 +239,7 @@ fn budget_list_filtered_by_month_shows_only_the_lines_in_force() {
         .run(&["budget", "list", "--month", "2025-12"])
         .expect_ok("budget list --month 2025-12");
     assert!(
-        !before.contains("Insurance (Auto)"),
+        !before.contains("Car Insurance"),
         "the line starts in 2026-01 and must not be listed before that; got:\n{before}"
     );
 }
@@ -286,7 +286,7 @@ fn every_n_without_an_interval_is_refused() {
             "budget",
             "set",
             "--category",
-            "Auto Maintenance",
+            "Car Repair",
             "--amount",
             "300",
             "--period",
@@ -335,7 +335,7 @@ fn an_every_n_line_with_its_interval_is_accepted() {
         "budget",
         "set",
         "--category",
-        "Auto Maintenance",
+        "Car Repair",
         "--amount",
         "300",
         "--period",
@@ -349,7 +349,7 @@ fn an_every_n_line_with_its_interval_is_accepted() {
     .expect_ok("budget set --period every-n --every 3");
 
     let db = f.open();
-    let auto = category(&db, "Auto Maintenance");
+    let auto = category(&db, "Car Repair");
     let stored = budgets::for_category(&db, auto, ym(2026, 2))
         .expect("for_category")
         .expect("the line is in force");
@@ -375,7 +375,7 @@ fn budget_status_shows_a_hundred_a_month_and_eight_hundred_funded_in_august() {
         .run(&["budget", "status", "--month", "2026-08"])
         .expect_ok("budget status --month 2026-08");
     assert!(
-        out.contains("Insurance (Auto)"),
+        out.contains("Car Insurance"),
         "the status must name the category; got:\n{out}"
     );
     assert_shows(&out, "100.00", "the monthly contribution");
@@ -383,7 +383,7 @@ fn budget_status_shows_a_hundred_a_month_and_eight_hundred_funded_in_august() {
 
     // The figures themselves, where the table layout cannot get in the way.
     let db = f.open();
-    let insurance = category(&db, "Insurance (Auto)");
+    let insurance = category(&db, "Car Insurance");
     let status =
         budget_service::budget_status_for(&db, insurance, ym(2026, 8)).expect("budget_status_for");
     let funded = status.status.as_ref().expect("a line means a status");
@@ -407,7 +407,7 @@ fn an_adjustment_changes_what_status_reports() {
         "budget",
         "adjust",
         "--category",
-        "Insurance (Auto)",
+        "Car Insurance",
         "--month",
         "2026-08",
         "--amount",
@@ -428,7 +428,7 @@ fn an_adjustment_changes_what_status_reports() {
     assert_shows(&after, "850.00", "the adjusted funded balance");
 
     let db = f.open();
-    let insurance = category(&db, "Insurance (Auto)");
+    let insurance = category(&db, "Car Insurance");
     let status =
         budget_service::budget_status_for(&db, insurance, ym(2026, 8)).expect("budget_status_for");
     assert_eq!(
@@ -452,7 +452,7 @@ fn a_negative_adjustment_moves_money_out_of_an_envelope() {
         "budget",
         "adjust",
         "--category",
-        "Insurance (Auto)",
+        "Car Insurance",
         "--month",
         "2026-08",
         "--amount",
@@ -463,7 +463,7 @@ fn a_negative_adjustment_moves_money_out_of_an_envelope() {
     .expect_ok("budget adjust with a negative amount");
 
     let db = f.open();
-    let insurance = category(&db, "Insurance (Auto)");
+    let insurance = category(&db, "Car Insurance");
     let status =
         budget_service::budget_status_for(&db, insurance, ym(2026, 8)).expect("budget_status_for");
     // $800.00 funded less the $25.00 moved out.
@@ -545,7 +545,7 @@ fn the_two_report_bases_differ_in_march_and_agree_in_total() {
         "--total",
         "1200.00",
         "--category",
-        "Insurance (Auto)",
+        "Car Insurance",
     ])
     .expect_ok("add the premium");
 
@@ -598,7 +598,7 @@ fn report_without_a_basis_uses_amortized() {
         "--total",
         "1200.00",
         "--category",
-        "Insurance (Auto)",
+        "Car Insurance",
     ])
     .expect_ok("add the premium");
 
@@ -681,7 +681,7 @@ fn the_whole_budget_path_leaves_the_database_healthy() {
         "budget",
         "set",
         "--category",
-        "Auto Maintenance",
+        "Car Repair",
         "--amount",
         "300",
         "--period",
@@ -732,7 +732,7 @@ fn the_whole_budget_path_leaves_the_database_healthy() {
         "--total",
         "1200.00",
         "--category",
-        "Insurance (Auto)",
+        "Car Insurance",
     ])
     .expect_ok("add");
     f.run(&[

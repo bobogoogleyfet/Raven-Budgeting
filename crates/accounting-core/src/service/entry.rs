@@ -20,10 +20,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::Db;
 use crate::domain::reconcile::{AmountEntry, Amounts, TaxContext, reconcile};
-use crate::domain::splits::{SplitAmount, SplitDraft, SplitPlan, plan_splits};
+use crate::domain::splits::{SplitAmount, SplitDraft, SplitPlan, plan_by_subtotal, plan_splits};
 use crate::domain::tax::distribute_tax;
 use crate::error::{CoreError, Result};
-use crate::ids::TxnId;
+use crate::ids::{CategoryId, TxnId};
 use crate::money::Money;
 use crate::repo::categories::{self, Category};
 use crate::repo::locations::{self, Location};
@@ -230,6 +230,169 @@ pub fn preview_transaction_with_rate(
         warnings,
         blockers,
     })
+}
+
+/// One category's subtotal, as copied off a receipt.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct SubtotalRow {
+    pub category_id: Option<CategoryId>,
+    pub subtotal: Money,
+    pub note: Option<String>,
+}
+
+/// A receipt entered the way it is read: a subtotal per category, no total.
+///
+/// The other draft type starts from a total and divides it, which suits a
+/// till receipt you are copying wholesale. This one suits the common case —
+/// you have the category subtotals in front of you, and asking for the total
+/// as well means typing a number the app can work out and can then disagree
+/// with.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct SubtotalDraft {
+    pub id: Option<TxnId>,
+    pub txn_date: NaiveDate,
+    pub merchant: Option<String>,
+    /// `None` uses the merchant's remembered location, else home.
+    pub location: Option<String>,
+    pub rows: Vec<SubtotalRow>,
+    pub notes: Option<String>,
+    pub needs_review: bool,
+    pub remember_defaults: bool,
+}
+
+/// Reconcile and plan a subtotal-entered receipt. Writes nothing.
+///
+/// Tax comes from the location's rate and is never asked for: that is the
+/// whole point of recording where the store is. It is flagged estimated,
+/// because it was computed rather than read off the paper.
+pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPreview> {
+    let context = resolve_context(
+        db,
+        draft.merchant.as_deref(),
+        draft.location.as_deref(),
+        None,
+    )?;
+
+    let subtotal = draft
+        .rows
+        .iter()
+        .try_fold(Money::ZERO, |acc, r| acc.checked_add(r.subtotal))
+        .ok_or_else(|| CoreError::Invalid("the subtotals overflowed".to_string()))?;
+
+    let amounts = reconcile(&AmountEntry::subtotal_only(subtotal), &context.tax)?;
+    let rows: Vec<(Option<CategoryId>, Money)> = draft
+        .rows
+        .iter()
+        .map(|r| (r.category_id, r.subtotal))
+        .collect();
+    let plan = plan_by_subtotal(&amounts, &rows)?;
+
+    let mut warnings = Vec::new();
+    let mut blockers = Vec::new();
+
+    if plan.rows.is_empty() {
+        blockers.push("nothing entered yet: add a category and what it came to".to_string());
+    }
+    for (index, row) in plan.rows.iter().enumerate() {
+        if row.category_id.is_none() {
+            blockers.push(format!("row {} has no category", index + 1));
+        }
+        if row.amount.is_negative() {
+            warnings.push(format!(
+                "row {} is negative ({}), which records a refund",
+                index + 1,
+                row.amount.to_display_string()
+            ));
+        }
+    }
+    if context.tax.rate_ppm == 0 && !plan.rows.is_empty() {
+        warnings.push(format!(
+            "no tax was added: {} has no sales-tax rate set",
+            context
+                .location
+                .as_ref()
+                .map_or("this receipt", |l| l.name.as_str())
+        ));
+    }
+
+    Ok(TransactionPreview {
+        amounts,
+        plan,
+        tax_rate_ppm: context.tax.rate_ppm,
+        context,
+        detail_level: DetailLevel::Grouped,
+        warnings,
+        blockers,
+    })
+}
+
+/// Persist a subtotal-entered receipt.
+pub fn save_subtotals(db: &Db, draft: &SubtotalDraft, now: &str) -> Result<TxnId> {
+    let preview = preview_subtotals(db, draft)?;
+    if !preview.can_save() {
+        return Err(CoreError::Invalid(format!(
+            "this transaction cannot be saved: {}",
+            preview.blockers.join("; ")
+        )));
+    }
+
+    let merchant = match draft.merchant.as_deref() {
+        Some(name) => Some(merchants::get_or_create(db, name)?),
+        None => None,
+    };
+    let location_id = preview.context.location.as_ref().map(|l| l.id);
+
+    let splits: Vec<SplitRecord> = preview
+        .plan
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let category_id = row
+                .category_id
+                .ok_or_else(|| CoreError::Invalid(format!("row {} has no category", index + 1)))?;
+            Ok(SplitRecord {
+                id: None,
+                uuid: None,
+                category_id,
+                subtotal: row.subtotal,
+                tax: row.tax,
+                amount: row.amount,
+                sort_order: 0,
+                notes: draft.rows.get(index).and_then(|r| r.note.clone()),
+                line_items: Vec::new(),
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let new = NewTransaction {
+        id: draft.id,
+        txn_date: draft.txn_date,
+        merchant_id: merchant.as_ref().map(|m| m.id),
+        location_id,
+        amounts: preview.amounts,
+        tax_rate_ppm: (location_id.is_some() || preview.tax_rate_ppm != 0)
+            .then_some(preview.tax_rate_ppm),
+        detail_level: DetailLevel::Grouped,
+        needs_review: draft.needs_review,
+        notes: draft.notes.clone(),
+        splits,
+    };
+
+    let id = transactions::save(db, &new)?;
+
+    if let Some(merchant) = merchant {
+        if draft.remember_defaults {
+            let category = match preview.plan.rows.as_slice() {
+                [only] => only.category_id,
+                _ => None,
+            };
+            merchants::remember(db, merchant.id, category, location_id, DetailLevel::Grouped)?;
+        }
+        merchants::touch(db, merchant.id, now)?;
+    }
+
+    Ok(id)
 }
 
 /// Persist a draft, creating the merchant and updating its memory.
@@ -761,7 +924,7 @@ mod tests {
         d.remember_defaults = true;
         d.splits = vec![
             split_for(&db, "Groceries", SplitAmount::Percent(5_000)),
-            split_for(&db, "Household Supplies", SplitAmount::Remainder),
+            split_for(&db, "Household", SplitAmount::Remainder),
         ];
         save_transaction(&db, &d, NOW).unwrap();
 
@@ -971,7 +1134,7 @@ mod tests {
             id,
             &[
                 split_for(&db, "Groceries", SplitAmount::Fixed(m(1000))),
-                split_for(&db, "Household Supplies", SplitAmount::Remainder),
+                split_for(&db, "Household", SplitAmount::Remainder),
             ],
         )
         .unwrap();
@@ -1010,7 +1173,7 @@ mod tests {
         d.location = Some("Home".to_string());
         d.splits = vec![
             split_for(&db, "Groceries", SplitAmount::Fixed(m(3000))),
-            split_for(&db, "Household Supplies", SplitAmount::Remainder),
+            split_for(&db, "Household", SplitAmount::Remainder),
         ];
         save_transaction(&db, &d, NOW).unwrap();
         let before = transactions::count(&db, &TxnFilter::default()).unwrap();
@@ -1083,7 +1246,7 @@ mod tests {
         d.entry = AmountEntry::total_only(m(6000));
         d.splits = vec![
             split_for(&db, "Groceries", SplitAmount::Fixed(m(4000))),
-            split_for(&db, "Gas/Fuel", SplitAmount::Remainder),
+            split_for(&db, "Gas", SplitAmount::Remainder),
         ];
         assert_eq!(save_transaction(&db, &d, NOW).unwrap(), id);
 

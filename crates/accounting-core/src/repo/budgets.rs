@@ -684,8 +684,8 @@ mod tests {
         let db = seeded();
         let shapes = [
             ("Groceries", Period::Monthly),
-            ("Insurance (Auto)", Period::Yearly),
-            ("Auto Maintenance", Period::EveryNMonths(6)),
+            ("Car Insurance", Period::Yearly),
+            ("Car Repair", Period::EveryNMonths(6)),
             (
                 "Travel",
                 Period::ByDate {
@@ -724,7 +724,7 @@ mod tests {
         let after = record(groceries, ym(2026, 7));
         assert!(upsert(&db, &after).is_ok());
         // …and a different category is never a conflict.
-        assert!(upsert(&db, &record(category(&db, "Gas/Fuel"), ym(2026, 4))).is_ok());
+        assert!(upsert(&db, &record(category(&db, "Gas"), ym(2026, 4))).is_ok());
     }
 
     #[test]
@@ -873,7 +873,7 @@ mod tests {
     fn list_filters_to_the_month_and_orders_by_group() {
         let db = seeded();
         let groceries = category(&db, "Groceries");
-        let insurance = category(&db, "Insurance (Auto)");
+        let insurance = category(&db, "Car Insurance");
 
         let mut ended = record(groceries, ym(2026, 1));
         ended.period_end = Some(ym(2026, 3));
@@ -886,12 +886,12 @@ mod tests {
             all.iter()
                 .map(|l| l.category_name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Insurance (Auto)", "Groceries"]
+            vec!["Car Insurance", "Groceries"]
         );
 
         let april = list(&db, Some(ym(2026, 4))).unwrap();
         assert_eq!(april.len(), 1);
-        assert_eq!(april[0].category_name, "Insurance (Auto)");
+        assert_eq!(april[0].category_name, "Car Insurance");
         assert!(list(&db, Some(ym(2025, 12))).unwrap().is_empty());
 
         assert_eq!(
@@ -907,7 +907,7 @@ mod tests {
     fn adjustments_sum_per_month_and_stay_in_range() {
         let db = seeded();
         let groceries = category(&db, "Groceries");
-        let fuel = category(&db, "Gas/Fuel");
+        let fuel = category(&db, "Gas");
 
         add_adjustment(&db, groceries, ym(2026, 3), Money::from_dollars(50), None).unwrap();
         add_adjustment(

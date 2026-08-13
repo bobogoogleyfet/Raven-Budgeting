@@ -149,10 +149,10 @@ enum Command {
     /// Set budgets, and see how they are funded and how they are spent.
     ///
     /// Examples:
-    ///   pacc budget set --category "Insurance (Auto)" --amount 1200 --period yearly
+    ///   pacc budget set --category "Car Insurance" --amount 1200 --period yearly
     ///   pacc budget set --category Groceries --amount 400
     ///   pacc budget status --month 2026-08
-    ///   pacc budget adjust --category "Insurance (Auto)" --month 2026-03 --amount 1200
+    ///   pacc budget adjust --category "Car Insurance" --month 2026-03 --amount 1200
     #[command(verbatim_doc_comment)]
     Budget(BudgetArgs),
     /// Budgeted vs actual, categories down and months across.
@@ -2049,7 +2049,7 @@ fn print_txn(txn: &Txn) {
     }
 }
 
-/// `"Groceries $30.00, Gas/Fuel $24.19"` — what the money in this transaction
+/// `"Groceries $30.00, Gas $24.19"` — what the money in this transaction
 /// was for, which is the column a list is actually read for.
 fn split_summary(txn: &Txn) -> String {
     txn.splits
@@ -2492,11 +2492,8 @@ mod tests {
             SplitAmount::Remainder
         );
         // A category name containing '=' is not a thing, but a name
-        // containing '/' very much is — the seed ships Rent/Mortgage.
-        assert_eq!(
-            parse_split_spec("Rent/Mortgage=1200.00").unwrap().category,
-            "Rent/Mortgage"
-        );
+        // containing '/' very much is — the seed ships Rent.
+        assert_eq!(parse_split_spec("Rent=1200.00").unwrap().category, "Rent");
 
         assert!(parse_split_spec("Groceries").is_err());
         assert!(parse_split_spec("=45.00").is_err());

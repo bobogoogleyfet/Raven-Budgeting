@@ -215,6 +215,64 @@ pub fn plan_splits(amounts: &Amounts, drafts: &[SplitDraft]) -> Result<SplitPlan
     Ok(SplitPlan { rows, unassigned })
 }
 
+/// Build a plan from a **subtotal typed per category**, the way a receipt is
+/// actually read.
+///
+/// The other entry mode starts from a total and divides it. This one starts
+/// from the parts: you copy each category's subtotal off the receipt, tax is
+/// computed from the location's rate, and the total falls out. Nobody has to
+/// type a number the app can work out, and nothing has to be divided.
+///
+/// Tax is apportioned across the rows by **subtotal**, which is the correct
+/// weight here and is exact: [`distribute_tax`] is [`Money::allocate`], so the
+/// per-row taxes sum to `amounts.tax` to the cent with no drift. Each row is
+/// then `subtotal + its share of tax`, and the rows sum to `amounts.total` by
+/// construction — which is why `unassigned` is always zero in this mode.
+///
+/// `amounts.subtotal` must equal the sum of `subtotals`; the caller derives
+/// both from the same list, so a mismatch is a bug rather than user input.
+pub fn plan_by_subtotal(
+    amounts: &Amounts,
+    rows: &[(Option<CategoryId>, Money)],
+) -> Result<SplitPlan, SplitError> {
+    let subtotals: Vec<Money> = rows.iter().map(|(_, s)| *s).collect();
+    let summed = subtotals
+        .iter()
+        .try_fold(Money::ZERO, |acc, m| acc.checked_add(*m))
+        .ok_or(SplitError::Overflow)?;
+    debug_assert_eq!(
+        summed, amounts.subtotal,
+        "plan_by_subtotal was given amounts that do not match its own rows"
+    );
+
+    let taxes = distribute_tax(amounts.tax, &subtotals);
+    let mut resolved = Vec::with_capacity(rows.len());
+    for (index, (category_id, subtotal)) in rows.iter().enumerate() {
+        let tax = taxes.get(index).copied().unwrap_or(Money::ZERO);
+        resolved.push(ResolvedSplit {
+            category_id: *category_id,
+            subtotal: *subtotal,
+            tax,
+            amount: subtotal.checked_add(tax).ok_or(SplitError::Overflow)?,
+            line_items: Vec::new(),
+        });
+    }
+
+    let assigned = resolved
+        .iter()
+        .try_fold(Money::ZERO, |acc, r| acc.checked_add(r.amount))
+        .ok_or(SplitError::Overflow)?;
+    Ok(SplitPlan {
+        rows: resolved,
+        // Zero by construction: the rows *are* the transaction here, rather
+        // than claims against a total entered separately.
+        unassigned: amounts
+            .total
+            .checked_sub(assigned)
+            .ok_or(SplitError::Overflow)?,
+    })
+}
+
 fn checked_sum(iter: impl IntoIterator<Item = Money>) -> Result<Money, SplitError> {
     iter.into_iter().try_fold(Money::ZERO, |acc, m| {
         acc.checked_add(m).ok_or(SplitError::Overflow)

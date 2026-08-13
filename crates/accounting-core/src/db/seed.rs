@@ -13,7 +13,7 @@
 //! [`seed_defaults`] is safe to call on every launch. It matches on name
 //! within group (and on `system_key` for the system categories), so a user who
 //! archived "Fitness" does not get it resurrected, and a user who renamed
-//! "Gas/Fuel" to "Petrol" does not end up with both.
+//! "Gas" to "Petrol" does not end up with both.
 
 use rusqlite::{Transaction, params};
 
@@ -101,12 +101,12 @@ static SEED_GROUPS: &[SeedGroup] = &[
         name: "Bills",
         hidden: false,
         categories: &[
-            SeedCategory::user("Rent/Mortgage"),
+            SeedCategory::user("Rent"),
             SeedCategory::user("Electric"),
             SeedCategory::user("Internet"),
             SeedCategory::user("Phone"),
-            SeedCategory::user("Insurance (Auto)"),
-            SeedCategory::user("Insurance (Health)"),
+            SeedCategory::user("Car Insurance"),
+            SeedCategory::user("Health Insurance"),
             SeedCategory::user("Subscriptions"),
         ],
     },
@@ -117,10 +117,10 @@ static SEED_GROUPS: &[SeedGroup] = &[
         hidden: false,
         categories: &[
             SeedCategory::user("Groceries"),
-            SeedCategory::user("Restaurants & Takeout"),
-            SeedCategory::user("Gas/Fuel"),
-            SeedCategory::user("Household Supplies"),
-            SeedCategory::user("Personal Care"),
+            SeedCategory::user("Restaurants"),
+            SeedCategory::user("Gas"),
+            SeedCategory::user("Household"),
+            SeedCategory::user("Toiletries"),
         ],
     },
     SeedGroup {
@@ -130,8 +130,8 @@ static SEED_GROUPS: &[SeedGroup] = &[
         name: "Non-Monthly",
         hidden: false,
         categories: &[
-            SeedCategory::sinking("Auto Maintenance"),
-            SeedCategory::sinking("Medical & Dental"),
+            SeedCategory::sinking("Car Repair"),
+            SeedCategory::sinking("Medical"),
             SeedCategory::sinking("Gifts"),
             SeedCategory::sinking("Clothing"),
             SeedCategory::sinking("Travel"),
@@ -165,6 +165,26 @@ static SEED_GROUPS: &[SeedGroup] = &[
             SeedCategory::system("Reimbursable", SYSTEM_REIMBURSABLE),
         ],
     },
+];
+
+/// Seed names that changed after release, old to new.
+///
+/// The seed matches categories by name, so renaming one in `SEED_GROUPS`
+/// without this would leave the old row in place and add a second one beside
+/// it — the user would end up with both "Personal Care" and "Toiletries", and
+/// their history split across the two. Applied only when the old name is still
+/// present and the new one is not, so a user who already renamed the category
+/// themselves is left alone.
+const SEED_RENAMES: &[(&str, &str)] = &[
+    ("Rent/Mortgage", "Rent"),
+    ("Insurance (Auto)", "Car Insurance"),
+    ("Insurance (Health)", "Health Insurance"),
+    ("Restaurants & Takeout", "Restaurants"),
+    ("Gas/Fuel", "Gas"),
+    ("Household Supplies", "Household"),
+    ("Personal Care", "Toiletries"),
+    ("Auto Maintenance", "Car Repair"),
+    ("Medical & Dental", "Medical"),
 ];
 
 /// The one location every install starts with.
@@ -221,22 +241,22 @@ const SEED_MERCHANTS: &[SeedMerchant] = &[
     // that was mostly household goods files the money in the wrong envelope.
     SeedMerchant::mixed("Target"),
     // Fuel
-    SeedMerchant::new("Maverik", "Gas/Fuel"),
-    SeedMerchant::new("Chevron", "Gas/Fuel"),
-    SeedMerchant::new("Sinclair", "Gas/Fuel"),
-    SeedMerchant::new("Holiday Oil", "Gas/Fuel"),
+    SeedMerchant::new("Maverik", "Gas"),
+    SeedMerchant::new("Chevron", "Gas"),
+    SeedMerchant::new("Sinclair", "Gas"),
+    SeedMerchant::new("Holiday Oil", "Gas"),
     // Home
-    SeedMerchant::new("Home Depot", "Household Supplies"),
-    SeedMerchant::new("Lowe's", "Household Supplies"),
+    SeedMerchant::new("Home Depot", "Household"),
+    SeedMerchant::new("Lowe's", "Household"),
     // Pharmacy
-    SeedMerchant::new("Walgreens", "Personal Care"),
-    SeedMerchant::new("CVS", "Personal Care"),
+    SeedMerchant::new("Walgreens", "Toiletries"),
+    SeedMerchant::new("CVS", "Toiletries"),
     // Eating out
-    SeedMerchant::new("Cafe Rio", "Restaurants & Takeout"),
-    SeedMerchant::new("Costa Vida", "Restaurants & Takeout"),
-    SeedMerchant::new("Chick-fil-A", "Restaurants & Takeout"),
-    SeedMerchant::new("In-N-Out Burger", "Restaurants & Takeout"),
-    SeedMerchant::new("Swig", "Restaurants & Takeout"),
+    SeedMerchant::new("Cafe Rio", "Restaurants"),
+    SeedMerchant::new("Costa Vida", "Restaurants"),
+    SeedMerchant::new("Chick-fil-A", "Restaurants"),
+    SeedMerchant::new("In-N-Out Burger", "Restaurants"),
+    SeedMerchant::new("Swig", "Restaurants"),
     // Online
     SeedMerchant::mixed("Amazon"),
     SeedMerchant::mixed("eBay"),
@@ -246,6 +266,11 @@ const SEED_MERCHANTS: &[SeedMerchant] = &[
 /// Idempotent.
 pub fn seed_defaults(db: &Db) -> Result<()> {
     db.with_tx(|tx| {
+        // Before the upserts, or they would insert the new names alongside the
+        // old ones instead of finding them.
+        for (old, new) in SEED_RENAMES {
+            rename_category(tx, old, new)?;
+        }
         for (gi, group) in SEED_GROUPS.iter().enumerate() {
             let group_id = upsert_group(tx, group, sparse(gi))?;
             for (ci, cat) in group.categories.iter().enumerate() {
@@ -364,6 +389,29 @@ fn upsert_home_location(tx: &Transaction<'_>) -> Result<()> {
     Ok(())
 }
 
+/// Rename a seeded category that was given a shorter name after release.
+///
+/// Renames the row rather than adding one, so every transaction, budget line
+/// and adjustment already pointing at it follows automatically — they hold its
+/// id, not its name. A no-op unless the old name is present and the new one is
+/// free.
+fn rename_category(tx: &Transaction<'_>, old: &str, new: &str) -> Result<()> {
+    let taken: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM category WHERE name = ?1)",
+        params![new],
+        |r| r.get(0),
+    )?;
+    if taken {
+        return Ok(());
+    }
+    tx.execute(
+        "UPDATE category SET name = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE name = ?1",
+        params![old, new],
+    )?;
+    Ok(())
+}
+
 /// Insert a suggested store, unless one by that name is already there.
 ///
 /// Matched on name including archived rows, for the same reason groups are:
@@ -449,11 +497,11 @@ mod tests {
         assert_eq!(
             rolling,
             [
-                "Auto Maintenance",
+                "Car Repair",
                 "Clothing",
                 "Emergency Fund",
                 "Gifts",
-                "Medical & Dental",
+                "Medical",
                 "Travel"
             ]
         );

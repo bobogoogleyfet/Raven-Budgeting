@@ -122,7 +122,7 @@ impl Fixture {
             "--total",
             "40.00",
             "--category",
-            "Gas/Fuel",
+            "Gas",
         ])
         .expect_ok("add August fuel");
         self
@@ -331,13 +331,13 @@ fn a_category_filter_narrows_the_export() {
         "--to",
         out.to_str().expect("utf-8 path"),
         "--category",
-        "Gas/Fuel",
+        "Gas",
     ])
-    .expect_ok("export --category Gas/Fuel");
+    .expect_ok("export --category Gas");
 
     assert_eq!(csv_row_count(&out), 1, "one fuel receipt of the three");
     let text = String::from_utf8(bytes_at(&out)[BOM.len()..].to_vec()).expect("UTF-8");
-    assert!(text.contains("Gas/Fuel"), "got:\n{text}");
+    assert!(text.contains("Gas"), "got:\n{text}");
     assert!(!text.contains("Groceries"), "got:\n{text}");
 }
 

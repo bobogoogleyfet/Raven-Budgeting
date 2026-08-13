@@ -378,7 +378,7 @@ mod tests {
             distinct_categories(&rows),
             vec![
                 ("Frequent".to_string(), "Groceries".to_string()),
-                ("Frequent".to_string(), "Household Supplies".to_string()),
+                ("Frequent".to_string(), "Household".to_string()),
             ]
         );
     }

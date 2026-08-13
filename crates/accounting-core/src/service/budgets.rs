@@ -274,7 +274,7 @@ mod tests {
         // envelope has taken in eight $100 contributions and paid out $1,200,
         // so it is $400 in hand short of the $800 the schedule expects.
         let db = seeded();
-        let insurance = category(&db, "Insurance (Auto)");
+        let insurance = category(&db, "Car Insurance");
         budget(&db, insurance, Period::Yearly, 1_200, true);
         spend(&db, insurance, "2026-03-14", Money::from_dollars(1_200));
 
@@ -339,7 +339,7 @@ mod tests {
         spend(&db, groceries, "2026-08-03", Money::from_dollars(120));
         spend(
             &db,
-            category(&db, "Gas/Fuel"),
+            category(&db, "Gas"),
             "2026-08-04",
             Money::from_dollars(60),
         );
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(groceries_row.spent_this_month, Money::from_dollars(120));
         assert_eq!(groceries_row.qualified_name(), "Frequent/Groceries");
 
-        let fuel_row = rows.iter().find(|r| r.category_name == "Gas/Fuel").unwrap();
+        let fuel_row = rows.iter().find(|r| r.category_name == "Gas").unwrap();
         assert!(fuel_row.line.is_none(), "no budget set for fuel");
         assert!(
             fuel_row.status.is_none(),
@@ -377,7 +377,7 @@ mod tests {
     #[test]
     fn the_screen_agrees_with_the_single_category_view() {
         let db = seeded();
-        let insurance = category(&db, "Insurance (Auto)");
+        let insurance = category(&db, "Car Insurance");
         budget(&db, insurance, Period::Yearly, 1_200, true);
         spend(&db, insurance, "2026-03-14", Money::from_dollars(1_200));
         budgets::add_adjustment(&db, insurance, ym(2026, 4), Money::from_dollars(60), None)

@@ -38,7 +38,7 @@ use accounting_core::domain::splits::{SplitAmount, SplitDraft};
 use accounting_core::repo::transactions::{DetailLevel, TxnFilter};
 use accounting_core::repo::{categories, locations, merchants, transactions};
 use accounting_core::service::budgets;
-use accounting_core::service::entry::{self, TransactionDraft};
+use accounting_core::service::entry::{self, SubtotalDraft, SubtotalRow, TransactionDraft};
 use accounting_core::{CategoryId, Money, TxnId};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -157,6 +157,55 @@ struct ContextDto {
     default_category_id: Option<i64>,
     detail_level: String,
     recent_merchants: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubtotalRowDto {
+    category_id: Option<i64>,
+    subtotal: i64,
+    note: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubtotalDraftDto {
+    id: Option<i64>,
+    txn_date: String,
+    merchant: Option<String>,
+    location: Option<String>,
+    rows: Vec<SubtotalRowDto>,
+    notes: Option<String>,
+    needs_review: bool,
+    remember_defaults: bool,
+}
+
+impl TryFrom<SubtotalDraftDto> for SubtotalDraft {
+    type Error = String;
+
+    fn try_from(dto: SubtotalDraftDto) -> Result<SubtotalDraft, String> {
+        Ok(SubtotalDraft {
+            id: dto.id.map(TxnId::new),
+            txn_date: dto
+                .txn_date
+                .parse::<chrono::NaiveDate>()
+                .map_err(|e| format!("{} is not a YYYY-MM-DD date: {e}", dto.txn_date))?,
+            merchant: dto.merchant,
+            location: dto.location,
+            rows: dto
+                .rows
+                .into_iter()
+                .map(|r| SubtotalRow {
+                    category_id: r.category_id.map(CategoryId::new),
+                    subtotal: Money::from_cents(r.subtotal),
+                    note: r.note,
+                })
+                .collect(),
+            notes: dto.notes,
+            needs_review: dto.needs_review,
+            remember_defaults: dto.remember_defaults,
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -297,12 +346,18 @@ fn preview_transaction(state: State<'_, AppState>, draft: DraftDto) -> CmdResult
     let db = state.db.lock().map_err(to_message)?;
     let draft: TransactionDraft = draft.try_into()?;
     let preview = entry::preview_transaction(&db, &draft).map_err(to_message)?;
-
     // Resolve category names once here rather than per row: the picker already
     // has them, but the preview's rows may include a synthesised split the UI
     // never sent, and it still has to be labelled.
     let names = categories::list_all(&db).map_err(to_message)?;
+    Ok(to_preview_dto(&preview, &names))
+}
 
+/// Shared by both entry modes, so the two can never render differently.
+fn to_preview_dto(
+    preview: &entry::TransactionPreview,
+    names: &[accounting_core::Category],
+) -> PreviewDto {
     let rows = preview
         .plan
         .rows
@@ -318,7 +373,7 @@ fn preview_transaction(state: State<'_, AppState>, draft: DraftDto) -> CmdResult
         })
         .collect();
 
-    Ok(PreviewDto {
+    PreviewDto {
         subtotal: preview.amounts.subtotal.cents(),
         tax: preview.amounts.tax.cents(),
         total: preview.amounts.total.cents(),
@@ -327,9 +382,9 @@ fn preview_transaction(state: State<'_, AppState>, draft: DraftDto) -> CmdResult
         unassigned: preview.plan.unassigned.cents(),
         detail_level: preview.detail_level.to_string(),
         rows,
-        warnings: preview.warnings,
-        blockers: preview.blockers,
-    })
+        warnings: preview.warnings.clone(),
+        blockers: preview.blockers.clone(),
+    }
 }
 
 #[tauri::command]
@@ -408,6 +463,78 @@ fn entry_context(state: State<'_, AppState>, merchant: Option<String>) -> CmdRes
 /// Includes the seeded suggestions and anything the user has actually shopped
 /// at. Ordered most-recently-used first so the places you go keep floating to
 /// the top of the list, with the untouched suggestions behind them.
+/// Reconcile a subtotal-entered receipt without writing anything.
+///
+/// The tax is worked out from the location's rate, so the form never asks for
+/// it — nor for a total, which is the sum of the parts plus that tax.
+#[tauri::command]
+fn preview_subtotals(state: State<'_, AppState>, draft: SubtotalDraftDto) -> CmdResult<PreviewDto> {
+    let db = state.db.lock().map_err(to_message)?;
+    let draft: SubtotalDraft = draft.try_into()?;
+    let preview = entry::preview_subtotals(&db, &draft).map_err(to_message)?;
+    let names = categories::list_all(&db).map_err(to_message)?;
+    Ok(to_preview_dto(&preview, &names))
+}
+
+#[tauri::command]
+fn save_subtotals(state: State<'_, AppState>, draft: SubtotalDraftDto) -> CmdResult<i64> {
+    let db = state.db.lock().map_err(to_message)?;
+    let draft: SubtotalDraft = draft.try_into()?;
+    let now = chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
+    entry::save_subtotals(&db, &draft, &now)
+        .map(TxnId::get)
+        .map_err(to_message)
+}
+
+/// The home location and its rate, for the first-run prompt.
+#[tauri::command]
+fn home_location(state: State<'_, AppState>) -> CmdResult<Option<LocationDto>> {
+    let db = state.db.lock().map_err(to_message)?;
+    Ok(locations::home(&db)
+        .map_err(to_message)?
+        .map(|l| LocationDto {
+            id: l.id.get(),
+            name: l.name,
+            tax_rate_ppm: l.tax_rate_ppm,
+            is_home: l.is_home,
+        }))
+}
+
+/// Name the place the user lives and set its sales-tax rate.
+///
+/// Asked once, on first run, because every later receipt without an explicit
+/// location inherits this rate — and a receipt silently recording $0.00 of tax
+/// is wrong in a way nothing else surfaces.
+#[tauri::command]
+fn set_home_location(state: State<'_, AppState>, name: String, tax_rate_ppm: u32) -> CmdResult<()> {
+    let db = state.db.lock().map_err(to_message)?;
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("a location needs a name".to_string());
+    }
+    if tax_rate_ppm > 1_000_000 {
+        return Err("a tax rate above 100% is not a rate".to_string());
+    }
+
+    // Renames the existing home rather than adding a second one: the schema
+    // permits exactly one, and the user is telling us where home *is*, not
+    // adding a place they visited.
+    match locations::home(&db).map_err(to_message)? {
+        Some(home) => {
+            locations::rename(&db, home.id, trimmed).map_err(to_message)?;
+            locations::set_rate(&db, home.id, tax_rate_ppm).map_err(to_message)?;
+        }
+        None => {
+            let created =
+                locations::get_or_create(&db, trimmed, tax_rate_ppm).map_err(to_message)?;
+            locations::set_home(&db, created.id).map_err(to_message)?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn list_merchants(state: State<'_, AppState>) -> CmdResult<Vec<MerchantDto>> {
     let db = state.db.lock().map_err(to_message)?;
@@ -559,6 +686,10 @@ fn main() {
             list_transactions,
             needs_categorizing,
             entry_context,
+            preview_subtotals,
+            save_subtotals,
+            home_location,
+            set_home_location,
             list_merchants,
             list_locations,
             categorize,
