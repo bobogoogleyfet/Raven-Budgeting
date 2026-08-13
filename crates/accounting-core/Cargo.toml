@@ -1,0 +1,25 @@
+[package]
+name = "accounting-core"
+version = "0.1.0"
+description = "Domain model, storage, and export for the personal accounting app. No UI."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Money must never silently lose precision.
+cast_possible_truncation = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+float_arithmetic = "warn"

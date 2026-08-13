@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/accounting-core",
+    "crates/accounting-cli",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/tanner/personal_accounting"
+
+[workspace.dependencies]
+accounting-core = { path = "crates/accounting-core" }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
+uuid = { version = "1.24", features = ["v7", "serde"] }
+
+# rusqlite 0.40 <-> rusqlite_migration 2.6 is the ONLY valid pair.
+# 2.5 requires rusqlite ^0.39; a mismatch pulls two libsqlite3-sys versions
+# and fails to link with duplicate sqlite3_* symbols.
+rusqlite = { version = "0.40", features = ["bundled", "chrono", "uuid", "backup"] }
+rusqlite_migration = "2.6"
+
+# NEVER enable the "zlib" feature: it pulls a C compiler dependency and breaks
+# the aarch64-linux-android / aarch64-apple-ios builds.
+rust_xlsxwriter = { version = "0.97.1", default-features = false, features = ["chrono", "serde"] }
+csv = "1.4"
+
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+proptest = "1.11"
+insta = "1.48"
+tempfile = "3.27"
+
+# Bundled SQLite is C; compiling it unoptimized makes debug test runs crawl.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 2

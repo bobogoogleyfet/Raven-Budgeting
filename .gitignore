@@ -1,0 +1,28 @@
+/target
+**/target
+
+# Frontend
+/ui/node_modules
+/ui/dist
+/ui/.vite
+
+# Tauri generated mobile projects
+/crates/app-tauri/gen/android
+/crates/app-tauri/gen/apple
+
+# NEVER commit a database — these contain real financial data.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Exports may contain real financial data.
+*.xlsx
+*.csv
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

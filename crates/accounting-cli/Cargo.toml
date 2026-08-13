@@ -1,0 +1,20 @@
+[package]
+name = "accounting-cli"
+version = "0.1.0"
+description = "Headless CLI for the personal accounting app. Debug tool and core/UI boundary enforcer."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pacc"
+path = "src/main.rs"
+
+[dependencies]
+accounting-core.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
