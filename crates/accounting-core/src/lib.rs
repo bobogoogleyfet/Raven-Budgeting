@@ -40,6 +40,12 @@
 //! [`repo::transactions::save`], which replaces a whole transaction aggregate
 //! inside one SQLite transaction. That is what holds the aggregate invariants
 //! true; [`db::check_all`] only audits them.
+//!
+//! [`service::entry`] — the workflow every frontend calls: resolve the names
+//! the user typed, apply what we remember about the store, reconcile the
+//! amounts, plan the splits, persist. [`service::entry::preview_transaction`]
+//! is the same code as [`service::entry::save_transaction`] minus the write,
+//! so a UI cannot display one set of numbers and store another.
 
 #![doc(html_no_source)]
 
@@ -49,6 +55,7 @@ pub mod error;
 pub mod ids;
 pub mod money;
 pub mod repo;
+pub mod service;
 pub mod time;
 
 pub use db::{Db, InvariantViolation, check_all, seed_defaults};
@@ -64,4 +71,5 @@ pub use repo::transactions::{
     DetailLevel, LineItemRecord, LoadedLineItem, LoadedSplit, NewTransaction, SplitRecord, Txn,
     TxnFilter,
 };
+pub use service::entry::{EntryContext, TransactionDraft, TransactionPreview};
 pub use time::{MonthRange, ParseYearMonthError, YearMonth, month_short_name, quarter_of};
