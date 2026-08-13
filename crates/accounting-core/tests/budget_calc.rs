@@ -337,21 +337,23 @@ fn a_rollover_yearly_line_carries_its_balance_into_the_next_period() {
 }
 
 #[test]
-fn a_non_rollover_line_resets_every_month_even_on_a_yearly_period() {
-    // Documented behaviour: `rollover = false` zeroes the carry *every month*,
-    // not at the cycle boundary, so a yearly line without rollover never
-    // accumulates toward its bill — it is a degenerate configuration by
-    // construction. Pinned here because the M1 brief describes the reset as
-    // happening at the period boundary; see the report.
+fn a_non_rollover_line_resets_at_the_period_boundary_not_every_month() {
+    // `rollover = false` restarts the balance at each *cycle* boundary. A
+    // yearly line therefore still accumulates across its twelve months toward
+    // the bill; a monthly reset would leave it permanently unable to reach its
+    // own target, which would make the yearly period useless.
     let l = line(Period::Yearly, (2026, 3), 120_000, false);
     let empty = BTreeMap::new();
 
+    // Seven contributions have landed by September (March is month 0).
     let mid_period = funded_balance(&l, &empty, &empty, ym(2026, 9));
-    assert_eq!(mid_period.funded_balance, Money::from_cents(10_000));
+    assert_eq!(mid_period.funded_balance, Money::from_cents(70_000));
 
+    // By the last month of the cycle the full target is funded.
     let end_of_period = funded_balance(&l, &empty, &empty, ym(2027, 2));
-    assert_eq!(end_of_period.funded_balance, Money::from_cents(10_000));
+    assert_eq!(end_of_period.funded_balance, Money::from_cents(120_000));
 
+    // The anniversary starts the next cycle from zero.
     let new_period = funded_balance(&l, &empty, &empty, ym(2027, 3));
     assert_eq!(new_period.funded_balance, Money::from_cents(10_000));
 
@@ -360,6 +362,48 @@ fn a_non_rollover_line_resets_every_month_even_on_a_yearly_period() {
         total(&contributions(&l, range((2027, 3), (2028, 2)))),
         120_000
     );
+}
+
+#[test]
+fn funding_status_and_spending_status_answer_different_questions() {
+    // A monthly envelope spent exactly to plan is `Behind` on funding — the
+    // schedule says the money should be banked and it is not — while being
+    // exactly on budget on spending. Only `spend.overspent_by` may ever be
+    // surfaced as "over budget"; rendering `OnTrack::Behind` that way would be
+    // wrong for every non-rollover monthly category.
+    let l = line(Period::Monthly, (2026, 1), 40_000, false);
+    let spend = BTreeMap::from([(ym(2026, 1), Money::from_cents(40_000))]);
+    let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 1));
+
+    assert_eq!(s.on_track, OnTrack::Behind(Money::from_cents(40_000)));
+    assert_eq!(s.spend.spent, Money::from_cents(40_000));
+    assert_eq!(s.spend.remaining, Money::ZERO);
+    assert_eq!(s.spend.overspent_by, Money::ZERO);
+}
+
+#[test]
+fn spend_status_reports_the_overspend_and_a_negative_remaining() {
+    let l = line(Period::Monthly, (2026, 1), 40_000, false);
+    let spend = BTreeMap::from([(ym(2026, 1), Money::from_cents(52_500))]);
+    let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 1));
+
+    assert_eq!(s.spend.budgeted, Money::from_cents(40_000));
+    assert_eq!(s.spend.remaining, Money::from_cents(-12_500));
+    assert_eq!(s.spend.overspent_by, Money::from_cents(12_500));
+}
+
+#[test]
+fn spend_status_is_scoped_to_the_current_cycle() {
+    // Last cycle's insurance bill must not count against this cycle's budget.
+    let l = line(Period::Yearly, (2026, 3), 120_000, true);
+    let spend = BTreeMap::from([
+        (ym(2026, 5), Money::from_cents(120_000)),
+        (ym(2027, 5), Money::from_cents(45_000)),
+    ]);
+    let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2027, 8));
+
+    assert_eq!(s.spend.spent, Money::from_cents(45_000));
+    assert_eq!(s.spend.overspent_by, Money::ZERO);
 }
 
 #[test]

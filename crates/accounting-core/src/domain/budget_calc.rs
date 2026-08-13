@@ -52,6 +52,13 @@ pub struct BudgetLine {
 }
 
 /// How a funded balance compares with where it should be by now.
+///
+/// This is a **funding** measure — "will the money be there when the bill
+/// arrives?" — and it is the right question for a sinking fund. It is *not* an
+/// overspending warning: see [`SpendStatus`], which answers the separate
+/// question "have I spent more than I budgeted?". A UI must not render
+/// [`OnTrack::Behind`] as "over budget"; a grocery envelope spent exactly to
+/// plan is legitimately `Behind` on funding and perfectly fine on spending.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum OnTrack {
     /// Funded ahead of schedule by this much.
@@ -60,6 +67,26 @@ pub enum OnTrack {
     OnTrack,
     /// Short of schedule by this much.
     Behind(Money),
+}
+
+/// Spending against the budget for the **current cycle**.
+///
+/// Deliberately separate from [`OnTrack`]. The two answer different questions
+/// and disagree in normal use: a $400/mo grocery envelope with $400 spent is
+/// `OnTrack::Behind($400)` on funding (the schedule says that money should be
+/// banked, and it is not) while being exactly on budget here.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct SpendStatus {
+    /// The line's budget for one full cycle.
+    pub budgeted: Money,
+    /// Spending within the current cycle, through `as_of`.
+    pub spent: Money,
+    /// `budgeted - spent`. Negative once spending passes the budget.
+    pub remaining: Money,
+    /// How far past the cycle budget spending has gone; [`Money::ZERO`] when
+    /// still within it. A UI can treat any non-zero value here as the "over
+    /// budget" signal.
+    pub overspent_by: Money,
 }
 
 /// The state of one budget line as of a given month.
@@ -80,7 +107,11 @@ pub struct FundedStatus {
     /// the first month of a yearly line, `1` in its last. Together with the
     /// elapsed months it always adds up to the cycle length.
     pub months_remaining: u32,
+    /// Funding progress against the contribution schedule.
     pub on_track: OnTrack,
+    /// Spending against this cycle's budget. Separate from `on_track` — see
+    /// [`SpendStatus`].
+    pub spend: SpendStatus,
 }
 
 /// Length of the cycle containing `ym`, and `ym`'s zero-based index within it.
@@ -163,11 +194,12 @@ pub fn contributions(line: &BudgetLine, range: MonthRange) -> BTreeMap<YearMonth
 /// balance[start - 1] = 0
 /// ```
 ///
-/// `carried[m]` is `balance[m-1]` when `rollover` is set and [`Money::ZERO`]
-/// otherwise — the reset is **monthly**, not per period. A non-rollover
-/// grocery envelope therefore resets every month (February's overspend is
-/// February's problem), and a `Yearly` line with `rollover == false` never
-/// accumulates toward its bill at all: annual lines want `rollover == true`.
+/// `carried[m]` is `balance[m-1]`, except that a line with `rollover == false`
+/// starts each **cycle** from zero. The reset is per period, not per month, so
+/// both shapes behave sensibly: a monthly grocery envelope resets every month
+/// (its cycle *is* one month, so February's overspend is February's problem),
+/// while a `Yearly` line still accumulates across its twelve months toward the
+/// bill and starts fresh on the anniversary.
 ///
 /// `spend_by_month` and `adjustments` are read only for months inside the
 /// `period_start..=as_of` window; entries outside it are ignored.
@@ -189,12 +221,18 @@ pub fn funded_balance(
         let spend = spend_by_month.get(&ym).copied().unwrap_or(Money::ZERO);
         let adjustment = adjustments.get(&ym).copied().unwrap_or(Money::ZERO);
 
-        // `rollover == false` zeroes the carry *every month*, not at the
-        // cycle boundary: an envelope that does not roll over is spent or
-        // lost within its month. Note the consequence — a `Yearly` line with
-        // `rollover == false` never accumulates toward its bill and is a
-        // degenerate configuration; annual lines want `rollover == true`.
-        let carried = if line.rollover { balance } else { Money::ZERO };
+        // Without rollover the balance restarts at each *cycle* boundary, not
+        // each month. For a `Monthly` line the cycle is one month, so this is
+        // the familiar "use it or lose it" envelope. For a `Yearly` line it
+        // still accumulates across the twelve months toward the bill and
+        // resets on the anniversary, which is what "yearly budget, no
+        // rollover" should mean.
+        let starts_new_cycle = cycle_position(line, ym).is_some_and(|(_, idx)| idx == 0);
+        let carried = if line.rollover || !starts_new_cycle {
+            balance
+        } else {
+            Money::ZERO
+        };
         balance = carried
             .saturating_add(contribution)
             .saturating_sub(spend)
@@ -227,6 +265,31 @@ pub fn funded_balance(
         None => (line.amount, 0),
     };
 
+    // Spending against *this cycle's* budget. Deliberately a separate measure
+    // from `on_track`: that one asks whether the money will be there when the
+    // bill lands, this one asks whether more has been spent than was budgeted.
+    // For a monthly envelope the two routinely disagree, and only this one
+    // should ever be surfaced as "over budget".
+    let cycle_start = match cycle_position(line, as_of) {
+        Some((_, idx)) => as_of.add_months(-i32::try_from(idx).unwrap_or(0)),
+        None => line.period_start,
+    };
+    let spent_this_cycle: Money = MonthRange::new(cycle_start, as_of)
+        .iter()
+        .map(|ym| spend_by_month.get(&ym).copied().unwrap_or(Money::ZERO))
+        .sum();
+    let remaining = line.amount.saturating_sub(spent_this_cycle);
+    let spend = SpendStatus {
+        budgeted: line.amount,
+        spent: spent_this_cycle,
+        remaining,
+        overspent_by: if remaining.is_negative() {
+            remaining.abs()
+        } else {
+            Money::ZERO
+        },
+    };
+
     let on_track = match balance.cmp(&expected) {
         std::cmp::Ordering::Greater => OnTrack::Ahead(balance.saturating_sub(expected)),
         std::cmp::Ordering::Equal => OnTrack::OnTrack,
@@ -242,6 +305,7 @@ pub fn funded_balance(
         target: line.amount,
         months_remaining,
         on_track,
+        spend,
     }
 }
 
@@ -420,14 +484,72 @@ mod tests {
     }
 
     #[test]
-    fn a_non_rollover_line_resets_every_month() {
-        // Even on a yearly period: without rollover nothing accumulates.
+    fn a_non_rollover_line_resets_at_the_cycle_boundary_not_monthly() {
+        // A yearly line still accumulates toward its bill across the twelve
+        // months; "no rollover" resets it on the anniversary, not every month.
+        // Resetting monthly would make the yearly period useless, since the
+        // line could never reach its target.
         let l = line(Period::Yearly, 120_000, false);
         let empty = BTreeMap::new();
-        for month in [1, 6, 12] {
+        for (month, expected) in [(1, 10_000), (6, 60_000), (12, 120_000)] {
             let s = funded_balance(&l, &empty, &empty, ym(2026, month));
-            assert_eq!(s.funded_balance, m(10_000), "{month}");
+            assert_eq!(s.funded_balance, m(expected), "month {month}");
         }
+        // The anniversary starts the next cycle from zero.
+        let s = funded_balance(&l, &empty, &empty, ym(2027, 1));
+        assert_eq!(s.funded_balance, m(10_000));
+    }
+
+    #[test]
+    fn a_monthly_non_rollover_envelope_still_resets_every_month() {
+        // A monthly line's cycle *is* one month, so the familiar use-it-or-
+        // lose-it envelope falls out of the same rule.
+        let l = line(Period::Monthly, 40_000, false);
+        let spend = BTreeMap::from([(ym(2026, 1), m(40_000))]);
+        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 2));
+        assert_eq!(s.funded_balance, m(40_000));
+    }
+
+    #[test]
+    fn spending_status_is_reported_separately_from_funding_status() {
+        // The case that drove splitting these apart: a grocery envelope spent
+        // exactly to plan is `Behind` on *funding* while being exactly on
+        // budget on *spending*. Only the latter may be shown as "over budget".
+        let l = line(Period::Monthly, 40_000, false);
+        let spend = BTreeMap::from([(ym(2026, 1), m(40_000))]);
+        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 1));
+
+        assert_eq!(s.on_track, OnTrack::Behind(m(40_000)));
+        assert_eq!(s.spend.budgeted, m(40_000));
+        assert_eq!(s.spend.spent, m(40_000));
+        assert_eq!(s.spend.remaining, Money::ZERO);
+        assert_eq!(
+            s.spend.overspent_by,
+            Money::ZERO,
+            "spending to plan is not overspending"
+        );
+    }
+
+    #[test]
+    fn overspending_is_reported_only_by_spend_status() {
+        let l = line(Period::Monthly, 40_000, false);
+        let spend = BTreeMap::from([(ym(2026, 1), m(45_000))]);
+        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 1));
+
+        assert_eq!(s.spend.spent, m(45_000));
+        assert_eq!(s.spend.remaining, m(-5_000));
+        assert_eq!(s.spend.overspent_by, m(5_000));
+    }
+
+    #[test]
+    fn spend_status_counts_the_current_cycle_only() {
+        // A yearly line's spending resets with the cycle, so last year's bill
+        // does not count against this year's budget.
+        let l = line(Period::Yearly, 120_000, true);
+        let spend = BTreeMap::from([(ym(2026, 3), m(120_000)), (ym(2027, 3), m(30_000))]);
+        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2027, 6));
+        assert_eq!(s.spend.spent, m(30_000));
+        assert_eq!(s.spend.overspent_by, Money::ZERO);
     }
 
     #[test]
