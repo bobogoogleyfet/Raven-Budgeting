@@ -22,6 +22,9 @@ pub struct Location {
     /// Parts per million: 8.375% is exactly `83_750`. Percent-with-2-decimals
     /// would round that away and a float would be differently wrong.
     pub tax_rate_ppm: u32,
+    /// The reduced rate for food categories here, if this place has one.
+    /// `None` means food is taxed like everything else.
+    pub food_rate_ppm: Option<u32>,
     /// Shelf prices already include tax (rare in the US, normal under VAT).
     pub prices_include_tax: bool,
     pub is_home: bool,
@@ -33,7 +36,8 @@ pub struct Location {
 /// 1000000` — 100%.
 const MAX_RATE_PPM: u32 = 1_000_000;
 
-const SELECT_LOCATION: &str = "SELECT id, uuid, name, tax_rate_ppm, prices_include_tax,
+const SELECT_LOCATION: &str =
+    "SELECT id, uuid, name, tax_rate_ppm, food_rate_ppm, prices_include_tax,
                                       is_home, notes, archived_at IS NOT NULL
                                  FROM location";
 
@@ -43,10 +47,11 @@ fn map_location(row: &Row<'_>) -> rusqlite::Result<Location> {
         uuid: row.get(1)?,
         name: row.get(2)?,
         tax_rate_ppm: row.get(3)?,
-        prices_include_tax: row.get(4)?,
-        is_home: row.get(5)?,
-        notes: row.get(6)?,
-        archived: row.get(7)?,
+        food_rate_ppm: row.get(4)?,
+        prices_include_tax: row.get(5)?,
+        is_home: row.get(6)?,
+        notes: row.get(7)?,
+        archived: row.get(8)?,
     })
 }
 
@@ -135,6 +140,30 @@ pub fn rename(db: &Db, id: LocationId, name: &str) -> Result<()> {
             SET name = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
           WHERE id = ?1",
         params![id, trimmed],
+    )?;
+    if changed == 0 {
+        return Err(CoreError::NotFound(format!("location {id}")));
+    }
+    Ok(())
+}
+
+/// Set the reduced rate for food categories at this location.
+///
+/// `None` removes it, meaning food is taxed like everything else — which is
+/// correct for most states and is what a location starts with.
+pub fn set_food_rate(db: &Db, id: LocationId, food_rate_ppm: Option<u32>) -> Result<()> {
+    if let Some(ppm) = food_rate_ppm
+        && ppm > 1_000_000
+    {
+        return Err(CoreError::Invalid(format!(
+            "food rate {ppm} ppm is above 100%"
+        )));
+    }
+    let changed = db.conn().execute(
+        "UPDATE location
+            SET food_rate_ppm = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE id = ?1",
+        params![id, food_rate_ppm],
     )?;
     if changed == 0 {
         return Err(CoreError::NotFound(format!("location {id}")));

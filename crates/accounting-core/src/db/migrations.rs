@@ -22,8 +22,13 @@ use rusqlite_migration::{M, Migrations};
 ///
 /// The file name is carried alongside the text so a hash-mismatch failure can
 /// name the offending file instead of an index.
-pub const MIGRATION_SOURCES: &[(&str, &str)] =
-    &[("001_init.sql", include_str!("schema/001_init.sql"))];
+pub const MIGRATION_SOURCES: &[(&str, &str)] = &[
+    ("001_init.sql", include_str!("schema/001_init.sql")),
+    (
+        "002_food_rate.sql",
+        include_str!("schema/002_food_rate.sql"),
+    ),
+];
 
 /// The `user_version` a fully migrated database reports.
 pub const SCHEMA_VERSION: usize = MIGRATION_SOURCES.len();
@@ -51,8 +56,9 @@ mod tests {
 
     #[test]
     fn schema_version_tracks_the_file_list() {
-        assert_eq!(SCHEMA_VERSION, 1);
+        assert_eq!(SCHEMA_VERSION, 2);
         assert_eq!(MIGRATION_SOURCES[0].0, "001_init.sql");
+        assert_eq!(MIGRATION_SOURCES[1].0, "002_food_rate.sql");
         assert!(MIGRATION_SOURCES.iter().all(|(_, sql)| !sql.is_empty()));
     }
 }

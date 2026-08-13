@@ -50,6 +50,9 @@ struct SeedCategory {
     rollover: bool,
     system_key: Option<&'static str>,
     is_budgeted: bool,
+    /// Whether a location's reduced food rate applies. Unprepared food only:
+    /// Restaurants are prepared food and taxed in full.
+    food: bool,
 }
 
 impl SeedCategory {
@@ -59,6 +62,15 @@ impl SeedCategory {
             rollover: false,
             system_key: None,
             is_budgeted: true,
+            food: false,
+        }
+    }
+
+    /// A category taxed at the reduced grocery rate where one exists.
+    const fn groceries(name: &'static str) -> Self {
+        SeedCategory {
+            food: true,
+            ..SeedCategory::user(name)
         }
     }
 
@@ -77,6 +89,7 @@ impl SeedCategory {
         SeedCategory {
             name,
             rollover: false,
+            food: false,
             system_key: Some(key),
             // Kept off budget screens: budgeting "Transfer" is meaningless and
             // budgeting "Uncategorized" encourages leaving things there.
@@ -116,7 +129,7 @@ static SEED_GROUPS: &[SeedGroup] = &[
         name: "Frequent",
         hidden: false,
         categories: &[
-            SeedCategory::user("Groceries"),
+            SeedCategory::groceries("Groceries"),
             SeedCategory::user("Restaurants"),
             SeedCategory::user("Gas"),
             SeedCategory::user("Household"),
@@ -350,19 +363,29 @@ fn upsert_category(
             .ok(),
     };
     if let Some(id) = existing {
+        // The food flag is set even on a category that already exists: it
+        // arrived in a later release, and a database seeded before it would
+        // otherwise keep taxing groceries at the full rate forever. It is a
+        // fact about what the category *is*, not a preference the user set.
+        tx.execute(
+            "UPDATE category SET uses_food_rate = ?2 WHERE id = ?1",
+            params![id, i64::from(cat.food)],
+        )?;
         return Ok(id);
     }
 
     tx.execute(
         "INSERT INTO category
-             (uuid, group_id, name, system_key, is_budgeted, default_rollover, sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (uuid, group_id, name, system_key, is_budgeted, uses_food_rate,
+              default_rollover, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             new_uuid(),
             group_id,
             cat.name,
             cat.system_key,
             i64::from(cat.is_budgeted),
+            i64::from(cat.food),
             i64::from(cat.rollover),
             sort_order,
         ],

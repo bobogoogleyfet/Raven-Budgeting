@@ -34,6 +34,9 @@ pub struct Category {
     /// Such a category cannot be deleted or archived (schema triggers).
     pub system_key: Option<String>,
     pub is_budgeted: bool,
+    /// Whether a location's reduced food rate applies to this category.
+    /// Groceries yes; Restaurants no, since prepared food is taxed in full.
+    pub uses_food_rate: bool,
     pub default_rollover: bool,
     pub sort_order: i64,
     pub archived: bool,
@@ -63,8 +66,8 @@ impl Category {
 }
 
 const SELECT_CATEGORY: &str = "SELECT c.id, c.uuid, c.group_id, g.name, c.name, c.system_key,
-                                      c.is_budgeted, c.default_rollover, c.sort_order,
-                                      c.archived_at IS NOT NULL
+                                      c.is_budgeted, c.uses_food_rate, c.default_rollover,
+                                      c.sort_order, c.archived_at IS NOT NULL
                                  FROM category c
                                  JOIN category_group g ON g.id = c.group_id";
 
@@ -80,9 +83,10 @@ fn map_category(row: &Row<'_>) -> rusqlite::Result<Category> {
         name: row.get(4)?,
         system_key: row.get(5)?,
         is_budgeted: row.get(6)?,
-        default_rollover: row.get(7)?,
-        sort_order: row.get(8)?,
-        archived: row.get(9)?,
+        uses_food_rate: row.get(7)?,
+        default_rollover: row.get(8)?,
+        sort_order: row.get(9)?,
+        archived: row.get(10)?,
     })
 }
 

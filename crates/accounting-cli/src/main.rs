@@ -1158,6 +1158,11 @@ fn run_location(path: &Path, args: &LocationArgs) -> anyhow::Result<()> {
     if let Some(rate) = args.rate {
         locations::set_rate(&db, location.id, rate)?;
     }
+    // A known area also brings its reduced food rate, so groceries are not
+    // taxed at the general rate. See `pacc doctor` output and areas.rs.
+    if let Some(area) = accounting_core::domain::areas::find(name) {
+        locations::set_food_rate(&db, location.id, area.food_rate_ppm)?;
+    }
     if args.home {
         // Moves the flag rather than adding a second home: the schema's
         // ux_location_home index permits only one.

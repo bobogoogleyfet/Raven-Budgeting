@@ -15,12 +15,14 @@
 //! because a function that reads the clock cannot be tested without mocking
 //! one.
 
+use std::collections::BTreeMap;
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 use crate::db::Db;
 use crate::domain::reconcile::{AmountEntry, Amounts, TaxContext, reconcile};
-use crate::domain::splits::{SplitAmount, SplitDraft, SplitPlan, plan_by_subtotal, plan_splits};
+use crate::domain::splits::{ResolvedSplit, SplitAmount, SplitDraft, SplitPlan, plan_splits};
 use crate::domain::tax::distribute_tax;
 use crate::error::{CoreError, Result};
 use crate::ids::{CategoryId, TxnId};
@@ -148,11 +150,24 @@ pub fn preview_transaction_with_rate(
     draft: &TransactionDraft,
     rate_ppm: Option<u32>,
 ) -> Result<TransactionPreview> {
+    // Without an explicit rate, take it from the categories being filed
+    // against rather than from the location alone: a grocery receipt is taxed
+    // at Utah's 3% food rate, not the 7.25% general one, and estimating it
+    // high by 140% is worse than not estimating at all.
+    let effective = match rate_ppm {
+        Some(explicit) => Some(explicit),
+        None => single_rate_for(
+            db,
+            draft.merchant.as_deref(),
+            draft.location.as_deref(),
+            draft,
+        )?,
+    };
     let context = resolve_context(
         db,
         draft.merchant.as_deref(),
         draft.location.as_deref(),
-        rate_ppm,
+        effective,
     )?;
 
     let amounts = reconcile(&draft.entry, &context.tax)?;
@@ -260,6 +275,65 @@ pub struct SubtotalDraft {
     pub remember_defaults: bool,
 }
 
+/// The one rate that applies to every category in `draft`, if there is one.
+///
+/// Returns `None` when the draft's categories straddle two rates — a receipt
+/// with groceries *and* shampoo on it. That case cannot be estimated from a
+/// total at all: splitting one total across two rates needs the per-category
+/// subtotals, which is exactly what [`preview_subtotals`] takes and this entry
+/// mode does not have. Falling back to the location's general rate and saying
+/// so beats inventing a blended number.
+fn single_rate_for(
+    db: &Db,
+    merchant: Option<&str>,
+    location: Option<&str>,
+    draft: &TransactionDraft,
+) -> Result<Option<u32>> {
+    let base = resolve_context(db, merchant, location, None)?;
+    let Some(food) = base.location.as_ref().and_then(|l| l.food_rate_ppm) else {
+        return Ok(None);
+    };
+
+    let known = categories::list_all(db)?;
+    let mut rates = draft.splits.iter().map(|split| {
+        let uses_food = split
+            .category_id
+            .and_then(|id| known.iter().find(|c| c.id == id))
+            .is_some_and(|c| c.uses_food_rate);
+        if uses_food { food } else { base.tax.rate_ppm }
+    });
+
+    let Some(first) = rates.next() else {
+        return Ok(None);
+    };
+    Ok(rates.all(|r| r == first).then_some(first))
+}
+
+/// Assemble rows whose per-row tax has already been worked out.
+///
+/// Separate from `plan_by_subtotal` because the tax here is not one figure to
+/// apportion — each row carries its own, computed at its own rate.
+fn plan_from_rows(rows: &[(Option<CategoryId>, Money, Money)]) -> Result<SplitPlan> {
+    let mut resolved = Vec::with_capacity(rows.len());
+    for (category_id, subtotal, tax) in rows {
+        resolved.push(ResolvedSplit {
+            category_id: *category_id,
+            subtotal: *subtotal,
+            tax: *tax,
+            amount: subtotal
+                .checked_add(*tax)
+                .ok_or_else(|| CoreError::Invalid("a row overflowed".to_string()))?,
+            line_items: Vec::new(),
+        });
+    }
+    Ok(SplitPlan {
+        // Zero by construction: the rows *are* the transaction here, rather
+        // than claims against a total entered separately.
+        rows: resolved,
+        unassigned: Money::ZERO,
+    })
+}
+
 /// Reconcile and plan a subtotal-entered receipt. Writes nothing.
 ///
 /// Tax comes from the location's rate and is never asked for: that is the
@@ -279,13 +353,82 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
         .try_fold(Money::ZERO, |acc, r| acc.checked_add(r.subtotal))
         .ok_or_else(|| CoreError::Invalid("the subtotals overflowed".to_string()))?;
 
-    let amounts = reconcile(&AmountEntry::subtotal_only(subtotal), &context.tax)?;
-    let rows: Vec<(Option<CategoryId>, Money)> = draft
+    // Rows are taxed per *rate bucket*, the way a register does it: taxable
+    // subtotals are accumulated by rate, the rate is applied to each bucket's
+    // total, and that bucket's tax is then apportioned across its own rows.
+    //
+    // Not per row independently — rounding each line separately drifts from
+    // the till. Three rows of $33.33 at 7.75% round to $2.58 each, totalling
+    // $7.74, where the register charges 7.75% of $99.99 = $7.75.
+    //
+    // Not one rate for the receipt either: Utah taxes unprepared food at 3%
+    // and everything else at about 7.25%, so a $7.28 grocery subtotal owes
+    // $0.22 rather than $0.53, and a Walmart run needs both applied.
+    let food_rate = context.location.as_ref().and_then(|l| l.food_rate_ppm);
+    let known: Vec<Category> = categories::list_all(db)?;
+    let rate_for = |id: Option<CategoryId>| -> u32 {
+        let uses_food = id
+            .and_then(|id| known.iter().find(|c| c.id == id))
+            .is_some_and(|c| c.uses_food_rate);
+        match (uses_food, food_rate) {
+            (true, Some(reduced)) => reduced,
+            _ => context.tax.rate_ppm,
+        }
+    };
+
+    // Buckets keyed by rate, each holding the indices of its rows. A BTreeMap
+    // so the iteration order is the rate, not the hash — the apportionment
+    // below must be reproducible.
+    let mut buckets: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for (index, row) in draft.rows.iter().enumerate() {
+        buckets
+            .entry(rate_for(row.category_id))
+            .or_default()
+            .push(index);
+    }
+
+    let mut taxes = vec![Money::ZERO; draft.rows.len()];
+    let mut tax = Money::ZERO;
+    for (rate, indices) in &buckets {
+        let subtotals: Vec<Money> = indices.iter().map(|i| draft.rows[*i].subtotal).collect();
+        let bucket_subtotal = subtotals
+            .iter()
+            .try_fold(Money::ZERO, |acc, m| acc.checked_add(*m))
+            .ok_or_else(|| CoreError::Invalid("the subtotals overflowed".to_string()))?;
+        let bucket_tax = bucket_subtotal.mul_ppm(*rate);
+
+        // Money::allocate, so the parts sum to the bucket's tax exactly.
+        for (slot, share) in distribute_tax(bucket_tax, &subtotals)
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(index) = indices.get(slot) {
+                taxes[*index] = share;
+            }
+        }
+        tax = tax
+            .checked_add(bucket_tax)
+            .ok_or_else(|| CoreError::Invalid("the tax overflowed".to_string()))?;
+    }
+
+    let resolved: Vec<(Option<CategoryId>, Money, Money)> = draft
         .rows
         .iter()
-        .map(|r| (r.category_id, r.subtotal))
+        .enumerate()
+        .map(|(i, row)| (row.category_id, row.subtotal, taxes[i]))
         .collect();
-    let plan = plan_by_subtotal(&amounts, &rows)?;
+
+    let amounts = Amounts {
+        subtotal,
+        tax,
+        total: subtotal
+            .checked_add(tax)
+            .ok_or_else(|| CoreError::Invalid("the total overflowed".to_string()))?,
+        // Computed from a rate rather than read off the paper. Always true in
+        // this mode: it never asks for a tax figure.
+        tax_is_estimated: true,
+    };
+    let plan = plan_from_rows(&resolved)?;
 
     let mut warnings = Vec::new();
     let mut blockers = Vec::new();

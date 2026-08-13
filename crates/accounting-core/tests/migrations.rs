@@ -29,15 +29,21 @@ use sha2::{Digest, Sha256};
 ///
 /// A migration is "shipped" the moment it is committed — this repo's database
 /// holds real financial data and is never recreated from scratch.
-const MIGRATION_HASHES: &[(&str, &str)] = &[(
-    "001_init.sql",
-    "9e974f128e4499bf50b8ef420edbbae9677cbf812d512a93cc4d88fccc903eb1",
-)];
+const MIGRATION_HASHES: &[(&str, &str)] = &[
+    (
+        "001_init.sql",
+        "9e974f128e4499bf50b8ef420edbbae9677cbf812d512a93cc4d88fccc903eb1",
+    ),
+    (
+        "002_food_rate.sql",
+        "d01bbd5a0f1e44d3ec8449ce65fb67169649db8628f1a890bf0d0aee3cc67a2d",
+    ),
+];
 
 /// `PRAGMA user_version` after `to_latest()`. `rusqlite_migration` sets it to
 /// the number of applied migrations, so this must track `MIGRATION_HASHES`.
-/// The plan pins M2 at 1; `pacc doctor` prints it.
-const EXPECTED_USER_VERSION: i64 = 1;
+/// `pacc doctor` prints it.
+const EXPECTED_USER_VERSION: i64 = 2;
 
 fn sha256_hex(bytes: &str) -> String {
     let digest = Sha256::digest(bytes.as_bytes());
@@ -156,10 +162,23 @@ fn shipped_migrations_are_byte_for_byte_immutable() {
 fn every_shipped_migration_carries_sql() {
     // A truncated migration hashes fine on a fresh checkout but produces an
     // empty schema, and the failure surfaces far from the cause.
+    //
+    // Checked for *any* schema-changing statement rather than CREATE TABLE
+    // specifically: only the first migration creates tables, and every one
+    // after it alters or indexes them. Requiring CREATE TABLE would make this
+    // a test that the schema never evolves.
     for (name, sql) in MIGRATION_SOURCES {
+        let upper = sql.to_ascii_uppercase();
         assert!(
-            sql.to_ascii_uppercase().contains("CREATE TABLE"),
-            "{name} contains no CREATE TABLE — is it truncated?"
+            [
+                "CREATE TABLE",
+                "ALTER TABLE",
+                "CREATE INDEX",
+                "CREATE TRIGGER"
+            ]
+            .iter()
+            .any(|stmt| upper.contains(stmt)),
+            "{name} changes no schema — is it truncated?"
         );
     }
 }

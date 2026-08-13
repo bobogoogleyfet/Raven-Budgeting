@@ -25,10 +25,23 @@ pub struct Area {
     pub name: &'static str,
     /// Parts per million: 7.25% is `72_500`.
     pub tax_rate_ppm: u32,
+    /// The reduced rate for unprepared food, if the state has one.
+    ///
+    /// `None` means food is taxed like everything else — the correct reading
+    /// for most states. Utah's is a combined 3%, which is why a $7.28 grocery
+    /// subtotal owes $0.22 rather than the $0.53 the general rate predicts.
+    pub food_rate_ppm: Option<u32>,
 }
 
+/// Utah's combined rate on unprepared food: 1.75% state plus 1.25% local.
+const UTAH_FOOD: Option<u32> = Some(30_000);
+
 const fn area(name: &'static str, tax_rate_ppm: u32) -> Area {
-    Area { name, tax_rate_ppm }
+    Area {
+        name,
+        tax_rate_ppm,
+        food_rate_ppm: UTAH_FOOD,
+    }
 }
 
 /// Areas offered in the location picker, alphabetical within a region.
@@ -108,6 +121,16 @@ mod tests {
                 a.name,
                 a.tax_rate_ppm
             );
+            if let Some(food) = a.food_rate_ppm {
+                // A reduced rate that is not lower is not a reduced rate, and
+                // is far more likely to be a copy-paste slip than a real one.
+                assert!(
+                    food <= a.tax_rate_ppm,
+                    "{}'s food rate {food} is above its general rate {}",
+                    a.name,
+                    a.tax_rate_ppm
+                );
+            }
         }
     }
 
