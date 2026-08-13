@@ -747,9 +747,10 @@ fn run_init(path: &Path) -> anyhow::Result<()> {
     );
     outln!("  schema     user_version={}", db.user_version()?);
     outln!(
-        "  seeded     {} groups, {} categories, {} locations",
+        "  seeded     {} groups, {} categories, {} stores, {} locations",
         counts.groups,
         counts.categories,
+        counts.merchants,
         counts.locations
     );
     Ok(())

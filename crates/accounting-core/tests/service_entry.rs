@@ -495,11 +495,18 @@ fn saving_a_three_way_split_teaches_the_store_nothing_about_categories() {
     d.location = Some("Costco Sunnyvale".to_string());
     d.remember_defaults = true;
 
+    // Captured first: Costco is one of the seeded suggestions and already
+    // carries a default, so the property is that a three-way split leaves it
+    // *unchanged* — not that it is None. `remember` treats None as "keep what
+    // you had", and clobbering a good default with a guess drawn from the
+    // largest of three splits is exactly what this guards against.
+    let before = merchant_named(&db, "Costco").default_category_id;
+
     entry::save_transaction(&db, &d, NOW).expect("save_transaction");
 
     let costco = merchant_named(&db, "Costco");
     assert_eq!(
-        costco.default_category_id, None,
+        costco.default_category_id, before,
         "three splits are not a default category"
     );
     // The location, on the other hand, is unambiguous however many splits

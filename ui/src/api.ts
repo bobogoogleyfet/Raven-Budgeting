@@ -207,6 +207,17 @@ export async function entryContext(merchant: string | null): Promise<EntryContex
   return await invoke<EntryContext>("entry_context", { merchant });
 }
 
+export interface Merchant {
+  id: number;
+  name: string;
+  defaultCategoryId: number | null;
+}
+
+/** Every known store — seeded suggestions plus anywhere actually shopped. */
+export async function listMerchants(): Promise<Merchant[]> {
+  return await invoke<Merchant[]>("list_merchants");
+}
+
 export interface Location {
   id: number;
   name: string;

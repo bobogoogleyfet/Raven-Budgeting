@@ -41,7 +41,7 @@ const SEED_VERSION_KEY: &str = "seed_version";
 
 /// Bumped when a later release adds defaults, so the additions install on an
 /// existing database without re-adding anything a user has since deleted.
-const SEED_VERSION: i64 = 1;
+const SEED_VERSION: i64 = 2;
 
 /// A seed category. `rollover` seeds [`budget_line.rollover`] for lines later
 /// created against it.
@@ -174,7 +174,76 @@ static SEED_GROUPS: &[SeedGroup] = &[
 /// The user sets their real rate once, in settings.
 const HOME_LOCATION: &str = "Home";
 
-/// Install the default categories and home location. Idempotent.
+/// A store the app suggests before the user has been anywhere.
+///
+/// `category` names a seeded category to prefill. That is what makes the
+/// store-memory feature useful on day one: picking Maverik selects Gas/Fuel
+/// without the user teaching it first. Stores that genuinely span categories
+/// (Amazon, Target) carry `None` rather than a guess, because a wrong prefill
+/// that looks confident is worse than an empty one.
+struct SeedMerchant {
+    name: &'static str,
+    category: Option<&'static str>,
+}
+
+impl SeedMerchant {
+    const fn new(name: &'static str, category: &'static str) -> Self {
+        SeedMerchant {
+            name,
+            category: Some(category),
+        }
+    }
+
+    const fn mixed(name: &'static str) -> Self {
+        SeedMerchant {
+            name,
+            category: None,
+        }
+    }
+}
+
+/// Stores within reach of Highland, Utah, plus the online ones everyone uses.
+///
+/// Regional on purpose: Macey's, Harmons, Maverik and Swig are Utah chains and
+/// would be noise anywhere else, while a generic national list would miss the
+/// places this user actually shops. A store that is wrong for them costs one
+/// archive; a missing one costs typing it every visit.
+const SEED_MERCHANTS: &[SeedMerchant] = &[
+    // Groceries and warehouse
+    SeedMerchant::new("Costco", "Groceries"),
+    SeedMerchant::new("Sam's Club", "Groceries"),
+    SeedMerchant::new("Macey's", "Groceries"),
+    SeedMerchant::new("Smith's", "Groceries"),
+    SeedMerchant::new("Harmons", "Groceries"),
+    SeedMerchant::new("WinCo Foods", "Groceries"),
+    SeedMerchant::new("Walmart", "Groceries"),
+    // Mixed-basket stores get no default: guessing Groceries for a Target run
+    // that was mostly household goods files the money in the wrong envelope.
+    SeedMerchant::mixed("Target"),
+    // Fuel
+    SeedMerchant::new("Maverik", "Gas/Fuel"),
+    SeedMerchant::new("Chevron", "Gas/Fuel"),
+    SeedMerchant::new("Sinclair", "Gas/Fuel"),
+    SeedMerchant::new("Holiday Oil", "Gas/Fuel"),
+    // Home
+    SeedMerchant::new("Home Depot", "Household Supplies"),
+    SeedMerchant::new("Lowe's", "Household Supplies"),
+    // Pharmacy
+    SeedMerchant::new("Walgreens", "Personal Care"),
+    SeedMerchant::new("CVS", "Personal Care"),
+    // Eating out
+    SeedMerchant::new("Cafe Rio", "Restaurants & Takeout"),
+    SeedMerchant::new("Costa Vida", "Restaurants & Takeout"),
+    SeedMerchant::new("Chick-fil-A", "Restaurants & Takeout"),
+    SeedMerchant::new("In-N-Out Burger", "Restaurants & Takeout"),
+    SeedMerchant::new("Swig", "Restaurants & Takeout"),
+    // Online
+    SeedMerchant::mixed("Amazon"),
+    SeedMerchant::mixed("eBay"),
+];
+
+/// Install the default categories, home location and store suggestions.
+/// Idempotent.
 pub fn seed_defaults(db: &Db) -> Result<()> {
     db.with_tx(|tx| {
         for (gi, group) in SEED_GROUPS.iter().enumerate() {
@@ -184,6 +253,9 @@ pub fn seed_defaults(db: &Db) -> Result<()> {
             }
         }
         upsert_home_location(tx)?;
+        for merchant in SEED_MERCHANTS {
+            upsert_merchant(tx, merchant)?;
+        }
         tx.execute(
             "INSERT INTO app_setting (key, value) VALUES (?1, ?2)
              ON CONFLICT (key) DO UPDATE SET value = excluded.value
@@ -288,6 +360,41 @@ fn upsert_home_location(tx: &Transaction<'_>) -> Result<()> {
     tx.execute(
         "INSERT INTO location (uuid, name, tax_rate_ppm, is_home) VALUES (?1, ?2, 0, 1)",
         params![new_uuid(), HOME_LOCATION],
+    )?;
+    Ok(())
+}
+
+/// Insert a suggested store, unless one by that name is already there.
+///
+/// Matched on name including archived rows, for the same reason groups are:
+/// resurrecting a store the user archived would be as rude as duplicating it.
+/// A store they hard-deleted does come back, which is the same bargain the
+/// default categories make.
+fn upsert_merchant(tx: &Transaction<'_>, merchant: &SeedMerchant) -> Result<()> {
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM merchant WHERE name = ?1)",
+        params![merchant.name],
+        |r| r.get(0),
+    )?;
+    if exists {
+        return Ok(());
+    }
+
+    // Resolved by name rather than hard-coded id: the categories were inserted
+    // moments ago in this same transaction and their ids are whatever the
+    // database assigned. A missing name yields NULL instead of failing, so
+    // renaming a seeded category cannot break seeding.
+    let category_id: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM category WHERE name = ?1 AND archived_at IS NULL",
+            params![merchant.category],
+            |r| r.get(0),
+        )
+        .ok();
+
+    tx.execute(
+        "INSERT INTO merchant (uuid, name, default_category_id) VALUES (?1, ?2, ?3)",
+        params![new_uuid(), merchant.name, category_id],
     )?;
     Ok(())
 }

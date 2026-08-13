@@ -484,3 +484,71 @@ tr.over {
   color: #fff;
   font-weight: 600;
 }
+
+/* --- combobox --- */
+.combo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 22rem;
+  width: 100%;
+}
+
+.combo-input {
+  padding-right: 1.8rem;
+}
+
+.combo-toggle {
+  position: absolute;
+  right: 0.15rem;
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
+}
+
+.combo-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  /* Ten-ish rows before scrolling: enough to browse, short enough that the
+     list never covers the amount fields underneath. */
+  max-height: 15rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+
+.combo-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.combo-option:hover,
+.combo-option.active {
+  background: var(--panel);
+}
+
+.combo-empty {
+  padding: 0.4rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}

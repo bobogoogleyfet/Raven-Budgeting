@@ -197,7 +197,17 @@ mod tests {
 
         let b = get_or_create(&db, "h-e-b").unwrap();
         assert_eq!(a.id, b.id);
-        assert_eq!(list(&db).unwrap().len(), 1);
+        // Counted by name, not by table size: the seed installs suggested
+        // stores, so "the table holds one row" stopped being the property.
+        // What matters is that a second spelling did not add a second row.
+        assert_eq!(
+            list(&db)
+                .unwrap()
+                .iter()
+                .filter(|m| m.name.eq_ignore_ascii_case("H-E-B"))
+                .count(),
+            1
+        );
 
         assert!(matches!(
             get_or_create(&db, " "),
@@ -244,8 +254,18 @@ mod tests {
         touch(&db, old.id, "2026-01-01T00:00:00.000Z").unwrap();
         touch(&db, new.id, "2026-08-01T00:00:00.000Z").unwrap();
 
-        let got: Vec<MerchantId> = recent(&db, 8).unwrap().into_iter().map(|m| m.id).collect();
-        assert_eq!(got, vec![new.id, old.id, never.id]);
+        // Asserted as an ordering among these three rather than as the whole
+        // list: the seed installs a couple of dozen never-used stores, and
+        // pinning the exact vector would break every time that list changes
+        // without saying anything about the ordering rule.
+        let got: Vec<MerchantId> = recent(&db, 100)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        let at = |id: MerchantId| got.iter().position(|m| *m == id).expect("present");
+        assert!(at(new.id) < at(old.id), "more recent first");
+        assert!(at(old.id) < at(never.id), "used before never-used");
 
         assert_eq!(recent(&db, 1).unwrap().len(), 1);
         assert!(recent(&db, 0).unwrap().is_empty());

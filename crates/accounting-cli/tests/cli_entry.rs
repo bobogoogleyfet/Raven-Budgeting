@@ -204,10 +204,15 @@ fn a_dry_run_add_writes_nothing() {
             .is_empty(),
         "a dry run must leave the database empty"
     );
+    // Named rather than counted: the seed installs suggested stores, so an
+    // empty merchant table stopped being the property here. What matters is
+    // that *this* store was not created — the store is created on the way to a
+    // save, and there was no save.
     assert!(
-        merchants::list(&db).expect("list merchants").is_empty(),
-        "a dry run must not create the merchant either — the store is created \
-         on the way to a save, and there was no save"
+        merchants::find_by_name(&db, "Dry Run Store")
+            .expect("find merchant")
+            .is_none(),
+        "a dry run must not create the merchant either"
     );
 }
 

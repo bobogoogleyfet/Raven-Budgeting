@@ -29,9 +29,11 @@ import {
   type TransactionDraft,
   entryContext,
   listCategories,
+  listMerchants,
   previewTransaction,
   saveTransaction,
 } from "../api.ts";
+import { combobox } from "../combobox.ts";
 import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
 import { formatMoney, formatRatePpm, parseCents } from "../money.ts";
@@ -54,14 +56,24 @@ export function addView(onSaved: () => void): HTMLElement {
   let saving = false;
 
   // --- fields ---------------------------------------------------------------
-  const merchant = el("input", { type: "text", id: "f-merchant", placeholder: "Costco" });
+  // A combobox rather than a plain field: the store is the one thing that
+  // recalls a category, a location and a tax rate, so picking the *same*
+  // spelling as last time matters. A name nobody has used joins the list on
+  // Enter and reaches the database only on save.
+  const merchant = combobox({
+    id: "f-merchant",
+    placeholder: "Costco",
+    onCommit: (name) => {
+      void loadContext(name === "" ? null : name).then(() => schedulePreview());
+    },
+  });
   // Segmented MM/DD/YYYY rather than <input type="date">, whose per-segment
   // typing and Backspace behaviour belong to the webview engine. Enter hands
   // off to the store field, which is the next thing you fill in.
   const date = dateField({
     id: "f-date",
     onChange: () => schedulePreview(),
-    onEnter: () => merchant.focus(),
+    onEnter: () => merchant.input.focus(),
   });
   date.setValue(today());
   const total = el("input", {
@@ -100,7 +112,7 @@ export function addView(onSaved: () => void): HTMLElement {
     return {
       id: null,
       txnDate: date.value(),
-      merchant: merchant.value.trim() || null,
+      merchant: merchant.value() || null,
       // The name is passed through only when the core already knows it; a
       // typo'd location is an error in the core rather than a silent 0% rate,
       // and there is no field here for inventing one.
@@ -263,16 +275,13 @@ export function addView(onSaved: () => void): HTMLElement {
     for (const name of recent.slice(0, 6)) {
       const chip = el("button", { type: "button", class: "chip" }, [name]);
       chip.addEventListener("click", () => {
-        merchant.value = name;
+        merchant.input.value = name;
         void loadContext(name).then(() => schedulePreview());
       });
       chips.append(chip);
     }
   }
 
-  merchant.addEventListener("change", () => {
-    void loadContext(merchant.value.trim() || null).then(() => schedulePreview());
-  });
   total.addEventListener("input", schedulePreview);
   tax.addEventListener("input", schedulePreview);
 
@@ -299,7 +308,7 @@ export function addView(onSaved: () => void): HTMLElement {
         splits = [{ categoryId: null, amountText: "" }];
         renderSplits();
         clear(panel);
-        void loadContext(merchant.value.trim() || null);
+        void loadContext(merchant.value() || null);
         onSaved();
       })
       .catch((error: unknown) => {
@@ -318,7 +327,7 @@ export function addView(onSaved: () => void): HTMLElement {
       el("label", { for: "f-date" }, ["Date"]),
       date.root,
       el("label", { for: "f-merchant" }, ["Store"]),
-      el("div", {}, [merchant, chips, context]),
+      el("div", {}, [merchant.root, chips, context]),
       el("label", { for: "f-total" }, ["Total"]),
       total,
       el("label", { for: "f-tax" }, ["Tax"]),
@@ -333,7 +342,9 @@ export function addView(onSaved: () => void): HTMLElement {
   );
 
   void (async () => {
-    categories = await listCategories();
+    const [cats, stores] = await Promise.all([listCategories(), listMerchants()]);
+    categories = cats;
+    merchant.setOptions(stores.map((m) => m.name));
     renderSplits();
     await loadContext(null);
   })();

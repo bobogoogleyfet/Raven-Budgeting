@@ -381,8 +381,15 @@ fn get_or_create_trims_a_merchant_name_and_refuses_an_empty_one() {
     // pasted receipt spawns a second merchant with the same visible name.
     merchants::get_or_create(&db, "Costco").expect("second get_or_create");
     merchants::get_or_create(&db, " Costco").expect("third get_or_create");
+    // Counted by name rather than over the whole table: the seed installs
+    // suggested stores (Costco among them), so this also pins that
+    // get_or_create reuses the seeded row instead of shadowing it with a
+    // second one the user would then see twice in the picker.
     assert_eq!(
-        count(raw(&db), "SELECT COUNT(*) FROM merchant"),
+        count(
+            raw(&db),
+            "SELECT COUNT(*) FROM merchant WHERE name = 'Costco'"
+        ),
         1,
         "the same store, however it was typed, must be one row"
     );
@@ -455,7 +462,9 @@ fn recent_merchants_are_ordered_by_last_use_with_never_used_ones_last() {
     merchants::touch(&db, id_of("Alpha"), "2026-01-05T10:00:00.000Z").expect("touch Alpha");
     merchants::touch(&db, id_of("Beta"), "2026-03-09T10:00:00.000Z").expect("touch Beta");
 
-    let names: Vec<String> = merchants::recent(&db, 10)
+    // A limit past the seeded suggestions, so the never-used store under test
+    // is actually in the window being asserted about.
+    let names: Vec<String> = merchants::recent(&db, 500)
         .expect("recent")
         .into_iter()
         .map(|m| m.name)

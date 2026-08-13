@@ -36,7 +36,7 @@ use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::domain::reconcile::AmountEntry;
 use accounting_core::domain::splits::{SplitAmount, SplitDraft};
 use accounting_core::repo::transactions::{DetailLevel, TxnFilter};
-use accounting_core::repo::{categories, locations, transactions};
+use accounting_core::repo::{categories, locations, merchants, transactions};
 use accounting_core::service::budgets;
 use accounting_core::service::entry::{self, TransactionDraft};
 use accounting_core::{CategoryId, Money, TxnId};
@@ -157,6 +157,14 @@ struct ContextDto {
     default_category_id: Option<i64>,
     detail_level: String,
     recent_merchants: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MerchantDto {
+    id: i64,
+    name: String,
+    default_category_id: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -395,6 +403,26 @@ fn entry_context(state: State<'_, AppState>, merchant: Option<String>) -> CmdRes
     })
 }
 
+/// Every known store, for the entry form's picker.
+///
+/// Includes the seeded suggestions and anything the user has actually shopped
+/// at. Ordered most-recently-used first so the places you go keep floating to
+/// the top of the list, with the untouched suggestions behind them.
+#[tauri::command]
+fn list_merchants(state: State<'_, AppState>) -> CmdResult<Vec<MerchantDto>> {
+    let db = state.db.lock().map_err(to_message)?;
+    let all = merchants::list(&db).map_err(to_message)?;
+    let recent = merchants::recent(&db, all.len()).map_err(to_message)?;
+    Ok(recent
+        .into_iter()
+        .map(|m| MerchantDto {
+            id: m.id.get(),
+            name: m.name,
+            default_category_id: m.default_category_id.map(CategoryId::get),
+        })
+        .collect())
+}
+
 #[tauri::command]
 fn list_locations(state: State<'_, AppState>) -> CmdResult<Vec<LocationDto>> {
     let db = state.db.lock().map_err(to_message)?;
@@ -531,6 +559,7 @@ fn main() {
             list_transactions,
             needs_categorizing,
             entry_context,
+            list_merchants,
             list_locations,
             categorize,
             budget_status,
