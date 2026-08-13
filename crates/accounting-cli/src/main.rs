@@ -9,16 +9,26 @@
 //! Note what this file does *not* contain: arithmetic. It parses strings into
 //! core types, calls into `accounting-core`, and formats what comes back.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use accounting_core::Money;
 use accounting_core::db::integrity::Severity;
 use accounting_core::db::{Db, SCHEMA_VERSION, check_all, seed_defaults};
 use accounting_core::domain::reconcile::{
     AmountEntry, AmountField, Amounts, TaxContext, reconcile,
 };
-use accounting_core::domain::splits::{SplitAmount, SplitDraft, SplitPlan, plan_splits};
+use accounting_core::domain::splits::{
+    LineItemDraft, SplitAmount, SplitDraft, SplitPlan, plan_splits,
+};
+use accounting_core::repo::transactions::{Txn, TxnFilter};
+use accounting_core::repo::{categories, merchants, transactions};
+use accounting_core::service::entry::{
+    TransactionDraft, TransactionPreview, categorize, needs_categorizing,
+    preview_transaction_with_rate, quick_add, repeat_last, save_transaction_with_rate,
+};
+use accounting_core::{DetailLevel, Money, TxnId, YearMonth};
 use anyhow::Context;
+use chrono::{Local, NaiveDate, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -59,6 +69,28 @@ enum Command {
     Doctor,
     /// Write a single-file, defragmented copy of the database (`VACUUM INTO`).
     Backup(BackupArgs),
+    /// Record a transaction.
+    ///
+    /// Examples:
+    ///   pacc add --total 54.32 --merchant H-E-B --category Groceries
+    ///   pacc add --subtotal 50.00 --tax 4.19 --split "Groceries=30.00" --split "Household=remainder"
+    ///   pacc add --total 20.00 --category Groceries --item "Milk=3.49" --item "1:Bread=16.51"
+    #[command(verbatim_doc_comment)]
+    Add(AddArgs),
+    /// List transactions, newest first.
+    List(ListArgs),
+    /// Show one transaction in full: header, splits, line items.
+    Show(ShowArgs),
+    /// Record a total now and categorize it later, from `pacc inbox`.
+    QuickAdd(QuickAddArgs),
+    /// The needs-categorizing queue, with the command to clear each entry.
+    Inbox(InboxArgs),
+    /// Assign categories to a transaction and clear its review flag.
+    Categorize(CategorizeArgs),
+    /// Draft a new transaction from a merchant's last one.
+    Repeat(RepeatArgs),
+    /// The category taxonomy — the valid values for `--category` and `--split`.
+    Categories,
 }
 
 #[derive(Args)]
@@ -66,6 +98,189 @@ struct BackupArgs {
     /// Destination file. Must not already exist.
     #[arg(long = "to", value_name = "PATH")]
     to: PathBuf,
+}
+
+#[derive(Args)]
+struct AddArgs {
+    /// Transaction date, `YYYY-MM-DD`. Defaults to today.
+    ///
+    /// The default is resolved *here*, not in the core: a frontend knows the
+    /// user's timezone and may read the clock, the core may not.
+    #[arg(long, value_name = "YYYY-MM-DD", default_value_t = Local::now().date_naive())]
+    date: NaiveDate,
+
+    /// Store name. Created if new, and taught this receipt's category,
+    /// location and detail level so the next one prefills.
+    #[arg(long, value_name = "NAME")]
+    merchant: Option<String>,
+
+    /// Store location, which is what determines the sales-tax rate. A new one
+    /// is created only if `--rate` says what its rate is, so a typo cannot
+    /// silently become a 0% location.
+    #[arg(long, value_name = "NAME")]
+    location: Option<String>,
+
+    /// Amount charged, tax included.
+    #[arg(long, value_parser = parse_money)]
+    total: Option<Money>,
+
+    /// Pre-tax amount.
+    #[arg(long, value_parser = parse_money)]
+    subtotal: Option<Money>,
+
+    /// Tax as printed on the receipt. Given here, it is a fact and is never
+    /// recomputed.
+    #[arg(long, value_parser = parse_money)]
+    tax: Option<Money>,
+
+    /// Sales-tax rate as a percentage, e.g. `8.375`. Overrides the location's
+    /// rate for this receipt only — and supplies the rate when `--location`
+    /// names a new one. Tax derived from it is flagged as an estimate.
+    #[arg(long, value_parser = parse_percent_ppm)]
+    rate: Option<u32>,
+
+    /// Put the whole transaction in one category. Sugar for
+    /// `--split "NAME=remainder"`.
+    #[arg(long, value_name = "NAME", conflicts_with = "splits")]
+    category: Option<String>,
+
+    /// A split, repeatable: `Groceries=45.00`, `Groceries=25%`, or
+    /// `Groceries=remainder`.
+    #[arg(long = "split", value_name = "SPEC", value_parser = parse_split_spec)]
+    splits: Vec<SplitSpec>,
+
+    /// A line item, repeatable: `[SPLIT#:]DESCRIPTION=AMOUNT`, e.g.
+    /// `"1:Milk=3.49"`. The split number is 1-based and defaults to 1.
+    /// Implies --itemized.
+    #[arg(long = "item", value_name = "SPEC", value_parser = parse_item_spec)]
+    items: Vec<ItemSpec>,
+
+    /// Free-text note on the transaction.
+    #[arg(long, value_name = "TEXT")]
+    note: Option<String>,
+
+    /// Record this as an itemized receipt.
+    #[arg(long)]
+    itemized: bool,
+
+    /// Flag for review, so it shows up in `pacc inbox`.
+    #[arg(long)]
+    needs_review: bool,
+
+    /// Print the preview and write nothing.
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Args)]
+struct ListArgs {
+    /// Earliest date, inclusive.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    from: Option<NaiveDate>,
+
+    /// Latest date, inclusive.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    to: Option<NaiveDate>,
+
+    /// One calendar month. Sugar for `--from` its first day and `--to` its
+    /// last.
+    #[arg(long, value_name = "YYYY-MM", conflicts_with_all = ["from", "to"])]
+    month: Option<YearMonth>,
+
+    /// Only this merchant.
+    #[arg(long, value_name = "NAME")]
+    merchant: Option<String>,
+
+    /// Only transactions with a split in this category.
+    #[arg(long, value_name = "NAME")]
+    category: Option<String>,
+
+    /// Only transactions awaiting categorization.
+    #[arg(long)]
+    needs_review: bool,
+
+    /// Maximum rows; `0` for no limit.
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+
+    /// Include archived transactions.
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Args)]
+struct ShowArgs {
+    /// Transaction id, as printed by `pacc list`.
+    id: i64,
+}
+
+#[derive(Args)]
+struct QuickAddArgs {
+    /// Amount charged, tax included.
+    #[arg(value_parser = parse_money)]
+    total: Money,
+
+    /// Store name, if you know it.
+    #[arg(long, value_name = "NAME")]
+    merchant: Option<String>,
+
+    /// Transaction date, `YYYY-MM-DD`. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD", default_value_t = Local::now().date_naive())]
+    date: NaiveDate,
+}
+
+#[derive(Args)]
+struct InboxArgs {
+    /// Maximum rows; `0` for no limit.
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+}
+
+#[derive(Args)]
+struct CategorizeArgs {
+    /// Transaction id, as printed by `pacc inbox`.
+    id: i64,
+
+    /// A split, repeatable. Same syntax as `pacc add --split`.
+    #[arg(long = "split", value_name = "SPEC", required = true, value_parser = parse_split_spec)]
+    splits: Vec<SplitSpec>,
+}
+
+#[derive(Args)]
+struct RepeatArgs {
+    /// Store name.
+    merchant: String,
+
+    /// Date for the new transaction, `YYYY-MM-DD`. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD", default_value_t = Local::now().date_naive())]
+    date: NaiveDate,
+
+    /// A different total. The last split absorbs the difference.
+    #[arg(long, value_parser = parse_money)]
+    total: Option<Money>,
+
+    /// Print the draft and write nothing.
+    #[arg(long)]
+    dry_run: bool,
+}
+
+/// `Groceries=45.00`, before the category name has been resolved.
+///
+/// Resolution needs a database, and clap parses before one is open — so the
+/// value parser's job stops at the syntax.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SplitSpec {
+    category: String,
+    amount: SplitAmount,
+}
+
+/// `[SPLIT#:]DESCRIPTION=AMOUNT`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ItemSpec {
+    /// 1-based, as typed.
+    split: usize,
+    description: String,
+    amount: Money,
 }
 
 #[derive(Args)]
@@ -135,9 +350,27 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Command::Backup(args) => run_backup(&cli.db_path()?, &args.to)?,
+        Command::Add(args) => run_add(&cli.db_path()?, args)?,
+        Command::List(args) => run_list(&cli.db_path()?, args)?,
+        Command::Show(args) => run_show(&cli.db_path()?, args.id)?,
+        Command::QuickAdd(args) => run_quick_add(&cli.db_path()?, args)?,
+        Command::Inbox(args) => run_inbox(&cli, args)?,
+        Command::Categorize(args) => run_categorize(&cli.db_path()?, args)?,
+        Command::Repeat(args) => run_repeat(&cli.db_path()?, args)?,
+        Command::Categories => run_categories(&cli.db_path()?)?,
     }
 
     Ok(())
+}
+
+/// An ISO-8601 UTC timestamp in the same shape as the schema's `strftime`
+/// default, so hand-written rows and app-written rows sort together.
+///
+/// The clock is read here rather than in the core. Rule 3 forbids the *core*
+/// from doing it — a frontend is exactly the layer that is allowed to know
+/// what time it is.
+fn now_iso() -> String {
+    Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
 impl Cli {
@@ -311,6 +544,632 @@ impl Counts {
             txns: n("txn")?,
             splits: n("txn_split")?,
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// transaction entry
+// ---------------------------------------------------------------------------
+
+fn run_add(path: &Path, args: &AddArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+
+    let splits = resolve_splits(&db, &split_specs(args))?;
+    let splits = attach_items(splits, &args.items)?;
+    let location = resolve_location(&db, args)?;
+
+    let draft = TransactionDraft {
+        id: None,
+        txn_date: args.date,
+        merchant: args.merchant.clone(),
+        location,
+        entry: AmountEntry {
+            subtotal: args.subtotal,
+            tax: args.tax,
+            total: args.total,
+            last_edited: None,
+        },
+        splits,
+        // Passing --item means the receipt is itemized; saying so twice is
+        // noise, and storing line items under a 'grouped' transaction is a
+        // state `pacc doctor` reports as a mismatch.
+        detail_level: (args.itemized || !args.items.is_empty()).then_some(DetailLevel::Itemized),
+        notes: args.note.clone(),
+        needs_review: args.needs_review,
+        // Naming a store is what teaches us about it. `remember` never clears
+        // a stored default, so a sparse entry can only add to the memory.
+        remember_defaults: args.merchant.is_some(),
+    };
+
+    let preview = preview_transaction_with_rate(&db, &draft, args.rate)
+        .context("could not resolve the transaction")?;
+    print_preview(&db, &preview)?;
+
+    if args.dry_run {
+        println!();
+        println!("dry run — nothing was written");
+        return Ok(());
+    }
+    anyhow::ensure!(
+        preview.can_save(),
+        "not saved: {}",
+        preview.blockers.join("; ")
+    );
+
+    let id = save_transaction_with_rate(&db, &draft, args.rate, &now_iso())
+        .context("could not save the transaction")?;
+    println!();
+    println!("saved transaction {id}");
+    Ok(())
+}
+
+fn run_quick_add(path: &Path, args: &QuickAddArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let id = quick_add(
+        &db,
+        args.date,
+        args.total,
+        args.merchant.as_deref(),
+        &now_iso(),
+    )
+    .context("could not save the transaction")?;
+
+    println!(
+        "saved transaction {id}: {} on {} — Uncategorized, flagged for review",
+        args.total.to_display_string(),
+        args.date
+    );
+    println!("categorize it with: pacc categorize {id} --split \"NAME=remainder\"");
+    Ok(())
+}
+
+fn run_list(path: &Path, args: &ListArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+
+    let (from, to) = match args.month {
+        Some(month) => (Some(month.first_day()), Some(month.last_day())),
+        None => (args.from, args.to),
+    };
+    let merchant_id = match &args.merchant {
+        Some(name) => Some(
+            merchants::find_by_name(&db, name)?
+                .with_context(|| format!("no merchant named `{name}`"))?
+                .id,
+        ),
+        None => None,
+    };
+    let category_id = match &args.category {
+        Some(name) => Some(categories::resolve(&db, name)?.id),
+        None => None,
+    };
+
+    let filter = TxnFilter {
+        from,
+        to,
+        merchant_id,
+        category_id,
+        // `--needs-review` is a switch, not a tri-state: absent means "do not
+        // filter", never "only the reviewed ones".
+        needs_review: args.needs_review.then_some(true),
+        include_archived: args.all,
+        limit: (args.limit > 0).then_some(args.limit),
+    };
+
+    let txns = transactions::list(&db, &filter)?;
+    if txns.is_empty() {
+        println!("no transactions matched");
+        return Ok(());
+    }
+
+    let mut table = Table::new(
+        &["id", "date", "merchant", "categories", "total", ""],
+        &[true, false, false, false, true, false],
+    );
+    for txn in &txns {
+        table.push(vec![
+            txn.id.to_string(),
+            txn.txn_date.to_string(),
+            txn.merchant_name.clone().unwrap_or_else(|| "—".to_string()),
+            split_summary(txn),
+            txn.total.to_display_string(),
+            flags(txn),
+        ]);
+    }
+    table.print("");
+
+    println!();
+    println!("{} transactions", txns.len());
+    if txns.iter().any(|t| t.tax_is_estimated || t.needs_review) {
+        println!("~ tax estimated   ! needs review");
+    }
+    Ok(())
+}
+
+fn run_show(path: &Path, id: i64) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let txn = transactions::get(&db, TxnId::new(id))?;
+    print_txn(&txn);
+    Ok(())
+}
+
+fn run_inbox(cli: &Cli, args: &InboxArgs) -> anyhow::Result<()> {
+    let db = open_existing(&cli.db_path()?)?;
+    let txns = needs_categorizing(&db, (args.limit > 0).then_some(args.limit))?;
+    if txns.is_empty() {
+        println!("nothing to categorize");
+        return Ok(());
+    }
+
+    // The command is printed with the same --db the user passed, so it is
+    // genuinely copy-pasteable rather than "the right command for some other
+    // database".
+    let prefix = match &cli.db {
+        Some(p) => format!("pacc --db {} ", p.display()),
+        None => "pacc ".to_string(),
+    };
+
+    let merchant_width = txns
+        .iter()
+        .map(|t| t.merchant_name.as_deref().unwrap_or("—").chars().count())
+        .max()
+        .unwrap_or(0);
+    let total_width = txns
+        .iter()
+        .map(|t| t.total.to_display_string().len())
+        .max()
+        .unwrap_or(0);
+
+    println!("{} awaiting categorization", txns.len());
+    for txn in &txns {
+        println!();
+        println!(
+            "  {:>4}  {}  {:<merchant_width$}  {:>total_width$}",
+            txn.id.to_string(),
+            txn.txn_date,
+            txn.merchant_name.as_deref().unwrap_or("—"),
+            txn.total.to_display_string(),
+        );
+        println!(
+            "        {prefix}categorize {} --split \"NAME=remainder\"",
+            txn.id
+        );
+    }
+    Ok(())
+}
+
+fn run_categorize(path: &Path, args: &CategorizeArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let id = TxnId::new(args.id);
+    let splits = resolve_splits(&db, &args.splits)?;
+
+    categorize(&db, id, &splits).context("could not categorize the transaction")?;
+    println!("categorized transaction {id}");
+    println!();
+    print_txn(&transactions::get(&db, id)?);
+    Ok(())
+}
+
+fn run_repeat(path: &Path, args: &RepeatArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let mut draft = repeat_last(&db, &args.merchant, args.date)?;
+
+    if let Some(total) = args.total {
+        // The copied splits are fixed amounts from the old receipt, so a new
+        // total would leave money unassigned and block the save. The last
+        // split absorbs the difference — stated in --total's help, and visible
+        // in the preview before anything is written.
+        draft.entry = AmountEntry::total_only(total);
+        if let Some(last) = draft.splits.last_mut() {
+            last.amount = SplitAmount::Remainder;
+        }
+    }
+
+    let preview =
+        preview_transaction_with_rate(&db, &draft, None).context("could not resolve the draft")?;
+    println!(
+        "draft from {}'s last receipt, dated {}",
+        args.merchant, draft.txn_date
+    );
+    println!();
+    print_preview(&db, &preview)?;
+
+    if args.dry_run {
+        println!();
+        println!("dry run — nothing was written");
+        return Ok(());
+    }
+    anyhow::ensure!(
+        preview.can_save(),
+        "not saved: {}",
+        preview.blockers.join("; ")
+    );
+
+    let id = save_transaction_with_rate(&db, &draft, None, &now_iso())
+        .context("could not save the transaction")?;
+    println!();
+    println!("saved transaction {id}");
+    Ok(())
+}
+
+fn run_categories(path: &Path) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let groups = categories::list_groups(&db)?;
+    let all = categories::list(&db)?;
+
+    for group in &groups {
+        let members: Vec<&accounting_core::Category> =
+            all.iter().filter(|c| c.group_id == group.id).collect();
+        if members.is_empty() {
+            continue;
+        }
+        println!(
+            "{}{}",
+            group.name,
+            if group.is_hidden { " (hidden)" } else { "" }
+        );
+        for category in members {
+            println!("  {}", category.name);
+        }
+    }
+    println!();
+    println!(
+        "{} categories in {} groups. --category takes a name, a unique prefix, or Group/Name.",
+        all.len(),
+        groups.len()
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// draft assembly
+// ---------------------------------------------------------------------------
+
+/// `--category X` is exactly `--split "X=remainder"`; clap already refuses
+/// both at once.
+fn split_specs(args: &AddArgs) -> Vec<SplitSpec> {
+    match &args.category {
+        Some(name) => vec![SplitSpec {
+            category: name.clone(),
+            amount: SplitAmount::Remainder,
+        }],
+        None => args.splits.clone(),
+    }
+}
+
+/// Resolve `--location`, creating it when `--rate` says what its tax rate is.
+///
+/// # Why an unknown location is not created silently
+///
+/// The tax rate lives on the location, so an auto-created one would default to
+/// 0% — and then a typo (`--location Hoem`) would quietly produce a receipt
+/// with no tax and a second, permanent location in the picker. Requiring
+/// `--rate` to create one makes the first visit to a store an explicit
+/// statement of its rate, and every later visit a bare `--location`.
+///
+/// `--rate` alone (no `--location`) writes nothing at all: it is a per-receipt
+/// override, threaded into the service as a rate so the tax it produces stays
+/// flagged as an estimate.
+fn resolve_location(db: &Db, args: &AddArgs) -> anyhow::Result<Option<String>> {
+    let Some(name) = args.location.as_deref() else {
+        return Ok(None);
+    };
+    if accounting_core::repo::locations::find_by_name(db, name)?.is_some() {
+        return Ok(Some(name.to_string()));
+    }
+
+    let rate = args.rate.with_context(|| {
+        format!(
+            "no location named `{name}`; add it by giving its tax rate too, \
+             e.g. --location \"{name}\" --rate 8.375"
+        )
+    })?;
+
+    if args.dry_run {
+        // A dry run writes nothing, location included. The preview still uses
+        // the rate, so the numbers shown are the numbers that would be saved.
+        println!("would create location `{name}` at {}", format_ppm(rate));
+        println!();
+        return Ok(None);
+    }
+
+    let created = accounting_core::repo::locations::get_or_create(db, name, rate)?;
+    println!(
+        "created location `{}` at {}",
+        created.name,
+        format_ppm(rate)
+    );
+    println!();
+    Ok(Some(created.name))
+}
+
+fn resolve_splits(db: &Db, specs: &[SplitSpec]) -> anyhow::Result<Vec<SplitDraft>> {
+    specs
+        .iter()
+        .map(|spec| {
+            let category = categories::resolve(db, &spec.category)?;
+            Ok(SplitDraft {
+                id: None,
+                category_id: Some(category.id),
+                amount: spec.amount,
+                note: None,
+                line_items: Vec::new(),
+            })
+        })
+        .collect()
+}
+
+fn attach_items(
+    mut splits: Vec<SplitDraft>,
+    items: &[ItemSpec],
+) -> anyhow::Result<Vec<SplitDraft>> {
+    for item in items {
+        anyhow::ensure!(
+            item.split >= 1 && item.split <= splits.len(),
+            "--item refers to split {} but there {}; splits are numbered from 1",
+            item.split,
+            match splits.len() {
+                0 => "are none".to_string(),
+                1 => "is only 1".to_string(),
+                n => format!("are only {n}"),
+            }
+        );
+        splits[item.split - 1].line_items.push(LineItemDraft {
+            description: item.description.clone(),
+            // One unit unless a future flag says otherwise. Thousandths, so
+            // 1.5 lb is 1500 and never a float.
+            quantity_milli: 1_000,
+            unit_price: Some(item.amount),
+            amount: item.amount,
+        });
+    }
+    Ok(splits)
+}
+
+// ---------------------------------------------------------------------------
+// rendering
+// ---------------------------------------------------------------------------
+
+fn print_preview(db: &Db, preview: &TransactionPreview) -> anyhow::Result<()> {
+    print_amounts(&preview.amounts, &preview.context.tax);
+
+    let names = CategoryNames::load(db)?;
+    let mut table = Table::new(
+        &["#", "category", "amount", "subtotal", "tax"],
+        &[false, false, true, true, true],
+    );
+    for (index, row) in preview.plan.rows.iter().enumerate() {
+        table.push(vec![
+            (index + 1).to_string(),
+            row.category_id
+                .map_or_else(|| "(none)".to_string(), |id| names.get(id)),
+            row.amount.to_display_string(),
+            row.subtotal.to_display_string(),
+            row.tax.to_display_string(),
+        ]);
+    }
+    println!();
+    println!("splits");
+    table.print("  ");
+    println!(
+        "  unassigned {}",
+        preview.plan.unassigned.to_display_string()
+    );
+    println!("  detail     {}", preview.detail_level);
+
+    print_list("warnings", &preview.warnings);
+    print_list("blockers", &preview.blockers);
+    Ok(())
+}
+
+fn print_list(label: &str, lines: &[String]) {
+    if lines.is_empty() {
+        return;
+    }
+    println!();
+    println!("{label}");
+    for line in lines {
+        println!("  - {line}");
+    }
+}
+
+fn print_txn(txn: &Txn) {
+    println!("transaction {}", txn.id);
+    let rows: Vec<(&str, String)> = vec![
+        ("date", txn.txn_date.to_string()),
+        (
+            "merchant",
+            txn.merchant_name.clone().unwrap_or_else(|| "—".to_string()),
+        ),
+        (
+            "location",
+            txn.location_name.clone().unwrap_or_else(|| "—".to_string()),
+        ),
+        ("subtotal", txn.subtotal.to_display_string()),
+        ("tax", txn.tax.to_display_string()),
+        ("total", txn.total.to_display_string()),
+        (
+            "rate",
+            txn.tax_rate_ppm.map_or_else(|| "—".to_string(), format_ppm),
+        ),
+        ("estimated", yes_no(txn.tax_is_estimated)),
+        ("review", yes_no(txn.needs_review)),
+        ("detail", txn.detail_level.to_string()),
+        ("archived", yes_no(txn.archived)),
+        (
+            "notes",
+            txn.notes.clone().unwrap_or_else(|| "—".to_string()),
+        ),
+    ];
+    for (label, value) in rows {
+        println!("  {label:<10} {value}");
+    }
+
+    let mut table = Table::new(
+        &["#", "category", "amount", "subtotal", "tax", "note"],
+        &[false, false, true, true, true, false],
+    );
+    for (index, split) in txn.splits.iter().enumerate() {
+        table.push(vec![
+            (index + 1).to_string(),
+            format!("{}/{}", split.group_name, split.category_name),
+            split.amount.to_display_string(),
+            split.subtotal.to_display_string(),
+            split.tax.to_display_string(),
+            split.notes.clone().unwrap_or_default(),
+        ]);
+    }
+    println!();
+    println!("splits");
+    table.print("  ");
+
+    for (index, split) in txn.splits.iter().enumerate() {
+        if split.line_items.is_empty() {
+            continue;
+        }
+        let mut items = Table::new(
+            &["#", "description", "qty", "amount", "tax"],
+            &[false, false, true, true, true],
+        );
+        for (item_index, item) in split.line_items.iter().enumerate() {
+            items.push(vec![
+                (item_index + 1).to_string(),
+                item.description.clone(),
+                format_quantity(item.quantity_milli),
+                item.amount.to_display_string(),
+                item.tax.to_display_string(),
+            ]);
+        }
+        println!();
+        println!("  split {} items", index + 1);
+        items.print("    ");
+    }
+}
+
+/// `"Groceries $30.00, Gas/Fuel $24.19"` — what the money in this transaction
+/// was for, which is the column a list is actually read for.
+fn split_summary(txn: &Txn) -> String {
+    txn.splits
+        .iter()
+        .map(|s| format!("{} {}", s.category_name, s.amount.to_display_string()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn flags(txn: &Txn) -> String {
+    let mut out = String::new();
+    if txn.tax_is_estimated {
+        out.push('~');
+    }
+    if txn.needs_review {
+        out.push('!');
+    }
+    if txn.archived {
+        out.push('x');
+    }
+    out
+}
+
+fn yes_no(v: bool) -> String {
+    if v { "yes" } else { "no" }.to_string()
+}
+
+/// `1_500 -> "1.5"`, integer arithmetic only.
+fn format_quantity(milli: i64) -> String {
+    let whole = milli / 1_000;
+    let frac = (milli % 1_000).abs();
+    if frac == 0 {
+        return whole.to_string();
+    }
+    let mut decimals = format!("{frac:03}");
+    while decimals.ends_with('0') {
+        decimals.pop();
+    }
+    format!("{whole}.{decimals}")
+}
+
+/// Category id → `Group/Name`, loaded once.
+///
+/// One query rather than one per split: the same N+1 that `hydrate` avoids in
+/// the core would reappear here, in the printing loop, if each row looked its
+/// own name up.
+struct CategoryNames(HashMap<i64, String>);
+
+impl CategoryNames {
+    fn load(db: &Db) -> anyhow::Result<Self> {
+        Ok(CategoryNames(
+            categories::list(db)?
+                .into_iter()
+                .map(|c| (c.id.get(), c.qualified_name()))
+                .collect(),
+        ))
+    }
+
+    fn get(&self, id: accounting_core::CategoryId) -> String {
+        self.0
+            .get(&id.get())
+            .cloned()
+            // Archived categories are excluded from `list` but a historical
+            // split may still point at one.
+            .unwrap_or_else(|| format!("category {id}"))
+    }
+}
+
+/// A column-aligned table. Widths are measured in `char`s, not bytes, so a
+/// category name with an accent in it does not shift the columns.
+struct Table {
+    headers: Vec<String>,
+    right: Vec<bool>,
+    rows: Vec<Vec<String>>,
+}
+
+impl Table {
+    fn new(headers: &[&str], right: &[bool]) -> Self {
+        Table {
+            headers: headers.iter().map(|h| (*h).to_string()).collect(),
+            right: right.to_vec(),
+            rows: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, row: Vec<String>) {
+        self.rows.push(row);
+    }
+
+    fn print(&self, indent: &str) {
+        let mut widths: Vec<usize> = self.headers.iter().map(|h| h.chars().count()).collect();
+        for row in &self.rows {
+            for (i, cell) in row.iter().enumerate() {
+                if let Some(w) = widths.get_mut(i) {
+                    *w = (*w).max(cell.chars().count());
+                }
+            }
+        }
+
+        let line = |cells: &[String]| {
+            let mut out = String::from(indent);
+            for (i, cell) in cells.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("  ");
+                }
+                let width = widths.get(i).copied().unwrap_or(0);
+                let pad = width.saturating_sub(cell.chars().count());
+                if self.right.get(i).copied().unwrap_or(false) {
+                    out.push_str(&" ".repeat(pad));
+                    out.push_str(cell);
+                } else {
+                    out.push_str(cell);
+                    out.push_str(&" ".repeat(pad));
+                }
+            }
+            // Trailing padding on the last column is invisible but shows up in
+            // a diff of captured output.
+            out.trim_end().to_string()
+        };
+
+        println!("{}", line(&self.headers));
+        for row in &self.rows {
+            println!("{}", line(row));
+        }
     }
 }
 
@@ -515,6 +1374,58 @@ fn parse_scaled_decimal(s: &str, places: u32) -> Result<u64, String> {
         .ok_or_else(|| format!("`{s}` is out of range"))
 }
 
+/// `Groceries=45.00`, `Groceries=25%`, `Groceries=remainder`.
+///
+/// Split on the **last** `=`, so a category name may contain one; an amount
+/// never can.
+fn parse_split_spec(s: &str) -> Result<SplitSpec, String> {
+    let (category, amount) = s.rsplit_once('=').ok_or_else(|| {
+        format!("`{s}` is not a split; expected NAME=AMOUNT, NAME=PERCENT% or NAME=remainder")
+    })?;
+    let category = category.trim();
+    if category.is_empty() {
+        return Err(format!("`{s}` has no category name"));
+    }
+    Ok(SplitSpec {
+        category: category.to_string(),
+        amount: parse_split(amount)?,
+    })
+}
+
+/// `[SPLIT#:]DESCRIPTION=AMOUNT`, e.g. `1:Milk=3.49` or `Milk=3.49`.
+///
+/// The split number is optional and defaults to 1, because the overwhelmingly
+/// common receipt has exactly one split and typing `1:` on every line of a
+/// grocery run is the kind of friction that gets an app abandoned.
+fn parse_item_spec(s: &str) -> Result<ItemSpec, String> {
+    let (left, amount) = s
+        .rsplit_once('=')
+        .ok_or_else(|| format!("`{s}` is not an item; expected [SPLIT#:]DESCRIPTION=AMOUNT"))?;
+
+    // Only a *numeric* prefix is a split number. "Milk: 2% =3.49" keeps its
+    // colon and stays one description.
+    let (split, description) = match left.split_once(':') {
+        Some((prefix, rest)) => match prefix.trim().parse::<usize>() {
+            Ok(n) => (n, rest),
+            Err(_) => (1, left),
+        },
+        None => (1, left),
+    };
+    let description = description.trim();
+    if description.is_empty() {
+        return Err(format!("`{s}` has no description"));
+    }
+    if split == 0 {
+        return Err(format!("`{s}` targets split 0; splits are numbered from 1"));
+    }
+
+    Ok(ItemSpec {
+        split,
+        description: description.to_string(),
+        amount: parse_money(amount)?,
+    })
+}
+
 /// `remainder`, `33.33%`, or a plain amount.
 fn parse_split(s: &str) -> Result<SplitAmount, String> {
     let t = s.trim();
@@ -555,6 +1466,81 @@ mod tests {
             parse_split("$1,234.50").unwrap(),
             SplitAmount::Fixed(Money::from_cents(123_450))
         );
+    }
+
+    #[test]
+    fn split_specs_carry_a_category_and_an_amount() {
+        assert_eq!(
+            parse_split_spec("Groceries=45.00").unwrap(),
+            SplitSpec {
+                category: "Groceries".to_string(),
+                amount: SplitAmount::Fixed(Money::from_cents(4500)),
+            }
+        );
+        assert_eq!(
+            parse_split_spec(" Frequent/Groceries = 25% ")
+                .unwrap()
+                .amount,
+            SplitAmount::Percent(2_500)
+        );
+        assert_eq!(
+            parse_split_spec("Groceries=remainder").unwrap().amount,
+            SplitAmount::Remainder
+        );
+        // A category name containing '=' is not a thing, but a name
+        // containing '/' very much is — the seed ships Rent/Mortgage.
+        assert_eq!(
+            parse_split_spec("Rent/Mortgage=1200.00").unwrap().category,
+            "Rent/Mortgage"
+        );
+
+        assert!(parse_split_spec("Groceries").is_err());
+        assert!(parse_split_spec("=45.00").is_err());
+        assert!(parse_split_spec("Groceries=banana").is_err());
+    }
+
+    #[test]
+    fn item_specs_default_to_the_first_split() {
+        assert_eq!(
+            parse_item_spec("Milk=3.49").unwrap(),
+            ItemSpec {
+                split: 1,
+                description: "Milk".to_string(),
+                amount: Money::from_cents(349),
+            }
+        );
+        assert_eq!(parse_item_spec("2:Bread=4.00").unwrap().split, 2);
+        // A colon that is not a split number stays in the description.
+        assert_eq!(
+            parse_item_spec("Milk: whole=3.49").unwrap().description,
+            "Milk: whole"
+        );
+        assert_eq!(parse_item_spec("Milk: whole=3.49").unwrap().split, 1);
+
+        assert!(parse_item_spec("Milk").is_err());
+        assert!(parse_item_spec("1:=3.49").is_err());
+        assert!(parse_item_spec("0:Milk=3.49").is_err());
+    }
+
+    #[test]
+    fn quantities_format_without_floats() {
+        assert_eq!(format_quantity(1_000), "1");
+        assert_eq!(format_quantity(1_500), "1.5");
+        assert_eq!(format_quantity(1_250), "1.25");
+        assert_eq!(format_quantity(500), "0.5");
+    }
+
+    #[test]
+    fn tables_align_on_characters_not_bytes() {
+        let mut t = Table::new(&["a", "b"], &[false, true]);
+        t.push(vec!["café".to_string(), "1".to_string()]);
+        t.push(vec!["x".to_string(), "22".to_string()]);
+        // Rendering is checked by eye elsewhere; what matters here is that a
+        // multi-byte cell does not shift its neighbour, which a byte-length
+        // width calculation would do.
+        assert_eq!("café".chars().count(), 4);
+        assert_eq!("café".len(), 5);
+        t.print("");
     }
 
     #[test]
