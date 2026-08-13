@@ -69,6 +69,21 @@
 //! [`repo::budgets::upsert`] refuses to leave two live lines covering one
 //! month, which no SQLite constraint can express and which would silently
 //! **double** every figure for the months they share.
+//!
+//! [`service::budgets`] — the budget screen: [`service::budgets::budget_status`]
+//! returns a row for every budgeted category (including the unbudgeted ones, so
+//! a UI can offer to budget them) with the [`FundedStatus`] the domain layer
+//! computes. Funding and overspending are separate measures and disagree in
+//! normal use — an envelope spent exactly to plan is [`OnTrack::Behind`] on
+//! funding and perfectly fine on spending — so a UI must render them as
+//! separate columns and never label `Behind` as "over budget".
+//!
+//! [`service::reports`] — the categories × months grid, in two bases. Money is
+//! **stored cash-flow dated in every basis**; [`ReportBasis::Amortized`] is a
+//! presentation transform that spreads each budget cycle's spending evenly
+//! across that cycle's months with [`Money::allocate`]. That is why the two
+//! bases reconcile to the same total over whole cycles, why a $1,200 premium
+//! paid in March reads as $100 a month, and why nothing here writes a row.
 
 #![doc(html_no_source)]
 
@@ -100,5 +115,7 @@ pub use repo::transactions::{
     DetailLevel, LineItemRecord, LoadedLineItem, LoadedSplit, NewTransaction, SplitRecord, Txn,
     TxnFilter,
 };
+pub use service::budgets::CategoryBudgetStatus;
 pub use service::entry::{EntryContext, TransactionDraft, TransactionPreview};
+pub use service::reports::{MatrixCell, MatrixRow, MonthlyMatrix, ReportBasis, monthly_matrix};
 pub use time::{MonthRange, ParseYearMonthError, YearMonth, month_short_name, quarter_of};

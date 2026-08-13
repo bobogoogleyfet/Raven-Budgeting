@@ -12,4 +12,6 @@
 //! them with the database. Neither reads the clock — timestamps arrive as
 //! parameters from the caller.
 
+pub mod budgets;
 pub mod entry;
+pub mod reports;
