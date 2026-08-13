@@ -12,6 +12,12 @@
 //! [`Db::with_tx`](crate::db::Db::with_tx). A second write path is a second
 //! chance to leave a receipt half-written, with nothing to catch it.
 //!
+//! [`budgets::upsert`] is the second place this matters, for a different
+//! reason: two live budget lines covering the same month double every figure
+//! derived from them, and no SQLite constraint can express general interval
+//! non-overlap. So the check and the write share one transaction — a check
+//! outside it races itself.
+//!
 //! # These functions take `&Db`, not `&Transaction`
 //!
 //! Each is atomic on its own. Composition of several writes into one unit is
@@ -19,6 +25,7 @@
 //! ([`locations::set_home`], [`transactions::save`]) open their own
 //! transaction internally.
 
+pub mod budgets;
 pub mod categories;
 pub mod locations;
 pub mod merchants;

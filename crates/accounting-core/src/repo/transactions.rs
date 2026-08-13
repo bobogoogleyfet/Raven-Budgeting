@@ -12,7 +12,7 @@
 //! deletes a `txn`, `txn_split` or `line_item` row. See the module docs of
 //! [`crate::repo`] for why that is load-bearing rather than tidy.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::str::FromStr;
 
@@ -27,6 +27,7 @@ use crate::error::{CoreError, Result};
 use crate::ids::{CategoryId, LineItemId, LocationId, MerchantId, SplitId, TxnId};
 use crate::money::Money;
 use crate::repo::{placeholders, sparse};
+use crate::time::{MonthRange, YearMonth};
 
 /// How much detail a transaction records.
 ///
@@ -785,6 +786,68 @@ pub fn last_for_merchant(db: &Db, merchant_id: MerchantId) -> Result<Option<Txn>
     Ok(list(db, &filter)?.into_iter().next())
 }
 
+/// Live spending per category per month, over an inclusive month range.
+///
+/// The actuals every budget and every report are built from. Three properties
+/// are load-bearing:
+///
+/// * **Aggregated in SQL.** One `GROUP BY` instead of loading a year of
+///   receipts and summing them in Rust. A year is thousands of splits and the
+///   answer is a few dozen numbers.
+/// * **Cash-flow dated, always.** A split is counted in the month its
+///   *transaction* falls in, in every reporting basis. Amortization is a
+///   presentation transform applied on top of this by
+///   [`crate::service::reports`]; nothing rewrites when the money moved.
+/// * **Archived transactions are excluded.** `txn_split` has no archived flag
+///   of its own — a split has no life apart from its transaction — so the test
+///   is on `txn.archived_at`.
+///
+/// `only` narrows to a single category; `None` returns every category that has
+/// any spending in the range. The date bounds are bound as full `YYYY-MM-DD`
+/// strings rather than compared with `substr`, so the query still uses
+/// `ix_txn_date` instead of scanning the table.
+pub fn spend_by_category_month(
+    db: &Db,
+    range: MonthRange,
+    only: Option<CategoryId>,
+) -> Result<BTreeMap<CategoryId, BTreeMap<YearMonth, Money>>> {
+    if range.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    let mut stmt = db.conn().prepare(
+        "SELECT s.category_id, substr(t.txn_date, 1, 7), SUM(s.amount_cents)
+           FROM txn_split s
+           JOIN txn t ON t.id = s.txn_id
+          WHERE t.archived_at IS NULL
+            AND t.txn_date >= ?1 AND t.txn_date <= ?2
+            AND (?3 IS NULL OR s.category_id = ?3)
+          GROUP BY s.category_id, substr(t.txn_date, 1, 7)",
+    )?;
+    let rows = stmt
+        .query_map(
+            params![
+                date_value(range.start.first_day()),
+                date_value(range.end.last_day()),
+                only
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, CategoryId>(0)?,
+                    r.get::<_, YearMonth>(1)?,
+                    r.get::<_, Money>(2)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut out: BTreeMap<CategoryId, BTreeMap<YearMonth, Money>> = BTreeMap::new();
+    for (category_id, ym, amount) in rows {
+        out.entry(category_id).or_default().insert(ym, amount);
+    }
+    Ok(out)
+}
+
 /// Attach splits and line items to already-loaded transactions.
 ///
 /// **Three queries total, whatever the row count**: one for the transactions,
@@ -1338,6 +1401,59 @@ mod tests {
                 txn.total
             );
         }
+    }
+
+    #[test]
+    fn spend_groups_by_category_and_month_and_ignores_archived() {
+        let db = seeded();
+        let groceries = categories::resolve(&db, "Groceries").unwrap();
+        let fuel = categories::resolve(&db, "Gas/Fuel").unwrap();
+
+        let save_on = |date_str: &str, splits: Vec<SplitRecord>| {
+            let mut new = draft(splits);
+            new.txn_date = date(date_str);
+            save(&db, &new).unwrap()
+        };
+        save_on("2026-03-01", vec![split(groceries.id, 1000, 0)]);
+        save_on("2026-03-28", vec![split(groceries.id, 2000, 0)]);
+        save_on("2026-04-02", vec![split(fuel.id, 4000, 0)]);
+        let archived = save_on("2026-03-15", vec![split(groceries.id, 9999, 0)]);
+        archive(&db, archived).unwrap();
+
+        let year = MonthRange::new(
+            YearMonth::new(2026, 1).unwrap(),
+            YearMonth::new(2026, 12).unwrap(),
+        );
+        let all = spend_by_category_month(&db, year, None).unwrap();
+        assert_eq!(
+            all[&groceries.id][&YearMonth::new(2026, 3).unwrap()],
+            m(3000)
+        );
+        assert_eq!(all[&fuel.id][&YearMonth::new(2026, 4).unwrap()], m(4000));
+        assert_eq!(all[&groceries.id].len(), 1, "one month, two receipts");
+
+        // The month boundaries are inclusive of the whole first and last day.
+        let march = MonthRange::single(YearMonth::new(2026, 3).unwrap());
+        let only_march = spend_by_category_month(&db, march, None).unwrap();
+        assert_eq!(only_march.len(), 1);
+        assert_eq!(
+            only_march[&groceries.id][&YearMonth::new(2026, 3).unwrap()],
+            m(3000)
+        );
+
+        let one = spend_by_category_month(&db, year, Some(fuel.id)).unwrap();
+        assert_eq!(one.len(), 1);
+        assert!(one.contains_key(&fuel.id));
+
+        let backwards = MonthRange::new(
+            YearMonth::new(2026, 12).unwrap(),
+            YearMonth::new(2026, 1).unwrap(),
+        );
+        assert!(
+            spend_by_category_month(&db, backwards, None)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

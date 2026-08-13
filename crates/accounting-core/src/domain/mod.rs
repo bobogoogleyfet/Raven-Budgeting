@@ -11,7 +11,8 @@ pub mod splits;
 pub mod tax;
 
 pub use budget_calc::{
-    BudgetLine, FundedStatus, OnTrack, Period, contributions, funded_balance, monthly_contribution,
+    BudgetLine, FundedStatus, OnTrack, Period, SpendStatus, contributions, cycle_containing,
+    funded_balance, monthly_contribution,
 };
 pub use reconcile::{AmountEntry, AmountField, Amounts, ReconcileError, TaxContext, reconcile};
 pub use splits::{

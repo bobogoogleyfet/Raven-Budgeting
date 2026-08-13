@@ -60,6 +60,15 @@
 //! header row, the cell writes and the CSV alike — Excel "repairs" (blanks) a
 //! workbook whose table definition disagrees with its header cells, and two
 //! hand-maintained lists of the same names diverge at the first edit.
+//!
+//! # Milestone 5 surface
+//!
+//! [`repo::budgets`] — budget lines and adjustments. A budget is a historical
+//! record, not a setting: every line carries the months it applies to, so
+//! changing next year's grocery budget cannot rewrite last year's report.
+//! [`repo::budgets::upsert`] refuses to leave two live lines covering one
+//! month, which no SQLite constraint can express and which would silently
+//! **double** every figure for the months they share.
 
 #![doc(html_no_source)]
 
@@ -74,6 +83,7 @@ pub mod service;
 pub mod time;
 
 pub use db::{Db, InvariantViolation, check_all, seed_defaults};
+pub use domain::budget_calc::{BudgetLine, FundedStatus, OnTrack, Period, SpendStatus};
 pub use error::{CoreError, Result};
 pub use export::csv::{csv_bytes, export_csv};
 pub use export::xlsx::{export_xlsx, workbook_bytes};
@@ -82,6 +92,7 @@ pub use ids::{
     BudgetLineId, CategoryGroupId, CategoryId, LineItemId, LocationId, MerchantId, SplitId, TxnId,
 };
 pub use money::{Money, MoneyParseError};
+pub use repo::budgets::{Adjustment, BudgetLineRecord, StoredBudgetLine, Superseded};
 pub use repo::categories::{Category, CategoryGroup};
 pub use repo::locations::Location;
 pub use repo::merchants::Merchant;

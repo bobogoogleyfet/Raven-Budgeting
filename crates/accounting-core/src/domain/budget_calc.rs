@@ -151,6 +151,43 @@ fn cycle_position(line: &BudgetLine, ym: YearMonth) -> Option<(usize, usize)> {
     }
 }
 
+/// The months of the budget cycle that `ym` belongs to, inclusive.
+///
+/// `None` when the line is not active in `ym` — before it starts, after it
+/// ends, past a `ByDate` due month, or a degenerate `EveryNMonths(0)`. A caller
+/// that needs a cycle for *every* month (the amortized report does) treats
+/// `None` as a one-month cycle, which is exactly what a month with no budget
+/// deserves.
+///
+/// # Why this is public
+///
+/// Amortizing spending across a cycle needs the cycle's boundaries, and the
+/// only correct source for them is the same [`cycle_position`] the
+/// contributions use. A second implementation in the reporting layer would
+/// drift from this one the first time a period type is added, and the symptom
+/// would be a report that quietly disagrees with the budget screen.
+///
+/// # Clamping
+///
+/// The range never extends past `period_end`. Without that clamp a `Yearly`
+/// line ending in June would claim a January–December cycle for its own months
+/// *and* leave July onward as separate one-month cycles — months would belong
+/// to two cycles at once, and amortized spending would be counted twice.
+#[must_use]
+pub fn cycle_containing(line: &BudgetLine, ym: YearMonth) -> Option<MonthRange> {
+    let (len, idx) = cycle_position(line, ym)?;
+    let idx = i32::try_from(idx).ok()?;
+    let len = i32::try_from(len).ok()?;
+    let start = ym.add_months(-idx);
+    let mut end = start.add_months(len - 1);
+    if let Some(period_end) = line.period_end
+        && period_end < end
+    {
+        end = period_end;
+    }
+    Some(MonthRange::new(start, end))
+}
+
 /// This month's contribution toward `line`.
 ///
 /// The period's amount is apportioned across the months of the cycle with
@@ -559,6 +596,63 @@ mod tests {
         assert_eq!(s.funded_balance, Money::ZERO);
         assert_eq!(s.contributed_to_date, Money::ZERO);
         assert_eq!(s.on_track, OnTrack::OnTrack);
+    }
+
+    #[test]
+    fn cycles_partition_the_months_they_cover() {
+        let yearly = line(Period::Yearly, 120_000, true);
+        let cycle = cycle_containing(&yearly, ym(2026, 3)).expect("active");
+        assert_eq!(cycle, MonthRange::new(ym(2026, 1), ym(2026, 12)));
+        // Every month of a cycle reports the same cycle — the property the
+        // amortized report relies on to assign each month to exactly one.
+        for month in 1..=12 {
+            assert_eq!(cycle_containing(&yearly, ym(2026, month)), Some(cycle));
+        }
+        assert_eq!(
+            cycle_containing(&yearly, ym(2027, 1)),
+            Some(MonthRange::new(ym(2027, 1), ym(2027, 12)))
+        );
+
+        // A monthly line's cycle is the month itself, which is why a monthly
+        // budget amortizes to exactly its own cash flow.
+        let monthly = line(Period::Monthly, 40_000, false);
+        assert_eq!(
+            cycle_containing(&monthly, ym(2026, 5)),
+            Some(MonthRange::single(ym(2026, 5)))
+        );
+
+        // Inactive months have no cycle at all.
+        assert_eq!(cycle_containing(&yearly, ym(2025, 12)), None);
+        let inert = line(Period::EveryNMonths(0), 10_000, true);
+        assert_eq!(cycle_containing(&inert, ym(2026, 1)), None);
+    }
+
+    #[test]
+    fn a_cycle_never_runs_past_the_lines_last_month() {
+        // Unclamped, June–December would belong both to January's twelve-month
+        // cycle and to their own one-month ones, and amortized spending would
+        // be counted twice.
+        let mut l = line(Period::Yearly, 120_000, true);
+        l.period_end = Some(ym(2026, 6));
+        assert_eq!(
+            cycle_containing(&l, ym(2026, 3)),
+            Some(MonthRange::new(ym(2026, 1), ym(2026, 6)))
+        );
+        assert_eq!(cycle_containing(&l, ym(2026, 7)), None);
+
+        // A ByDate line's cycle ends in the due month, and nothing follows it.
+        let by_date = line(
+            Period::ByDate {
+                due: NaiveDate::from_ymd_opt(2026, 4, 15).unwrap(),
+            },
+            40_000,
+            true,
+        );
+        assert_eq!(
+            cycle_containing(&by_date, ym(2026, 2)),
+            Some(MonthRange::new(ym(2026, 1), ym(2026, 4)))
+        );
+        assert_eq!(cycle_containing(&by_date, ym(2026, 5)), None);
     }
 
     #[test]

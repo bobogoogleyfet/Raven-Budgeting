@@ -14,6 +14,7 @@ use accounting_core::db::{Db, check_all, new_uuid};
 use accounting_core::domain::reconcile::Amounts;
 use accounting_core::repo::transactions::{NewTransaction, SplitRecord};
 use accounting_core::repo::{categories, locations, merchants, transactions};
+use accounting_core::time::{MonthRange, YearMonth};
 use accounting_core::{CategoryId, DetailLevel, LocationId, MerchantId, Money, TxnId};
 use chrono::NaiveDate;
 use rusqlite::Connection;
@@ -249,6 +250,44 @@ pub fn location(db: &Db, name: &str, tax_rate_ppm: u32) -> LocationId {
 #[track_caller]
 pub fn save(db: &Db, new: &NewTransaction) -> TxnId {
     transactions::save(db, new).unwrap_or_else(|e| panic!("save {}: {e}", new.txn_date))
+}
+
+/// One dated, single-category piece of spending, written through the real save
+/// path.
+///
+/// The budget and report suites care about *when* money was spent and *which*
+/// envelope it came out of; the receipt around it (merchant, location, tax,
+/// several splits) is noise there. Tax is zero so `subtotal + tax = total`
+/// holds without the caller doing arithmetic in the test.
+#[track_caller]
+pub fn spend_on(db: &Db, date: &str, category_id: CategoryId, cents: i64) -> TxnId {
+    save(
+        db,
+        &txn(
+            day(date),
+            amounts(cents, 0),
+            vec![split(category_id, cents, 0)],
+        ),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Month helpers
+// ---------------------------------------------------------------------------
+
+/// `ym(2026, 8)` — a valid calendar month, panicking on a typo'd month number
+/// so a test never silently runs against a different month than it reads as.
+#[track_caller]
+#[must_use]
+pub fn ym(year: i32, month: u32) -> YearMonth {
+    YearMonth::new(year, month).unwrap_or_else(|| panic!("`{year}-{month}` is not a valid month"))
+}
+
+/// `months((2026, 1), (2026, 12))` — the inclusive range those two months bound.
+#[track_caller]
+#[must_use]
+pub fn months(start: (i32, u32), end: (i32, u32)) -> MonthRange {
+    MonthRange::new(ym(start.0, start.1), ym(end.0, end.1))
 }
 
 // ---------------------------------------------------------------------------

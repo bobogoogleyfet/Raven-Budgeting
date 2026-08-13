@@ -115,6 +115,23 @@ pub fn list(db: &Db) -> Result<Vec<Category>> {
     Ok(rows)
 }
 
+/// Every category, **archived included**, in the same order as [`list`].
+///
+/// A report is over history, and history points at categories the user has
+/// since retired: a year of Hobbies spending does not stop existing because the
+/// category was archived in November. Rendering those rows as "category 17"
+/// (which is what falling back to an id does) makes the report unreadable
+/// exactly where it is most surprising, and looking each one up individually is
+/// the N+1 this exists to avoid.
+pub fn list_all(db: &Db) -> Result<Vec<Category>> {
+    let sql = format!("{SELECT_CATEGORY} ORDER BY g.sort_order, c.sort_order, c.name");
+    let mut stmt = db.conn().prepare(&sql)?;
+    let rows = stmt
+        .query_map([], map_category)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// Every live group, in display order.
 pub fn list_groups(db: &Db) -> Result<Vec<CategoryGroup>> {
     let sql = format!("{SELECT_GROUP} WHERE archived_at IS NULL ORDER BY sort_order, name");
@@ -345,6 +362,15 @@ mod tests {
         assert!(list(&db).unwrap().iter().all(|c| c.name != "Hobbies"));
         // …but it still loads by id, so old transactions keep their name.
         assert!(get(&db, hobbies.id).unwrap().archived);
+        // …and `list_all` still carries it, so a report over last year's
+        // spending can still name the category it was filed under.
+        let all_including_archived = list_all(&db).unwrap();
+        assert_eq!(all_including_archived.len(), all.len());
+        assert!(
+            all_including_archived
+                .iter()
+                .any(|c| c.name == "Hobbies" && c.archived)
+        );
     }
 
     #[test]
