@@ -54,6 +54,21 @@ pub enum InvariantViolation {
         total: Money,
         split_sum: Money,
     },
+    /// A transaction's splits sum to the correct total but divide it
+    /// differently between subtotal and tax.
+    ///
+    /// Not caught by [`InvariantViolation::SplitSumMismatch`]: the row-local
+    /// CHECKs force `subtotal + tax = amount` on every split and on the
+    /// transaction, so an error in one column can be exactly cancelled by the
+    /// opposite error in the other while the totals still agree. The damage
+    /// shows up in the export, where per-category tax is wrong.
+    SplitTaxSumMismatch {
+        txn_id: TxnId,
+        subtotal: Money,
+        subtotal_sum: Money,
+        tax: Money,
+        tax_sum: Money,
+    },
     /// A split's line items do not sum to the split amount.
     LineItemSumMismatch {
         split_id: SplitId,
@@ -103,6 +118,7 @@ impl InvariantViolation {
     pub fn severity(&self) -> Severity {
         match self {
             InvariantViolation::SplitSumMismatch { .. }
+            | InvariantViolation::SplitTaxSumMismatch { .. }
             | InvariantViolation::LineItemSumMismatch { .. }
             | InvariantViolation::TxnWithoutSplits { .. }
             | InvariantViolation::OrphanedRow { .. } => Severity::Error,
@@ -125,6 +141,21 @@ impl std::fmt::Display for InvariantViolation {
                 "txn {txn_id}: splits sum to {} but the total is {}",
                 split_sum.to_display_string(),
                 total.to_display_string()
+            ),
+            InvariantViolation::SplitTaxSumMismatch {
+                txn_id,
+                subtotal,
+                subtotal_sum,
+                tax,
+                tax_sum,
+            } => write!(
+                f,
+                "txn {txn_id}: splits divide the total differently — \
+                 subtotal {} vs {}, tax {} vs {}",
+                subtotal_sum.to_display_string(),
+                subtotal.to_display_string(),
+                tax_sum.to_display_string(),
+                tax.to_display_string()
             ),
             InvariantViolation::LineItemSumMismatch {
                 split_id,
@@ -184,6 +215,7 @@ impl std::fmt::Display for InvariantViolation {
 pub fn check_all(db: &Db) -> Result<Vec<InvariantViolation>> {
     let mut out = Vec::new();
     check_split_sums(db, &mut out)?;
+    check_split_tax_sums(db, &mut out)?;
     check_line_item_sums(db, &mut out)?;
     check_txns_without_splits(db, &mut out)?;
     check_orphans(db, &mut out)?;
@@ -209,11 +241,17 @@ where
 fn check_split_sums(db: &Db, out: &mut Vec<InvariantViolation>) -> Result<()> {
     // LEFT JOIN + COALESCE so a transaction with zero splits contributes 0
     // rather than dropping out of the result entirely.
+    //
+    // Archived transactions are skipped here and in the other txn-level
+    // aggregate checks: an archived row is excluded from every report, so its
+    // arithmetic no longer affects any number the user sees, and auditing it
+    // would turn ordinary deletes into permanent `pacc doctor` noise.
     collect(
         db,
         "SELECT t.id, t.total_cents, COALESCE(SUM(s.amount_cents), 0) AS split_sum
            FROM txn t
            LEFT JOIN txn_split s ON s.txn_id = t.id
+          WHERE t.archived_at IS NULL
           GROUP BY t.id
          HAVING split_sum <> t.total_cents
           ORDER BY t.id",
@@ -222,6 +260,38 @@ fn check_split_sums(db: &Db, out: &mut Vec<InvariantViolation>) -> Result<()> {
                 txn_id: row.get(0)?,
                 total: row.get(1)?,
                 split_sum: row.get(2)?,
+            })
+        },
+        out,
+    )
+}
+
+fn check_split_tax_sums(db: &Db, out: &mut Vec<InvariantViolation>) -> Result<()> {
+    // Inner JOIN: a transaction with no splits is check_txns_without_splits'
+    // business, and reporting it twice would just add noise.
+    //
+    // This is not implied by check_split_sums. Because every row carries a
+    // CHECK that subtotal + tax = amount, a split can overstate its subtotal
+    // by exactly what it understates its tax, and the totals still reconcile.
+    // Per-category tax in the export would be wrong with nothing flagged.
+    collect(
+        db,
+        "SELECT t.id, t.subtotal_cents, t.tax_cents,
+                COALESCE(SUM(s.subtotal_cents), 0) AS sub_sum,
+                COALESCE(SUM(s.tax_cents), 0) AS tax_sum
+           FROM txn t
+           JOIN txn_split s ON s.txn_id = t.id
+          WHERE t.archived_at IS NULL
+          GROUP BY t.id
+         HAVING sub_sum <> t.subtotal_cents OR tax_sum <> t.tax_cents
+          ORDER BY t.id",
+        |row| {
+            Ok(InvariantViolation::SplitTaxSumMismatch {
+                txn_id: row.get(0)?,
+                subtotal: row.get(1)?,
+                tax: row.get(2)?,
+                subtotal_sum: row.get(3)?,
+                tax_sum: row.get(4)?,
             })
         },
         out,
@@ -253,11 +323,17 @@ fn check_line_item_sums(db: &Db, out: &mut Vec<InvariantViolation>) -> Result<()
 fn check_txns_without_splits(db: &Db, out: &mut Vec<InvariantViolation>) -> Result<()> {
     // Not redundant with check_split_sums: a $0.00 transaction with no splits
     // satisfies `0 = 0` there and would otherwise pass unnoticed.
+    //
+    // Archived transactions are excluded. Soft-deleting a transaction cascades
+    // nothing, so an archived row legitimately keeps or loses its splits;
+    // reporting it here would make `pacc doctor` accumulate permanent noise
+    // from ordinary deletes.
     collect(
         db,
         "SELECT t.id, t.total_cents
            FROM txn t
-          WHERE NOT EXISTS (SELECT 1 FROM txn_split s WHERE s.txn_id = t.id)
+          WHERE t.archived_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM txn_split s WHERE s.txn_id = t.id)
           ORDER BY t.id",
         |row| {
             Ok(InvariantViolation::TxnWithoutSplits {
@@ -382,6 +458,70 @@ mod tests {
     }
 
     #[test]
+    fn splits_that_divide_the_total_differently_are_reported() {
+        // The blind spot in check_split_sums. Every row-local CHECK still
+        // holds and the amounts still sum to the total, but the split moved
+        // a dollar from tax into subtotal. Per-category tax in the export
+        // would be wrong with nothing else flagging it.
+        let db = db_with_one_receipt();
+        db.conn()
+            .execute(
+                "UPDATE txn_split SET subtotal_cents = 1000, tax_cents = 0 WHERE id = 1",
+                [],
+            )
+            .unwrap();
+
+        let found = check_all(&db).unwrap();
+        assert!(
+            found.iter().any(|v| matches!(
+                v,
+                InvariantViolation::SplitTaxSumMismatch { txn_id, .. } if txn_id.get() == 1
+            )),
+            "expected a tax-division mismatch, got {found:?}"
+        );
+        // The amounts still reconcile, which is the whole point.
+        assert!(
+            !found
+                .iter()
+                .any(|v| matches!(v, InvariantViolation::SplitSumMismatch { .. })),
+            "the total still balances; only the division is wrong"
+        );
+    }
+
+    #[test]
+    fn an_archived_transaction_without_splits_is_not_reported() {
+        // Soft-deleting a transaction is an ordinary user action. If it kept
+        // showing up here, `pacc doctor` would accumulate permanent noise and
+        // "0 invariant violations" would stop meaning anything.
+        let db = db_with_one_receipt();
+        db.conn()
+            .execute_batch(
+                "DELETE FROM txn_split WHERE txn_id = 1;
+                 UPDATE txn SET archived_at = '2026-08-12T00:00:00.000Z' WHERE id = 1;",
+            )
+            .unwrap();
+
+        assert_eq!(check_all(&db).unwrap(), vec![]);
+    }
+
+    #[test]
+    fn a_live_transaction_without_splits_is_still_reported() {
+        // The mirror of the test above, so excluding archived rows cannot
+        // quietly disable the check altogether.
+        let db = db_with_one_receipt();
+        db.conn()
+            .execute("DELETE FROM txn_split WHERE txn_id = 1", [])
+            .unwrap();
+
+        assert!(
+            check_all(&db)
+                .unwrap()
+                .iter()
+                .any(|v| matches!(v, InvariantViolation::TxnWithoutSplits { .. }))
+        );
+    }
+
+    #[test]
     fn a_split_that_no_longer_sums_is_reported() {
         let db = db_with_one_receipt();
         // Corrupt the split, keeping its own row-local CHECK satisfied — this
@@ -393,17 +533,25 @@ mod tests {
             )
             .unwrap();
 
+        // Losing a dollar off the split also shifts how the total divides, so
+        // check_split_tax_sums fires as well. Assert on the finding that
+        // matters rather than on the exact set, which would make this test
+        // brittle against every new check.
         let v = check_all(&db).unwrap();
+        let sum_mismatch = v
+            .iter()
+            .find(|f| matches!(f, InvariantViolation::SplitSumMismatch { .. }))
+            .unwrap_or_else(|| panic!("expected a split-sum mismatch, got {v:?}"));
         assert_eq!(
-            v,
-            vec![InvariantViolation::SplitSumMismatch {
+            *sum_mismatch,
+            InvariantViolation::SplitSumMismatch {
                 txn_id: TxnId::new(1),
                 total: Money::from_cents(1000),
                 split_sum: Money::from_cents(900),
-            }]
+            }
         );
-        assert_eq!(v[0].severity(), Severity::Error);
-        assert!(v[0].to_string().contains("$9.00"));
+        assert_eq!(sum_mismatch.severity(), Severity::Error);
+        assert!(sum_mismatch.to_string().contains("$9.00"));
     }
 
     #[test]
@@ -524,9 +672,14 @@ mod tests {
             )
             .unwrap();
 
+        // Assert the ordering property rather than a count, so adding a check
+        // doesn't break a test that is not about how many checks there are.
         let v = check_all(&db).unwrap();
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0].severity(), Severity::Error);
-        assert_eq!(v[1].severity(), Severity::Warning);
+        assert!(v.iter().any(|f| f.severity() == Severity::Error));
+        assert!(v.iter().any(|f| f.severity() == Severity::Warning));
+        assert!(
+            v.windows(2).all(|w| w[0].severity() <= w[1].severity()),
+            "errors must sort before warnings, got {v:?}"
+        );
     }
 }
