@@ -33,6 +33,13 @@
 //! [`db`] — a `STRICT` SQLite schema, `user_version` migrations, the default
 //! chart of accounts, and [`db::check_all`] for the two aggregate invariants
 //! that no constraint in SQLite can express.
+//!
+//! # Milestone 3 surface
+//!
+//! [`repo`] — typed reads, and the **single write path**
+//! [`repo::transactions::save`], which replaces a whole transaction aggregate
+//! inside one SQLite transaction. That is what holds the aggregate invariants
+//! true; [`db::check_all`] only audits them.
 
 #![doc(html_no_source)]
 
@@ -41,6 +48,7 @@ pub mod domain;
 pub mod error;
 pub mod ids;
 pub mod money;
+pub mod repo;
 pub mod time;
 
 pub use db::{Db, InvariantViolation, check_all, seed_defaults};
@@ -49,4 +57,11 @@ pub use ids::{
     BudgetLineId, CategoryGroupId, CategoryId, LineItemId, LocationId, MerchantId, SplitId, TxnId,
 };
 pub use money::{Money, MoneyParseError};
+pub use repo::categories::{Category, CategoryGroup};
+pub use repo::locations::Location;
+pub use repo::merchants::Merchant;
+pub use repo::transactions::{
+    DetailLevel, LineItemRecord, LoadedLineItem, LoadedSplit, NewTransaction, SplitRecord, Txn,
+    TxnFilter,
+};
 pub use time::{MonthRange, ParseYearMonthError, YearMonth, month_short_name, quarter_of};

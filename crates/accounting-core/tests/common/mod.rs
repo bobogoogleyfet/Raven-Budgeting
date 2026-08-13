@@ -10,7 +10,7 @@
 //! into each test binary, so unused-code warnings here are noise.
 #![allow(dead_code)]
 
-use accounting_core::db::{Db, new_uuid};
+use accounting_core::db::{Db, check_all, new_uuid};
 use rusqlite::Connection;
 
 /// Raw connection access, for the tests that must reach *around* any repository
@@ -150,6 +150,52 @@ pub fn insert_balanced_aggregate(c: &Connection) -> Aggregate {
 pub fn count(c: &Connection, sql: &str) -> i64 {
     c.query_row(sql, [], |r| r.get(0))
         .unwrap_or_else(|e| panic!("count `{sql}`: {e}"))
+}
+
+/// Assert that every aggregate invariant still holds.
+///
+/// The two aggregate invariants cannot be constraints (CHECK cannot
+/// aggregate), so they are held by construction in the write path and audited
+/// by `check_all`. That audit is only worth anything if it is actually run:
+/// every test that writes data ends with this call, so a write path that
+/// leaves an orphaned split, a half-replaced aggregate, or a transaction whose
+/// splits no longer sum is caught here rather than in a report months later.
+#[track_caller]
+pub fn assert_clean(db: &Db) {
+    let violations = check_all(db).expect("check_all");
+    assert!(
+        violations.is_empty(),
+        "the database must satisfy every aggregate invariant; got {violations:?}"
+    );
+}
+
+/// A census of every table a transaction write can touch.
+///
+/// Used by the "this call must not write" tests — preview, `--dry-run`,
+/// `repeat_last`, a rejected `save`. Comparing two whole snapshots proves the
+/// absence of a write far better than checking the one table the test happens
+/// to be thinking about: a `save` that validates late could easily have
+/// inserted the merchant before rejecting the splits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowCounts {
+    pub txns: i64,
+    pub splits: i64,
+    pub line_items: i64,
+    pub merchants: i64,
+    pub locations: i64,
+    pub categories: i64,
+}
+
+pub fn row_counts(db: &Db) -> RowCounts {
+    let c = raw(db);
+    RowCounts {
+        txns: count(c, "SELECT COUNT(*) FROM txn"),
+        splits: count(c, "SELECT COUNT(*) FROM txn_split"),
+        line_items: count(c, "SELECT COUNT(*) FROM line_item"),
+        merchants: count(c, "SELECT COUNT(*) FROM merchant"),
+        locations: count(c, "SELECT COUNT(*) FROM location"),
+        categories: count(c, "SELECT COUNT(*) FROM category"),
+    }
 }
 
 pub fn pragma_string(c: &Connection, pragma: &str) -> String {

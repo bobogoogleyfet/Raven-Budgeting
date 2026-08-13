@@ -9,7 +9,8 @@
 //! [`Money`] stores as INTEGER cents, matching the schema's `*_cents` columns.
 //! [`YearMonth`] stores as TEXT `'YYYY-MM'`, matching the `GLOB` checks on
 //! `budget_line.period_start` and `budget_adjustment.year_month`, and sorting
-//! chronologically as a string.
+//! chronologically as a string. [`DetailLevel`] stores as the same lowercase
+//! text its `CHECK (… IN ('grouped', 'itemized'))` accepts.
 //!
 //! These impls live here rather than in `ids.rs` / `money.rs` so that those
 //! modules stay free of any storage dependency.
@@ -20,6 +21,7 @@ use crate::ids::{
     BudgetLineId, CategoryGroupId, CategoryId, LineItemId, LocationId, MerchantId, SplitId, TxnId,
 };
 use crate::money::Money;
+use crate::repo::transactions::DetailLevel;
 use crate::time::YearMonth;
 
 impl ToSql for Money {
@@ -44,6 +46,27 @@ impl FromSql for YearMonth {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let s = value.as_str()?;
         s.parse::<YearMonth>()
+            .map_err(|e| FromSqlError::Other(Box::new(e)))
+    }
+}
+
+impl ToSql for DetailLevel {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        // A borrowed &'static str, so writing a detail level allocates nothing
+        // — this goes into every transaction insert.
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for DetailLevel {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        // An unrecognised value is an error rather than a silent fallback to
+        // `Grouped`: the schema's CHECK makes one impossible, so seeing one
+        // means the file was written by something other than this crate, and
+        // quietly rendering it as the wrong detail level would hide that.
+        value
+            .as_str()?
+            .parse::<DetailLevel>()
             .map_err(|e| FromSqlError::Other(Box::new(e)))
     }
 }
@@ -146,6 +169,25 @@ mod tests {
                 "2026-09".parse().unwrap(),
             ]
         );
+    }
+
+    #[test]
+    fn detail_level_stores_as_the_text_the_schema_checks_for() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t (v TEXT NOT NULL CHECK (v IN ('grouped', 'itemized'))) STRICT;",
+        )
+        .unwrap();
+
+        for level in [DetailLevel::Grouped, DetailLevel::Itemized] {
+            conn.execute("DELETE FROM t", []).unwrap();
+            // The CHECK is the assertion: a mismatch between the enum and the
+            // schema's vocabulary fails here rather than at the first save.
+            conn.execute("INSERT INTO t (v) VALUES (?1)", [level])
+                .unwrap();
+            let back: DetailLevel = conn.query_row("SELECT v FROM t", [], |r| r.get(0)).unwrap();
+            assert_eq!(back, level);
+        }
     }
 
     #[test]
