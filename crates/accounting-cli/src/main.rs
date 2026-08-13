@@ -9,7 +9,10 @@
 //! Note what this file does *not* contain: arithmetic. It parses strings into
 //! core types, calls into `accounting-core`, and formats what comes back.
 
+use std::path::{Path, PathBuf};
+
 use accounting_core::Money;
+use accounting_core::db::{Db, SCHEMA_VERSION, check_all, seed_defaults};
 use accounting_core::domain::reconcile::{
     AmountEntry, AmountField, Amounts, TaxContext, reconcile,
 };
@@ -20,6 +23,17 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 #[derive(Parser)]
 #[command(name = "pacc", version, about = "Personal accounting — headless CLI")]
 struct Cli {
+    /// Database file. Defaults to `$PACC_DB`, else
+    /// `$XDG_DATA_HOME/personal-accounting/pacc.db`, else
+    /// `~/.local/share/personal-accounting/pacc.db`.
+    ///
+    /// Path resolution lives here and only here. `accounting-core` never
+    /// discovers a path — it is handed one — because path-discovery crates
+    /// return meaningless answers on Android, where the data directory is
+    /// only obtainable through the Java `Context`.
+    #[arg(long, global = true, value_name = "PATH")]
+    db: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -35,6 +49,22 @@ enum Command {
     ///   pacc calc --total 100.00 --split 33.33 --split 33.33 --split remainder
     #[command(verbatim_doc_comment)]
     Calc(CalcArgs),
+    /// Create the database, migrate it, and install the default categories.
+    ///
+    /// Safe to re-run: migrations are versioned and the seed is idempotent.
+    Init,
+    /// Report schema version, connection settings, row counts, and any
+    /// invariant violations. Exits non-zero if anything is wrong.
+    Doctor,
+    /// Write a single-file, defragmented copy of the database (`VACUUM INTO`).
+    Backup(BackupArgs),
+}
+
+#[derive(Args)]
+struct BackupArgs {
+    /// Destination file. Must not already exist.
+    #[arg(long = "to", value_name = "PATH")]
+    to: PathBuf,
 }
 
 #[derive(Args)]
@@ -90,14 +120,185 @@ impl From<EditedField> for AmountField {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
+    match &cli.command {
         Command::Version => {
             println!("pacc {}", env!("CARGO_PKG_VERSION"));
         }
-        Command::Calc(args) => run_calc(&args)?,
+        Command::Calc(args) => run_calc(args)?,
+        Command::Init => run_init(&cli.db_path()?)?,
+        Command::Doctor => {
+            if !run_doctor(&cli.db_path()?)? {
+                // A non-zero exit is what makes `pacc doctor` usable from a
+                // pre-backup script or a CI step.
+                std::process::exit(1);
+            }
+        }
+        Command::Backup(args) => run_backup(&cli.db_path()?, &args.to)?,
     }
 
     Ok(())
+}
+
+impl Cli {
+    /// `--db`, else the environment, else the XDG default.
+    fn db_path(&self) -> anyhow::Result<PathBuf> {
+        if let Some(p) = &self.db {
+            return Ok(p.clone());
+        }
+        default_db_path()
+    }
+}
+
+/// The default database location.
+///
+/// Hand-rolled rather than pulled from `dirs`/`directories`: this is the only
+/// place in the workspace that knows a filesystem convention, and keeping it
+/// to a dozen lines here is what lets `accounting-core` stay path-free — and
+/// therefore reusable on Android, where those crates are actively wrong.
+fn default_db_path() -> anyhow::Result<PathBuf> {
+    if let Some(p) = non_empty_env("PACC_DB") {
+        return Ok(PathBuf::from(p));
+    }
+    let base = match non_empty_env("XDG_DATA_HOME") {
+        Some(v) => PathBuf::from(v),
+        None => PathBuf::from(
+            non_empty_env("HOME")
+                .context("neither --db, $PACC_DB, $XDG_DATA_HOME nor $HOME is set; pass --db")?,
+        )
+        .join(".local")
+        .join("share"),
+    };
+    Ok(base.join("personal-accounting").join("pacc.db"))
+}
+
+fn non_empty_env(key: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(key).filter(|v| !v.is_empty())
+}
+
+/// Open an existing database, refusing to create one by accident.
+///
+/// `Db::open` would happily create an empty file, which turns a typo in `--db`
+/// into "all my data is gone" rather than an error.
+fn open_existing(path: &Path) -> anyhow::Result<Db> {
+    anyhow::ensure!(
+        path.exists(),
+        "no database at {} — run `pacc init` first, or pass --db",
+        path.display()
+    );
+    Db::open(path).with_context(|| format!("could not open {}", path.display()))
+}
+
+/// Creating the parent directory is the CLI's job, not the core's: the core is
+/// handed a path and does not get to have filesystem opinions.
+fn ensure_parent_dir(path: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("could not create {}", parent.display()))?;
+    }
+    Ok(())
+}
+
+fn run_init(path: &Path) -> anyhow::Result<()> {
+    ensure_parent_dir(path)?;
+    let existed = path.exists();
+
+    let db = Db::open(path).with_context(|| format!("could not open {}", path.display()))?;
+    seed_defaults(&db).context("could not install the default categories")?;
+
+    let counts = Counts::read(&db)?;
+    println!(
+        "{} {}",
+        if existed { "updated" } else { "created" },
+        path.display()
+    );
+    println!("  schema     user_version={}", db.user_version()?);
+    println!(
+        "  seeded     {} groups, {} categories, {} locations",
+        counts.groups, counts.categories, counts.locations
+    );
+    Ok(())
+}
+
+/// Returns `true` when the database is healthy.
+fn run_doctor(path: &Path) -> anyhow::Result<bool> {
+    let db = open_existing(path)?;
+    let counts = Counts::read(&db)?;
+    let user_version = db.user_version()?;
+    let journal_mode = db.journal_mode()?;
+    let foreign_keys = db.foreign_keys_enabled()?;
+
+    println!("database        {}", path.display());
+    println!("user_version    {user_version}");
+    println!("journal_mode    {journal_mode}");
+    println!(
+        "foreign_keys    {}",
+        if foreign_keys { "on" } else { "off" }
+    );
+    println!("category_groups {}", counts.groups);
+    println!("categories      {}", counts.categories);
+    println!("locations       {}", counts.locations);
+    println!("merchants       {}", counts.merchants);
+    println!("transactions    {}", counts.txns);
+    println!("splits          {}", counts.splits);
+
+    let violations = check_all(&db).context("integrity check failed")?;
+    println!();
+    println!("{} invariant violations", violations.len());
+    for v in &violations {
+        println!("  [{:?}] {v}", v.severity());
+    }
+
+    let mut healthy = violations.is_empty();
+
+    if usize::try_from(user_version).unwrap_or(usize::MAX) != SCHEMA_VERSION {
+        println!("  [Error] user_version is {user_version}, expected {SCHEMA_VERSION}");
+        healthy = false;
+    }
+    if !foreign_keys {
+        // Should be impossible via Db::open; if it ever happens, every
+        // REFERENCES clause in the schema is decorative.
+        println!("  [Error] foreign_keys is off");
+        healthy = false;
+    }
+
+    Ok(healthy)
+}
+
+fn run_backup(path: &Path, dest: &Path) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    ensure_parent_dir(dest)?;
+    db.backup(dest)
+        .with_context(|| format!("could not back up to {}", dest.display()))?;
+    println!("backed up {} -> {}", path.display(), dest.display());
+    Ok(())
+}
+
+struct Counts {
+    groups: i64,
+    categories: i64,
+    locations: i64,
+    merchants: i64,
+    txns: i64,
+    splits: i64,
+}
+
+impl Counts {
+    fn read(db: &Db) -> anyhow::Result<Counts> {
+        let n = |table: &str| -> anyhow::Result<i64> {
+            // Table names are literals from the call below, never user input.
+            Ok(db
+                .conn()
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))?)
+        };
+        Ok(Counts {
+            groups: n("category_group")?,
+            categories: n("category")?,
+            locations: n("location")?,
+            merchants: n("merchant")?,
+            txns: n("txn")?,
+            splits: n("txn_split")?,
+        })
+    }
 }
 
 fn run_calc(args: &CalcArgs) -> anyhow::Result<()> {
