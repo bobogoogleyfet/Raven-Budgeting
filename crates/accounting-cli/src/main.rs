@@ -22,7 +22,7 @@ use accounting_core::domain::splits::{
 };
 use accounting_core::export;
 use accounting_core::repo::transactions::{Txn, TxnFilter};
-use accounting_core::repo::{categories, merchants, transactions};
+use accounting_core::repo::{categories, locations, merchants, transactions};
 use accounting_core::service::entry::{
     TransactionDraft, TransactionPreview, categorize, needs_categorizing,
     preview_transaction_with_rate, quick_add, repeat_last, save_transaction_with_rate,
@@ -99,6 +99,30 @@ enum Command {
     ///   pacc export --to august.csv --month 2026-08
     #[command(verbatim_doc_comment)]
     Export(ExportArgs),
+    /// List store locations and set their sales-tax rates.
+    ///
+    /// Examples:
+    ///   pacc location
+    ///   pacc location --name Home --rate 7.75
+    ///   pacc location --name "Boise, ID" --rate 6 --home
+    #[command(verbatim_doc_comment)]
+    Location(LocationArgs),
+}
+
+#[derive(Args)]
+struct LocationArgs {
+    /// The location to create or update. Omit to list them all.
+    #[arg(long, value_name = "NAME")]
+    name: Option<String>,
+
+    /// Sales-tax rate as a percent, e.g. `7.75`. Stored as parts-per-million,
+    /// so 9.4375% is exact rather than rounded to two decimals.
+    #[arg(long, value_name = "PERCENT", value_parser = parse_percent_ppm)]
+    rate: Option<u32>,
+
+    /// Make this the default location for receipts that name none.
+    #[arg(long)]
+    home: bool,
 }
 
 #[derive(Args)]
@@ -418,6 +442,7 @@ fn main() -> anyhow::Result<()> {
         Command::Repeat(args) => run_repeat(&cli.db_path()?, args)?,
         Command::Categories => run_categories(&cli.db_path()?)?,
         Command::Export(args) => run_export(&cli.db_path()?, args)?,
+        Command::Location(args) => run_location(&cli.db_path()?, args)?,
     }
 
     Ok(())
@@ -876,6 +901,73 @@ fn run_categories(path: &Path) -> anyhow::Result<()> {
         "{} categories in {} groups. --category takes a name, a unique prefix, or Group/Name.",
         all.len(),
         groups.len()
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// location
+// ---------------------------------------------------------------------------
+
+/// List locations, or create/update one.
+///
+/// This exists because without it the app gives advice it makes impossible to
+/// take. The seeded `Home` location carries a 0% rate, so every receipt that
+/// names no rate reconciles to $0.00 tax and `preview_transaction` warns "no
+/// tax was applied: this location has no tax rate set" — and until now there
+/// was no command that could set one. The alternatives were passing `--rate`
+/// on every single receipt forever, or creating a second location just to
+/// carry a rate the first one should have had.
+///
+/// The rate is only ever a *prefill* for an editable estimate. A receipt
+/// prints the real tax, and the real tax always wins; nothing here can
+/// overwrite a figure the user typed.
+fn run_location(path: &Path, args: &LocationArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+
+    let Some(name) = args.name.as_deref() else {
+        if args.rate.is_some() || args.home {
+            anyhow::bail!("--rate and --home need a --name to apply to");
+        }
+        return list_locations(&db);
+    };
+
+    // Created at the given rate, or 0 when none was supplied. `get_or_create`
+    // deliberately does not overwrite an existing location's rate, so the
+    // `set_rate` below is what makes this command able to *change* one.
+    let location = locations::get_or_create(&db, name, args.rate.unwrap_or(0))?;
+    if let Some(rate) = args.rate {
+        locations::set_rate(&db, location.id, rate)?;
+    }
+    if args.home {
+        // Moves the flag rather than adding a second home: the schema's
+        // ux_location_home index permits only one.
+        locations::set_home(&db, location.id)?;
+    }
+
+    list_locations(&db)
+}
+
+fn list_locations(db: &accounting_core::Db) -> anyhow::Result<()> {
+    let all = locations::list(db)?;
+    if all.is_empty() {
+        println!("no locations yet — `pacc location --name NAME --rate PERCENT` adds one");
+        return Ok(());
+    }
+
+    let width = all.iter().map(|l| l.name.len()).max().unwrap_or(4);
+    for location in &all {
+        println!(
+            "  {:<width$}  {:>18}{}",
+            location.name,
+            format_ppm(location.tax_rate_ppm),
+            if location.is_home { "  (home)" } else { "" },
+        );
+    }
+    println!();
+    println!(
+        "A rate only prefills an editable estimate. The receipt's own tax always wins,\n\
+         and `--tax` on `pacc add` is never overwritten."
     );
     Ok(())
 }
