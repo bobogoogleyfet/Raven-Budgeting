@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The app window may call the commands this shell registers, and nothing else. No filesystem, shell, or HTTP permission is granted: the core owns the database, and the frontend's only capability is asking it questions.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
