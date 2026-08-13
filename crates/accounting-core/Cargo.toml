@@ -13,6 +13,8 @@ chrono.workspace = true
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
 uuid.workspace = true
+rust_xlsxwriter.workspace = true
+csv.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
