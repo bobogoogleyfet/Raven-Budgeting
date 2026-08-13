@@ -330,17 +330,51 @@ fn needs_categorizing(state: State<'_, AppState>) -> CmdResult<Vec<TxnSummaryDto
 
 // ---------------------------------------------------------------------------
 
+/// Where the database lives — **the same file `pacc` uses**.
+///
+/// The obvious implementation is `app_data_dir().join("pacc.db")`, and it is
+/// wrong on the desktop. Tauri derives that directory from the bundle
+/// identifier, so it resolves to `~/.local/share/com.tannerhathaway.accounting`
+/// while the CLI resolves `~/.local/share/personal-accounting`. Two files, one
+/// per frontend: receipts entered with `pacc add` would simply not be in the
+/// window, and nothing would report an error — the GUI would just look empty,
+/// which reads as data loss.
+///
+/// So on desktop this mirrors [`accounting-cli`'s `default_db_path`] exactly,
+/// `$PACC_DB` override included, and the two frontends share one database.
+///
+/// On Android and iOS the app cannot write to a shared location at all: the
+/// data directory is per-app and only obtainable through the platform (the
+/// Java `Context` on Android), which is precisely what `app_data_dir` wraps.
+/// There is no CLI on those platforms to share with, so there is nothing to
+/// reconcile and the per-app directory is simply correct.
+fn database_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        return Ok(app.path().app_data_dir()?.join("pacc.db"));
+    }
+
+    if let Some(explicit) = std::env::var_os("PACC_DB").filter(|v| !v.is_empty()) {
+        return Ok(std::path::PathBuf::from(explicit));
+    }
+
+    // `data_dir()` is `$XDG_DATA_HOME`, falling back to `~/.local/share` —
+    // the same two rules the CLI applies, in the same order.
+    Ok(app
+        .path()
+        .data_dir()?
+        .join("personal-accounting")
+        .join("pacc.db"))
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
             // The one place a path is decided. See the module docs.
-            let dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&dir)?;
-
-            // Same filename the CLI uses, so `pacc doctor`, `pacc export` and
-            // `pacc backup` all still work against the GUI's database once the
-            // user points `--db` at it.
-            let db = Db::open(&dir.join("pacc.db"))?;
+            let path = database_path(app.handle())?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let db = Db::open(&path)?;
             seed_defaults(&db)?;
 
             app.manage(AppState { db: Mutex::new(db) });

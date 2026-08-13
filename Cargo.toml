@@ -3,20 +3,11 @@ resolver = "3"
 members = [
     "crates/accounting-core",
     "crates/accounting-cli",
-]
-# accounting-tauri is a workspace *member in waiting*. It is excluded rather
-# than listed because `tauri`'s build script requires the webkit2gtk-4.1 /
-# javascriptcoregtk-4.1 / libsoup-3.0 development headers, and a member that
-# cannot build breaks `cargo build --workspace` and `cargo test --workspace`
-# for every other crate — the core's 580 tests would stop running because a GUI
-# shell nobody asked about is unbuildable. Excluded, it is simply not resolved.
-#
-# To enable it:
-#   sudo apt install -y libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
-#     libsoup-3.0-dev build-essential curl wget file libxdo-dev libssl-dev \
-#     libayatana-appindicator3-dev librsvg2-dev pkg-config
-# then move the path from `exclude` into `members` above.
-exclude = [
+    # Requires the webkit2gtk-4.1 / javascriptcoregtk-4.1 / libsoup-3.0
+    # development headers, because that is what `tauri`'s build script links
+    # against. Without them this member does not merely fail to build — it
+    # stops `cargo test --workspace` from resolving at all, taking the core's
+    # tests down with it. The README has the apt line.
     "crates/accounting-tauri",
 ]
 
