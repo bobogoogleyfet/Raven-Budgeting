@@ -8,6 +8,17 @@
 //!
 //! Note what this file does *not* contain: arithmetic. It parses strings into
 //! core types, calls into `accounting-core`, and formats what comes back.
+//!
+//! # Output goes through [`outln!`], never `println!`
+//!
+//! Rust sets `SIGPIPE` to `SIG_IGN` before `main` runs, so a write to a closed
+//! pipe returns `EPIPE` instead of killing the process — and `println!`
+//! unwraps that into a panic. The visible result is that `pacc report | head`
+//! prints its first lines and then dies with "failed printing to stdout:
+//! Broken pipe" and exit code 101, which any shell script reads as a real
+//! failure. Piping into `head`, `grep -m1`, or quitting `less` early is
+//! completely ordinary use of a reporting tool, so every line of output here
+//! goes through [`outln!`].
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -36,6 +47,29 @@ use accounting_core::{CategoryBudgetStatus, DetailLevel, Money, TxnId, YearMonth
 use anyhow::Context;
 use chrono::{Local, NaiveDate, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+
+/// `println!` that treats a closed pipe as a normal end of output.
+///
+/// See the module docs: `println!` panics on `EPIPE` because Rust ignores
+/// `SIGPIPE`, which turns `pacc list | head` into a crash. Exiting `0` here is
+/// what every well-behaved Unix filter does — the reader got what it asked for
+/// and stopped listening, which is not this program's error.
+macro_rules! outln {
+    () => { $crate::write_line(std::format_args!("")) };
+    ($($arg:tt)*) => { $crate::write_line(std::format_args!($($arg)*)) };
+}
+
+fn write_line(args: std::fmt::Arguments<'_>) {
+    use std::io::Write;
+
+    let mut out = std::io::stdout().lock();
+    if writeln!(out, "{args}").is_err() {
+        // Deliberately not `anyhow` — there is nobody left to read the error,
+        // and a non-zero exit would make a shell script think the report
+        // failed when it merely ended early.
+        std::process::exit(0);
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "pacc", version, about = "Personal accounting — headless CLI")]
@@ -600,7 +634,7 @@ fn main() -> anyhow::Result<()> {
 
     match &cli.command {
         Command::Version => {
-            println!("pacc {}", env!("CARGO_PKG_VERSION"));
+            outln!("pacc {}", env!("CARGO_PKG_VERSION"));
         }
         Command::Calc(args) => run_calc(args)?,
         Command::Init => run_init(&cli.db_path()?)?,
@@ -706,15 +740,17 @@ fn run_init(path: &Path) -> anyhow::Result<()> {
     seed_defaults(&db).context("could not install the default categories")?;
 
     let counts = Counts::read(&db)?;
-    println!(
+    outln!(
         "{} {}",
         if existed { "updated" } else { "created" },
         path.display()
     );
-    println!("  schema     user_version={}", db.user_version()?);
-    println!(
+    outln!("  schema     user_version={}", db.user_version()?);
+    outln!(
         "  seeded     {} groups, {} categories, {} locations",
-        counts.groups, counts.categories, counts.locations
+        counts.groups,
+        counts.categories,
+        counts.locations
     );
     Ok(())
 }
@@ -727,19 +763,19 @@ fn run_doctor(path: &Path) -> anyhow::Result<bool> {
     let journal_mode = db.journal_mode()?;
     let foreign_keys = db.foreign_keys_enabled()?;
 
-    println!("database        {}", path.display());
-    println!("user_version    {user_version}");
-    println!("journal_mode    {journal_mode}");
-    println!(
+    outln!("database        {}", path.display());
+    outln!("user_version    {user_version}");
+    outln!("journal_mode    {journal_mode}");
+    outln!(
         "foreign_keys    {}",
         if foreign_keys { "on" } else { "off" }
     );
-    println!("category_groups {}", counts.groups);
-    println!("categories      {}", counts.categories);
-    println!("locations       {}", counts.locations);
-    println!("merchants       {}", counts.merchants);
-    println!("transactions    {}", counts.txns);
-    println!("splits          {}", counts.splits);
+    outln!("category_groups {}", counts.groups);
+    outln!("categories      {}", counts.categories);
+    outln!("locations       {}", counts.locations);
+    outln!("merchants       {}", counts.merchants);
+    outln!("transactions    {}", counts.txns);
+    outln!("splits          {}", counts.splits);
 
     // Errors and warnings are counted separately on purpose. A warning is
     // legitimate user behaviour — archiving a category you have historical
@@ -752,10 +788,10 @@ fn run_doctor(path: &Path) -> anyhow::Result<bool> {
         .iter()
         .partition(|v| v.severity() == Severity::Error);
 
-    println!();
-    println!("{} errors, {} warnings", errors.len(), warnings.len());
+    outln!();
+    outln!("{} errors, {} warnings", errors.len(), warnings.len());
     for v in errors.iter().chain(&warnings) {
-        println!("  [{:?}] {v}", v.severity());
+        outln!("  [{:?}] {v}", v.severity());
     }
 
     // Only errors make the database unhealthy, and only errors set the exit
@@ -763,13 +799,13 @@ fn run_doctor(path: &Path) -> anyhow::Result<bool> {
     let mut healthy = errors.is_empty();
 
     if usize::try_from(user_version).unwrap_or(usize::MAX) != SCHEMA_VERSION {
-        println!("  [Error] user_version is {user_version}, expected {SCHEMA_VERSION}");
+        outln!("  [Error] user_version is {user_version}, expected {SCHEMA_VERSION}");
         healthy = false;
     }
     if !foreign_keys {
         // Should be impossible via Db::open; if it ever happens, every
         // REFERENCES clause in the schema is decorative.
-        println!("  [Error] foreign_keys is off");
+        outln!("  [Error] foreign_keys is off");
         healthy = false;
     }
 
@@ -781,7 +817,7 @@ fn run_backup(path: &Path, dest: &Path) -> anyhow::Result<()> {
     ensure_parent_dir(dest)?;
     db.backup(dest)
         .with_context(|| format!("could not back up to {}", dest.display()))?;
-    println!("backed up {} -> {}", path.display(), dest.display());
+    outln!("backed up {} -> {}", path.display(), dest.display());
     Ok(())
 }
 
@@ -852,8 +888,8 @@ fn run_add(path: &Path, args: &AddArgs) -> anyhow::Result<()> {
     print_preview(&db, &preview)?;
 
     if args.dry_run {
-        println!();
-        println!("dry run — nothing was written");
+        outln!();
+        outln!("dry run — nothing was written");
         return Ok(());
     }
     anyhow::ensure!(
@@ -864,8 +900,8 @@ fn run_add(path: &Path, args: &AddArgs) -> anyhow::Result<()> {
 
     let id = save_transaction_with_rate(&db, &draft, args.rate, &now_iso())
         .context("could not save the transaction")?;
-    println!();
-    println!("saved transaction {id}");
+    outln!();
+    outln!("saved transaction {id}");
     Ok(())
 }
 
@@ -880,12 +916,12 @@ fn run_quick_add(path: &Path, args: &QuickAddArgs) -> anyhow::Result<()> {
     )
     .context("could not save the transaction")?;
 
-    println!(
+    outln!(
         "saved transaction {id}: {} on {} — Uncategorized, flagged for review",
         args.total.to_display_string(),
         args.date
     );
-    println!("categorize it with: pacc categorize {id} --split \"NAME=remainder\"");
+    outln!("categorize it with: pacc categorize {id} --split \"NAME=remainder\"");
     Ok(())
 }
 
@@ -923,7 +959,7 @@ fn run_list(path: &Path, args: &ListArgs) -> anyhow::Result<()> {
 
     let txns = transactions::list(&db, &filter)?;
     if txns.is_empty() {
-        println!("no transactions matched");
+        outln!("no transactions matched");
         return Ok(());
     }
 
@@ -943,10 +979,10 @@ fn run_list(path: &Path, args: &ListArgs) -> anyhow::Result<()> {
     }
     table.print("");
 
-    println!();
-    println!("{} transactions", txns.len());
+    outln!();
+    outln!("{} transactions", txns.len());
     if txns.iter().any(|t| t.tax_is_estimated || t.needs_review) {
-        println!("~ tax estimated   ! needs review");
+        outln!("~ tax estimated   ! needs review");
     }
     Ok(())
 }
@@ -962,7 +998,7 @@ fn run_inbox(cli: &Cli, args: &InboxArgs) -> anyhow::Result<()> {
     let db = open_existing(&cli.db_path()?)?;
     let txns = needs_categorizing(&db, (args.limit > 0).then_some(args.limit))?;
     if txns.is_empty() {
-        println!("nothing to categorize");
+        outln!("nothing to categorize");
         return Ok(());
     }
 
@@ -985,17 +1021,17 @@ fn run_inbox(cli: &Cli, args: &InboxArgs) -> anyhow::Result<()> {
         .max()
         .unwrap_or(0);
 
-    println!("{} awaiting categorization", txns.len());
+    outln!("{} awaiting categorization", txns.len());
     for txn in &txns {
-        println!();
-        println!(
+        outln!();
+        outln!(
             "  {:>4}  {}  {:<merchant_width$}  {:>total_width$}",
             txn.id.to_string(),
             txn.txn_date,
             txn.merchant_name.as_deref().unwrap_or("—"),
             txn.total.to_display_string(),
         );
-        println!(
+        outln!(
             "        {prefix}categorize {} --split \"NAME=remainder\"",
             txn.id
         );
@@ -1009,8 +1045,8 @@ fn run_categorize(path: &Path, args: &CategorizeArgs) -> anyhow::Result<()> {
     let splits = resolve_splits(&db, &args.splits)?;
 
     categorize(&db, id, &splits).context("could not categorize the transaction")?;
-    println!("categorized transaction {id}");
-    println!();
+    outln!("categorized transaction {id}");
+    outln!();
     print_txn(&transactions::get(&db, id)?);
     Ok(())
 }
@@ -1032,16 +1068,17 @@ fn run_repeat(path: &Path, args: &RepeatArgs) -> anyhow::Result<()> {
 
     let preview =
         preview_transaction_with_rate(&db, &draft, None).context("could not resolve the draft")?;
-    println!(
+    outln!(
         "draft from {}'s last receipt, dated {}",
-        args.merchant, draft.txn_date
+        args.merchant,
+        draft.txn_date
     );
-    println!();
+    outln!();
     print_preview(&db, &preview)?;
 
     if args.dry_run {
-        println!();
-        println!("dry run — nothing was written");
+        outln!();
+        outln!("dry run — nothing was written");
         return Ok(());
     }
     anyhow::ensure!(
@@ -1052,8 +1089,8 @@ fn run_repeat(path: &Path, args: &RepeatArgs) -> anyhow::Result<()> {
 
     let id = save_transaction_with_rate(&db, &draft, None, &now_iso())
         .context("could not save the transaction")?;
-    println!();
-    println!("saved transaction {id}");
+    outln!();
+    outln!("saved transaction {id}");
     Ok(())
 }
 
@@ -1068,17 +1105,17 @@ fn run_categories(path: &Path) -> anyhow::Result<()> {
         if members.is_empty() {
             continue;
         }
-        println!(
+        outln!(
             "{}{}",
             group.name,
             if group.is_hidden { " (hidden)" } else { "" }
         );
         for category in members {
-            println!("  {}", category.name);
+            outln!("  {}", category.name);
         }
     }
-    println!();
-    println!(
+    outln!();
+    outln!(
         "{} categories in {} groups. --category takes a name, a unique prefix, or Group/Name.",
         all.len(),
         groups.len()
@@ -1132,21 +1169,21 @@ fn run_location(path: &Path, args: &LocationArgs) -> anyhow::Result<()> {
 fn list_locations(db: &accounting_core::Db) -> anyhow::Result<()> {
     let all = locations::list(db)?;
     if all.is_empty() {
-        println!("no locations yet — `pacc location --name NAME --rate PERCENT` adds one");
+        outln!("no locations yet — `pacc location --name NAME --rate PERCENT` adds one");
         return Ok(());
     }
 
     let width = all.iter().map(|l| l.name.len()).max().unwrap_or(4);
     for location in &all {
-        println!(
+        outln!(
             "  {:<width$}  {:>18}{}",
             location.name,
             format_ppm(location.tax_rate_ppm),
             if location.is_home { "  (home)" } else { "" },
         );
     }
-    println!();
-    println!(
+    outln!();
+    outln!(
         "A rate only prefills an editable estimate. The receipt's own tax always wins,\n\
          and `--tax` on `pacc add` is never overwritten."
     );
@@ -1220,14 +1257,14 @@ fn run_budget_set(path: &Path, args: &BudgetSetArgs) -> anyhow::Result<()> {
     let outcome = budget_service::set_budget(&db, &rec)?;
 
     if outcome.restated {
-        println!(
+        outln!(
             "restated the {} budget that starts {start}",
             category.qualified_name()
         );
     }
     if let Some((closed, last)) = outcome.closed {
         let previous = budgets::get(&db, closed)?;
-        println!(
+        outln!(
             "closed the previous {} budget of {} at {last}, so earlier reports keep their \
              own numbers",
             category.qualified_name(),
@@ -1235,7 +1272,7 @@ fn run_budget_set(path: &Path, args: &BudgetSetArgs) -> anyhow::Result<()> {
         );
     }
 
-    println!();
+    outln!();
     print_budget_line(&budgets::get(&db, outcome.id)?, start);
     Ok(())
 }
@@ -1278,8 +1315,8 @@ fn run_budget_list(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> {
     let lines = budgets::list(&db, Some(month))?;
 
     if lines.is_empty() {
-        println!("no budgets in force in {month}");
-        println!("  set one with: pacc budget set --category NAME --amount N");
+        outln!("no budgets in force in {month}");
+        outln!("  set one with: pacc budget set --category NAME --amount N");
         return Ok(());
     }
 
@@ -1308,11 +1345,11 @@ fn run_budget_list(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> {
             stored.notes.clone().unwrap_or_default(),
         ]);
     }
-    println!("budgets in force {month}");
+    outln!("budgets in force {month}");
     table.print("  ");
 
-    println!();
-    println!(
+    outln!();
+    outln!(
         "{}, {} a month in total",
         plural(lines.len(), "line", "lines"),
         lines
@@ -1321,7 +1358,7 @@ fn run_budget_list(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> {
             .sum::<Money>()
             .to_display_string()
     );
-    println!("  `amount` is per period; `per month` is what it sets aside in {month}.");
+    outln!("  `amount` is per period; `per month` is what it sets aside in {month}.");
     Ok(())
 }
 
@@ -1342,9 +1379,9 @@ fn run_budget_status(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> 
 
     let (budgeted, unbudgeted): (Vec<_>, Vec<_>) = rows.iter().partition(|r| r.status.is_some());
 
-    println!("budget status {month}");
+    outln!("budget status {month}");
     if budgeted.is_empty() {
-        println!("  nothing is budgeted yet");
+        outln!("  nothing is budgeted yet");
     } else {
         let mut table = Table::new(
             &[
@@ -1397,26 +1434,26 @@ fn run_budget_status(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> 
             .max()
             .unwrap_or(0);
 
-        println!();
-        println!(
+        outln!();
+        outln!(
             "no budget set ({})",
             plural(unbudgeted.len(), "category", "categories")
         );
         for row in &spending {
-            println!(
+            outln!(
                 "  {:<width$}  {} spent in {month}",
                 row.qualified_name(),
                 row.spent_this_month.to_display_string()
             );
         }
         if !idle.is_empty() {
-            println!("  {} more with nothing spent in {month}", idle.len());
+            outln!("  {} more with nothing spent in {month}", idle.len());
         }
-        println!("  set one with: pacc budget set --category NAME --amount N");
+        outln!("  set one with: pacc budget set --category NAME --amount N");
     }
 
-    println!();
-    println!(
+    outln!();
+    outln!(
         "funding asks whether the money will be there when the bill lands; over asks whether\n\
          more has been spent than this cycle's budget. They disagree by design — an envelope\n\
          spent exactly to plan is behind on funding and perfectly fine on spending."
@@ -1435,7 +1472,7 @@ fn run_budget_adjust(path: &Path, args: &BudgetAdjustArgs) -> anyhow::Result<()>
         args.reason.as_deref(),
     )?;
 
-    println!(
+    outln!(
         "adjusted {} for {} by {}",
         category.qualified_name(),
         args.month,
@@ -1447,18 +1484,18 @@ fn run_budget_adjust(path: &Path, args: &BudgetAdjustArgs) -> anyhow::Result<()>
     let as_of = args.month.max(current_month());
     let status = budget_service::budget_status_for(&db, category.id, as_of)?;
     match &status.status {
-        Some(funded) => println!(
+        Some(funded) => outln!(
             "  {as_of}  funded {}  ({})",
             funded.funded_balance.to_display_string(),
             format_funding(funded.on_track)
         ),
-        None => println!("  {} has no budget line in {as_of}", category.name),
+        None => outln!("  {} has no budget line in {as_of}", category.name),
     }
     Ok(())
 }
 
 fn print_budget_line(stored: &StoredBudgetLine, as_of: YearMonth) {
-    println!("budget {} — {}", stored.line.id, stored.qualified_name());
+    outln!("budget {} — {}", stored.line.id, stored.qualified_name());
     let rows: Vec<(&str, String)> = vec![
         (
             "amount",
@@ -1486,7 +1523,7 @@ fn print_budget_line(stored: &StoredBudgetLine, as_of: YearMonth) {
         ),
     ];
     for (label, value) in rows {
-        println!("  {label:<10} {value}");
+        outln!("  {label:<10} {value}");
     }
 }
 
@@ -1571,18 +1608,18 @@ impl ReportArgs {
 /// reader actually compares — along a row, not across a cell.
 fn print_matrix(matrix: &MonthlyMatrix) {
     let Some(first) = matrix.months.first().copied() else {
-        println!("that range covers no months");
+        outln!("that range covers no months");
         return;
     };
     let last = matrix.months.last().copied().unwrap_or(first);
 
-    println!("report {first}..{last} — {} basis", matrix.basis);
-    println!("  {}", matrix.basis.describe());
-    println!("  amounts are stored cash-flow dated; the basis is a view, never a rewrite");
-    println!();
+    outln!("report {first}..{last} — {} basis", matrix.basis);
+    outln!("  {}", matrix.basis.describe());
+    outln!("  amounts are stored cash-flow dated; the basis is a view, never a rewrite");
+    outln!();
 
     if matrix.rows.is_empty() {
-        println!("nothing budgeted or spent in this window");
+        outln!("nothing budgeted or spent in this window");
         return;
     }
 
@@ -1630,8 +1667,8 @@ fn print_matrix(matrix: &MonthlyMatrix) {
     table.push(actual);
     table.print("  ");
 
-    println!();
-    println!(
+    outln!();
+    outln!(
         "{} over {} — budgeted {}, actual {}, difference {}",
         plural(matrix.rows.len(), "category", "categories"),
         plural(matrix.months.len(), "month", "months"),
@@ -1640,7 +1677,7 @@ fn print_matrix(matrix: &MonthlyMatrix) {
         matrix.grand_total.variance().to_display_string(),
     );
     if matrix.basis == ReportBasis::Amortized {
-        println!(
+        outln!(
             "  a window that does not cover whole budget cycles will not total the same as\n  \
              --basis cashflow. That is arithmetic, not a discrepancy."
         );
@@ -1699,7 +1736,7 @@ fn run_export(path: &Path, args: &ExportArgs) -> anyhow::Result<()> {
     std::fs::write(&args.to, &bytes)
         .with_context(|| format!("could not write {}", args.to.display()))?;
 
-    println!(
+    outln!(
         "wrote {} rows to {} ({})",
         rows.len(),
         args.to.display(),
@@ -1713,8 +1750,8 @@ fn run_export(path: &Path, args: &ExportArgs) -> anyhow::Result<()> {
     // the difference is exactly how you notice a filter that matched nothing
     // you expected.
     match (rows.first(), rows.last()) {
-        (Some(first), Some(last)) => println!("  dates  {} .. {}", first.date, last.date),
-        _ => println!("  dates  (no rows matched)"),
+        (Some(first), Some(last)) => outln!("  dates  {} .. {}", first.date, last.date),
+        _ => outln!("  dates  (no rows matched)"),
     }
     Ok(())
 }
@@ -1833,18 +1870,18 @@ fn resolve_location(db: &Db, args: &AddArgs) -> anyhow::Result<Option<String>> {
     if args.dry_run {
         // A dry run writes nothing, location included. The preview still uses
         // the rate, so the numbers shown are the numbers that would be saved.
-        println!("would create location `{name}` at {}", format_ppm(rate));
-        println!();
+        outln!("would create location `{name}` at {}", format_ppm(rate));
+        outln!();
         return Ok(None);
     }
 
     let created = accounting_core::repo::locations::get_or_create(db, name, rate)?;
-    println!(
+    outln!(
         "created location `{}` at {}",
         created.name,
         format_ppm(rate)
     );
-    println!();
+    outln!();
     Ok(Some(created.name))
 }
 
@@ -1913,14 +1950,14 @@ fn print_preview(db: &Db, preview: &TransactionPreview) -> anyhow::Result<()> {
             row.tax.to_display_string(),
         ]);
     }
-    println!();
-    println!("splits");
+    outln!();
+    outln!("splits");
     table.print("  ");
-    println!(
+    outln!(
         "  unassigned {}",
         preview.plan.unassigned.to_display_string()
     );
-    println!("  detail     {}", preview.detail_level);
+    outln!("  detail     {}", preview.detail_level);
 
     print_list("warnings", &preview.warnings);
     print_list("blockers", &preview.blockers);
@@ -1931,15 +1968,15 @@ fn print_list(label: &str, lines: &[String]) {
     if lines.is_empty() {
         return;
     }
-    println!();
-    println!("{label}");
+    outln!();
+    outln!("{label}");
     for line in lines {
-        println!("  - {line}");
+        outln!("  - {line}");
     }
 }
 
 fn print_txn(txn: &Txn) {
-    println!("transaction {}", txn.id);
+    outln!("transaction {}", txn.id);
     let rows: Vec<(&str, String)> = vec![
         ("date", txn.txn_date.to_string()),
         (
@@ -1967,7 +2004,7 @@ fn print_txn(txn: &Txn) {
         ),
     ];
     for (label, value) in rows {
-        println!("  {label:<10} {value}");
+        outln!("  {label:<10} {value}");
     }
 
     let mut table = Table::new(
@@ -1984,8 +2021,8 @@ fn print_txn(txn: &Txn) {
             split.notes.clone().unwrap_or_default(),
         ]);
     }
-    println!();
-    println!("splits");
+    outln!();
+    outln!("splits");
     table.print("  ");
 
     for (index, split) in txn.splits.iter().enumerate() {
@@ -2005,8 +2042,8 @@ fn print_txn(txn: &Txn) {
                 item.tax.to_display_string(),
             ]);
         }
-        println!();
-        println!("  split {} items", index + 1);
+        outln!();
+        outln!("  split {} items", index + 1);
         items.print("    ");
     }
 }
@@ -2132,9 +2169,9 @@ impl Table {
             out.trim_end().to_string()
         };
 
-        println!("{}", line(&self.headers));
+        outln!("{}", line(&self.headers));
         for row in &self.rows {
-            println!("{}", line(row));
+            outln!("{}", line(row));
         }
     }
 }
@@ -2157,7 +2194,7 @@ fn run_calc(args: &CalcArgs) -> anyhow::Result<()> {
     if !args.splits.is_empty() {
         let drafts: Vec<SplitDraft> = args.splits.iter().copied().map(SplitDraft::new).collect();
         let plan = plan_splits(&amounts, &drafts).context("could not resolve the splits")?;
-        println!();
+        outln!();
         print_plan(&plan);
     }
 
@@ -2176,12 +2213,12 @@ fn print_amounts(amounts: &Amounts, ctx: &TaxContext) {
         .max()
         .unwrap_or(0);
 
-    println!("amounts");
+    outln!("amounts");
     for (label, value) in rows {
-        println!("  {label:<9} {:>width$}", value.to_display_string());
+        outln!("  {label:<9} {:>width$}", value.to_display_string());
     }
-    println!("  {:<9} {}", "rate", format_ppm(ctx.rate_ppm));
-    println!("  {:<9} {}", "estimated", amounts.tax_is_estimated);
+    outln!("  {:<9} {}", "rate", format_ppm(ctx.rate_ppm));
+    outln!("  {:<9} {}", "estimated", amounts.tax_is_estimated);
 }
 
 fn print_plan(plan: &SplitPlan) {
@@ -2217,8 +2254,8 @@ fn print_plan(plan: &SplitPlan) {
         widths[1] = widths[1].max(value.len());
     }
 
-    println!("splits");
-    println!(
+    outln!("splits");
+    outln!(
         "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}",
         headers[0],
         headers[1],
@@ -2230,7 +2267,7 @@ fn print_plan(plan: &SplitPlan) {
         w3 = widths[3],
     );
     for row in &cells {
-        println!(
+        outln!(
             "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}",
             row[0],
             row[1],
@@ -2244,7 +2281,7 @@ fn print_plan(plan: &SplitPlan) {
     }
 
     for (label, value) in &footer {
-        println!(
+        outln!(
             "  {:<w0$}  {:>w1$}",
             label,
             value,

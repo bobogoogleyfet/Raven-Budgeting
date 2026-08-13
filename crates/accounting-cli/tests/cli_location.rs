@@ -148,3 +148,41 @@ fn a_rate_without_a_name_is_refused_rather_than_silently_ignored() {
         "the error must say what is missing:\n{text}"
     );
 }
+
+/// Closing the pipe early must not look like a failure.
+///
+/// Rust ignores `SIGPIPE`, so a write to a closed pipe returns `EPIPE` and
+/// `println!` unwraps it into a panic — `pacc report | head` printed its first
+/// lines and then died with exit code 101, which a shell script reads as the
+/// report having failed. Piping into `head`, `grep -m1`, or quitting `less`
+/// early is ordinary use of a reporting tool, so it must exit cleanly.
+#[test]
+fn closing_the_pipe_early_is_not_an_error() {
+    use std::process::{Command as Proc, Stdio};
+
+    let f = Fixture::new();
+    let bin = assert_cmd::cargo::cargo_bin("pacc");
+
+    let mut child = Proc::new(&bin)
+        .arg("--db")
+        .arg(&f.db)
+        .arg("categories")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn pacc");
+
+    // Drop the read end without reading it. The next write `pacc` attempts
+    // gets EPIPE, which is exactly what `head` does after its last line.
+    drop(child.stdout.take());
+
+    let status = child.wait().expect("wait for pacc");
+    assert_ne!(
+        status.code(),
+        Some(101),
+        "exit 101 is a Rust panic — the broken pipe was not handled"
+    );
+    assert!(
+        status.success(),
+        "a reader that stopped listening is not this program's error; got {status:?}"
+    );
+}
