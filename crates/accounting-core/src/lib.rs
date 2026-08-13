@@ -46,12 +46,27 @@
 //! amounts, plan the splits, persist. [`service::entry::preview_transaction`]
 //! is the same code as [`service::entry::save_transaction`] minus the write,
 //! so a UI cannot display one set of numbers and store another.
+//!
+//! # Milestone 4 surface
+//!
+//! [`export`] — the transaction aggregate flattened to one row per split, and
+//! rendered as either an `.xlsx` workbook ([`export_xlsx`]) or a CSV file
+//! ([`export_csv`]). Both return `Vec<u8>`; **neither opens a path**. Rule 1
+//! again: on Android and iOS the user picks the destination through a system
+//! document picker and the app is handed a stream, so file handling has to be
+//! the frontend's job or it is nobody's.
+//!
+//! The 15 columns are defined exactly once, in [`COLUMNS`], and drive the
+//! header row, the cell writes and the CSV alike — Excel "repairs" (blanks) a
+//! workbook whose table definition disagrees with its header cells, and two
+//! hand-maintained lists of the same names diverge at the first edit.
 
 #![doc(html_no_source)]
 
 pub mod db;
 pub mod domain;
 pub mod error;
+pub mod export;
 pub mod ids;
 pub mod money;
 pub mod repo;
@@ -60,6 +75,9 @@ pub mod time;
 
 pub use db::{Db, InvariantViolation, check_all, seed_defaults};
 pub use error::{CoreError, Result};
+pub use export::csv::{csv_bytes, export_csv};
+pub use export::xlsx::{export_xlsx, workbook_bytes};
+pub use export::{COLUMNS, CellValue, Column, ColumnKind, ExportRow};
 pub use ids::{
     BudgetLineId, CategoryGroupId, CategoryId, LineItemId, LocationId, MerchantId, SplitId, TxnId,
 };

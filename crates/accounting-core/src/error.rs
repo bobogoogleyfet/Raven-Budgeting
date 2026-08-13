@@ -54,6 +54,22 @@ pub enum CoreError {
     /// The schema could not be brought to the latest version.
     #[error("database migration failed: {0}")]
     Migration(#[from] rusqlite_migration::Error),
+
+    /// The spreadsheet writer refused a cell, a range, or a table.
+    ///
+    /// Almost always a geometry problem — a table over a header-only range, a
+    /// row past Excel's limit — rather than an I/O one: the export builds the
+    /// whole workbook in memory and hands back bytes.
+    #[error(transparent)]
+    Xlsx(#[from] rust_xlsxwriter::XlsxError),
+
+    /// The CSV writer failed.
+    ///
+    /// The sink is a `Vec`, so this is effectively unreachable; it exists so
+    /// that the export path has no `unwrap` in it. A panic inside an export on
+    /// a phone is a crash report, not something the user can act on.
+    #[error(transparent)]
+    Csv(#[from] csv::Error),
 }
 
 #[cfg(test)]

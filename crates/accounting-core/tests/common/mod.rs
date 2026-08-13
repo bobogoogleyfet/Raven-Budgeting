@@ -11,6 +11,11 @@
 #![allow(dead_code)]
 
 use accounting_core::db::{Db, check_all, new_uuid};
+use accounting_core::domain::reconcile::Amounts;
+use accounting_core::repo::transactions::{NewTransaction, SplitRecord};
+use accounting_core::repo::{categories, locations, merchants, transactions};
+use accounting_core::{CategoryId, DetailLevel, LocationId, MerchantId, Money, TxnId};
+use chrono::NaiveDate;
 use rusqlite::Connection;
 
 /// Raw connection access, for the tests that must reach *around* any repository
@@ -141,6 +146,109 @@ pub fn insert_balanced_aggregate(c: &Connection) -> Aggregate {
         split_id,
         category_id,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Transaction fixtures, through the real write path
+//
+// Everything above inserts raw rows, because the storage tests are about what
+// the schema refuses. Everything below goes through
+// `repo::transactions::save`, because the export tests are about what a
+// *legitimately stored* receipt looks like on the way out: an export built
+// over hand-inserted rows can pass while the real write path stores a shape
+// the exporter cannot render.
+// ---------------------------------------------------------------------------
+
+/// Cents, spelled short enough to write a table of them.
+#[must_use]
+pub fn m(cents: i64) -> Money {
+    Money::from_cents(cents)
+}
+
+#[track_caller]
+#[must_use]
+pub fn day(s: &str) -> NaiveDate {
+    s.parse().unwrap_or_else(|e| panic!("date `{s}`: {e}"))
+}
+
+/// A consistent amount triple built from the two independent numbers, with the
+/// tax taken as a fact read off the receipt.
+#[must_use]
+pub fn amounts(subtotal: i64, tax: i64) -> Amounts {
+    Amounts {
+        subtotal: m(subtotal),
+        tax: m(tax),
+        total: m(subtotal + tax),
+        tax_is_estimated: false,
+    }
+}
+
+/// As [`amounts`], but flagged as a tax this app worked out from a rate rather
+/// than one the user typed in.
+#[must_use]
+pub fn estimated_amounts(subtotal: i64, tax: i64) -> Amounts {
+    Amounts {
+        tax_is_estimated: true,
+        ..amounts(subtotal, tax)
+    }
+}
+
+/// A split with `sort_order` left at 0, i.e. "you choose".
+#[must_use]
+pub fn split(category_id: CategoryId, subtotal: i64, tax: i64) -> SplitRecord {
+    SplitRecord {
+        id: None,
+        uuid: None,
+        category_id,
+        subtotal: m(subtotal),
+        tax: m(tax),
+        amount: m(subtotal + tax),
+        sort_order: 0,
+        notes: None,
+        line_items: Vec::new(),
+    }
+}
+
+#[must_use]
+pub fn txn(txn_date: NaiveDate, amounts: Amounts, splits: Vec<SplitRecord>) -> NewTransaction {
+    NewTransaction {
+        id: None,
+        txn_date,
+        merchant_id: None,
+        location_id: None,
+        amounts,
+        tax_rate_ppm: None,
+        detail_level: DetailLevel::Grouped,
+        needs_review: false,
+        notes: None,
+        splits,
+    }
+}
+
+#[track_caller]
+pub fn cat(db: &Db, name: &str) -> CategoryId {
+    categories::resolve(db, name)
+        .unwrap_or_else(|e| panic!("resolve category `{name}`: {e}"))
+        .id
+}
+
+#[track_caller]
+pub fn merchant(db: &Db, name: &str) -> MerchantId {
+    merchants::get_or_create(db, name)
+        .unwrap_or_else(|e| panic!("merchant `{name}`: {e}"))
+        .id
+}
+
+#[track_caller]
+pub fn location(db: &Db, name: &str, tax_rate_ppm: u32) -> LocationId {
+    locations::get_or_create(db, name, tax_rate_ppm)
+        .unwrap_or_else(|e| panic!("location `{name}`: {e}"))
+        .id
+}
+
+#[track_caller]
+pub fn save(db: &Db, new: &NewTransaction) -> TxnId {
+    transactions::save(db, new).unwrap_or_else(|e| panic!("save {}: {e}", new.txn_date))
 }
 
 // ---------------------------------------------------------------------------
