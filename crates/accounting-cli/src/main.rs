@@ -20,6 +20,7 @@ use accounting_core::domain::reconcile::{
 use accounting_core::domain::splits::{
     LineItemDraft, SplitAmount, SplitDraft, SplitPlan, plan_splits,
 };
+use accounting_core::export;
 use accounting_core::repo::transactions::{Txn, TxnFilter};
 use accounting_core::repo::{categories, merchants, transactions};
 use accounting_core::service::entry::{
@@ -91,6 +92,13 @@ enum Command {
     Repeat(RepeatArgs),
     /// The category taxonomy — the valid values for `--category` and `--split`.
     Categories,
+    /// Write the transactions to a spreadsheet, one row per split.
+    ///
+    /// Examples:
+    ///   pacc export --to 2026.xlsx --year 2026
+    ///   pacc export --to august.csv --month 2026-08
+    #[command(verbatim_doc_comment)]
+    Export(ExportArgs),
 }
 
 #[derive(Args)]
@@ -98,6 +106,57 @@ struct BackupArgs {
     /// Destination file. Must not already exist.
     #[arg(long = "to", value_name = "PATH")]
     to: PathBuf,
+}
+
+#[derive(Args)]
+struct ExportArgs {
+    /// Destination file. Must not already exist unless --force.
+    #[arg(long = "to", value_name = "PATH")]
+    to: PathBuf,
+
+    /// Output format. Defaults to the extension of --to, then to xlsx.
+    #[arg(long, value_enum)]
+    format: Option<ExportFormat>,
+
+    /// Earliest date, inclusive.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    from: Option<NaiveDate>,
+
+    /// Latest date, inclusive. Spelled `--to-date` rather than `--to` because
+    /// `--to` is already the destination file, as it is for `pacc backup`.
+    #[arg(long = "to-date", visible_alias = "until", value_name = "YYYY-MM-DD")]
+    to_date: Option<NaiveDate>,
+
+    /// One calendar month. Sugar for `--from` its first day and `--to-date`
+    /// its last.
+    #[arg(long, value_name = "YYYY-MM", conflicts_with_all = ["from", "to_date", "year"])]
+    month: Option<YearMonth>,
+
+    /// One calendar year. Sugar for `--from` Jan 1 and `--to-date` Dec 31.
+    #[arg(long, value_name = "YYYY", conflicts_with_all = ["from", "to_date"])]
+    year: Option<i32>,
+
+    /// Only this merchant.
+    #[arg(long, value_name = "NAME")]
+    merchant: Option<String>,
+
+    /// Only transactions with a split in this category.
+    #[arg(long, value_name = "NAME")]
+    category: Option<String>,
+
+    /// Include archived transactions.
+    #[arg(long)]
+    all: bool,
+
+    /// Overwrite the destination if it exists.
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug, ValueEnum)]
+enum ExportFormat {
+    Xlsx,
+    Csv,
 }
 
 #[derive(Args)]
@@ -358,6 +417,7 @@ fn main() -> anyhow::Result<()> {
         Command::Categorize(args) => run_categorize(&cli.db_path()?, args)?,
         Command::Repeat(args) => run_repeat(&cli.db_path()?, args)?,
         Command::Categories => run_categories(&cli.db_path()?)?,
+        Command::Export(args) => run_export(&cli.db_path()?, args)?,
     }
 
     Ok(())
@@ -818,6 +878,130 @@ fn run_categories(path: &Path) -> anyhow::Result<()> {
         groups.len()
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// export
+// ---------------------------------------------------------------------------
+
+/// Build the bytes in the core, write the file here.
+///
+/// The split is the point. `accounting-core` returns a `Vec<u8>` and never
+/// learns what a path is, because on Android and iOS the destination comes
+/// back from a system document picker as a stream the app is handed — a core
+/// that called `std::fs::write` would need re-implementing for each platform.
+/// This function is the whole of the "write it somewhere" half.
+fn run_export(path: &Path, args: &ExportArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let format = args.resolved_format();
+
+    // Checked before the export runs, not after: producing a megabyte of
+    // spreadsheet and then refusing to write it wastes the user's time, and
+    // this matches `pacc backup`'s stance that an existing file is data until
+    // the user says otherwise.
+    anyhow::ensure!(
+        args.force || !args.to.exists(),
+        "{} already exists; pass --force to overwrite it",
+        args.to.display()
+    );
+
+    let filter = args.filter(&db)?;
+    let rows = export::rows(&db, &filter)?;
+    let bytes = match format {
+        ExportFormat::Xlsx => export::xlsx::workbook_bytes(&rows),
+        ExportFormat::Csv => export::csv::csv_bytes(&rows),
+    }
+    .context("could not build the export")?;
+
+    ensure_parent_dir(&args.to)?;
+    std::fs::write(&args.to, &bytes)
+        .with_context(|| format!("could not write {}", args.to.display()))?;
+
+    println!(
+        "wrote {} rows to {} ({})",
+        rows.len(),
+        args.to.display(),
+        match format {
+            ExportFormat::Xlsx => "xlsx",
+            ExportFormat::Csv => "csv",
+        }
+    );
+    // The span comes from the exported rows, which are sorted ascending, so it
+    // reports what is actually in the file rather than what was asked for —
+    // the difference is exactly how you notice a filter that matched nothing
+    // you expected.
+    match (rows.first(), rows.last()) {
+        (Some(first), Some(last)) => println!("  dates  {} .. {}", first.date, last.date),
+        _ => println!("  dates  (no rows matched)"),
+    }
+    Ok(())
+}
+
+impl ExportArgs {
+    /// `--format`, else the extension of `--to`, else xlsx.
+    ///
+    /// Guessing from the extension is what makes `pacc export --to x.csv` do
+    /// the obvious thing; an unrecognised extension falls back rather than
+    /// erroring, because the user has already said where the file goes.
+    fn resolved_format(&self) -> ExportFormat {
+        if let Some(format) = self.format {
+            return format;
+        }
+        match self
+            .to
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("csv") => ExportFormat::Csv,
+            _ => ExportFormat::Xlsx,
+        }
+    }
+
+    fn filter(&self, db: &Db) -> anyhow::Result<TxnFilter> {
+        // `--month` and `--year` are sugar over the two dates, resolved here so
+        // the core only ever sees a date range.
+        let (from, to) = match (self.month, self.year) {
+            (Some(month), _) => (Some(month.first_day()), Some(month.last_day())),
+            (None, Some(year)) => (
+                Some(
+                    NaiveDate::from_ymd_opt(year, 1, 1)
+                        .with_context(|| format!("{year} is not a year"))?,
+                ),
+                Some(
+                    NaiveDate::from_ymd_opt(year, 12, 31)
+                        .with_context(|| format!("{year} is not a year"))?,
+                ),
+            ),
+            (None, None) => (self.from, self.to_date),
+        };
+
+        let merchant_id = match &self.merchant {
+            Some(name) => Some(
+                merchants::find_by_name(db, name)?
+                    .with_context(|| format!("no merchant named `{name}`"))?
+                    .id,
+            ),
+            None => None,
+        };
+        let category_id = match &self.category {
+            Some(name) => Some(categories::resolve(db, name)?.id),
+            None => None,
+        };
+
+        Ok(TxnFilter {
+            from,
+            to,
+            merchant_id,
+            category_id,
+            needs_review: None,
+            include_archived: self.all,
+            // An export is the whole set by definition; a page limit here
+            // would silently truncate a year's accounts.
+            limit: None,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
