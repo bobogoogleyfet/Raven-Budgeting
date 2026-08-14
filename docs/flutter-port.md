@@ -129,6 +129,37 @@ because they look like implementation detail and are not:
 - **Hide-all is answered in the UI**, because the core reads an empty filter set
   as "no filter".
 
+## Operating the bridge
+
+Rules that come from how `flutter_rust_bridge` 2.12.0 actually behaves, not
+from its documentation. Each one is cheap to follow now and expensive to
+discover later.
+
+- **Install a logger ourselves.** `setup_default_user_utils()` calls
+  `setup_log_to_console`, which has arms for Android, iOS/macOS and wasm and
+  ends in `// TODO add more platforms` — verified in the vendored 2.12.0
+  source. On Linux and Windows it is a no-op, so every `log::` call from Rust
+  vanishes on the platform we develop on. Add `env_logger` in the bridge crate.
+- **Make `#[frb(init)]` idempotent.** A Flutter hot restart resets the Dart
+  isolate but not the loaded library, so init runs again against Rust globals
+  that were never cleared. Anything that must happen once needs to say so.
+- **Never `panic = "abort"`.** The bridge turns a Rust panic into a Dart
+  `PanicException` by catching the unwind; under `abort` the process dies at
+  the panic site instead, and the generated FFI decoders contain their own
+  `unwrap()`s.
+- **Set `strip = "symbols"` in `[profile.release]`.** The build tooling does
+  not strip and the template ships no release profile at all, so we inherit
+  Cargo's defaults.
+- **Do not reflexively `flutter clean`.** The Rust target directory lives
+  inside the trees it deletes, so a clean means a cold rebuild of SQLite.
+- **Pin all four packages to one version** — the Dart package, the Rust crate,
+  the codegen and the macros. Minor versions may change the handler ABI, and
+  the symptom is a content-hash mismatch at runtime.
+- **Keep the API synchronous.** Async Rust across this bridge requires `Send`
+  futures, which is what makes SQLx and SeaORM painful here. Our core is
+  synchronous by rule, so sync functions on a thread pool is both the simpler
+  path and the one the core was designed for.
+
 ## Known constraints
 
 From research, worth knowing before they cost a day:
