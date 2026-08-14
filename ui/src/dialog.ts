@@ -66,7 +66,16 @@ export function confirmDialog(request: ConfirmRequest): Promise<boolean> {
     });
 
     document.body.append(dialog);
-    dialog.showModal();
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      // An older webview without `showModal` would otherwise append an
+      // invisible element and leave this promise pending forever — a Delete
+      // button that does nothing at all, which is a worse failure than an
+      // unstyled prompt. `open` shows it in the normal flow: no backdrop and
+      // no focus trap, but the buttons work and the answer still arrives.
+      dialog.setAttribute("open", "");
+    }
     // Focus the safe choice, so a stray Return does not delete anything.
     cancel.focus();
   });
