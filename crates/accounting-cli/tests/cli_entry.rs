@@ -397,6 +397,55 @@ fn show_prints_the_splits_of_a_receipt() {
     assert!(out.contains("40.00"), "the remainder's amount; got:\n{out}");
 }
 
+#[test]
+fn delete_removes_a_receipt_and_says_which_one() {
+    let f = Fixture::new();
+    f.run(&[
+        "add",
+        "--date",
+        "2026-08-13",
+        "--merchant",
+        "Costco",
+        "--total",
+        "100.00",
+        "--category",
+        "Groceries",
+    ])
+    .expect_ok("add");
+
+    let id = {
+        let db = f.open();
+        only_txn(&db).id
+    };
+
+    let out = f.run(&["delete", &id.to_string()]).expect_ok("delete");
+    // Named, not just numbered: "deleted 12" is nothing a user can check
+    // against their memory, and afterwards there is nothing left to look up.
+    assert!(out.contains("Costco"), "got:\n{out}");
+    assert!(out.contains("100.00"), "got:\n{out}");
+
+    let db = f.open();
+    assert_eq!(
+        transactions::list(&db, &TxnFilter::default())
+            .expect("list")
+            .len(),
+        0
+    );
+    assert_clean(&db);
+}
+
+#[test]
+fn deleting_a_receipt_that_is_not_there_fails_loudly() {
+    let f = Fixture::new();
+    f.run(&["add", "--total", "10.00", "--category", "Groceries"])
+        .expect_ok("add");
+
+    // Exiting 0 on a no-op would let a script report success for a receipt it
+    // never removed.
+    let out = f.run(&["delete", "9999"]);
+    out.expect_failure("delete of a missing receipt");
+}
+
 // ---------------------------------------------------------------------------
 // quick-add / inbox / categorize
 // ---------------------------------------------------------------------------

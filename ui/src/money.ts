@@ -122,32 +122,12 @@ export function formatRatePpm(ppm: number): string {
 }
 
 /**
- * The label for a receipt's tax line.
- *
- * Takes the rate that was *applied*, which is null when a receipt straddles
- * two — groceries at 3% and shampoo at 7.45% in one basket. There is no single
- * rate then, and printing either one labels the whole tax figure with a
- * percentage true of only part of it.
- *
- * The failing case this exists for: a $7.28 grocery subtotal in Highland owes
- * $0.22, and a line reading "Tax (7.45%) $0.22" makes correct arithmetic look
- * broken, because 7.45% of $7.28 is $0.54.
- */
-export function taxLabel(appliedRatePpm: number | null): string {
-  return appliedRatePpm === null ? "Tax (mixed rates)" : `Tax (${formatRatePpm(appliedRatePpm)})`;
-}
-
-/**
  * What a place charges, in one line: `"7.45% · groceries 3%"`.
  *
  * Names groceries explicitly rather than saying "food": the reduced rate is on
  * *unprepared* food, and a restaurant meal is taxed in full. A summary that
  * implied otherwise would have someone expecting the lower figure on a receipt
  * that will never show it.
- *
- * Lives here rather than in either view because both the first-run prompt and
- * the entry form answer the same question — what does this place charge — and
- * two copies would drift the first time one is reworded.
  */
 export function rateSummary(taxRatePpm: number, foodRatePpm: number | null): string {
   const general = formatRatePpm(taxRatePpm);

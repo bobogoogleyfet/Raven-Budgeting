@@ -191,6 +191,17 @@ export async function listTransactions(limit: number): Promise<TxnSummary[]> {
   return rows.map(brandSummary);
 }
 
+/**
+ * Delete a receipt, with its splits and line items. Irreversible.
+ *
+ * Rejects if the receipt is already gone, which is worth surfacing rather than
+ * swallowing: two windows on one database is normal, and a row that vanished
+ * under the user is something they should hear about.
+ */
+export async function deleteTransaction(id: number): Promise<void> {
+  await invoke("delete_transaction", { id });
+}
+
 /** The needs-categorizing queue that `quick_add` feeds. */
 export async function needsCategorizing(): Promise<TxnSummary[]> {
   const rows = await invoke<RawTxnSummary[]>("needs_categorizing");

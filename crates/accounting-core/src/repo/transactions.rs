@@ -716,6 +716,35 @@ pub fn get(db: &Db, id: TxnId) -> Result<Txn> {
         .ok_or_else(|| CoreError::NotFound(format!("transaction {id}")))
 }
 
+/// Delete a transaction and everything under it.
+///
+/// # Why this is a real delete
+///
+/// Nothing else in this schema is deleted — a category is archived, a budget
+/// line is superseded — because those are referenced by history and removing
+/// one would rewrite the past. A receipt *is* the history, and the reason to
+/// delete one is that it should never have existed: a duplicate, a typo saved
+/// twice, a test entry made while learning the app. Archiving that leaves a
+/// wrong number in every total with no way for the user to make it go away,
+/// which is the opposite of what they asked for.
+///
+/// The splits go with it through `ON DELETE CASCADE`, and the line items go
+/// with the splits. That is one statement rather than three, and it cannot
+/// leave orphans halfway through.
+///
+/// Deleting something already gone is [`CoreError::NotFound`] rather than a
+/// silent success: two windows open on one database is a normal thing, and
+/// "that receipt is no longer there" is worth saying.
+pub fn delete(db: &Db, id: TxnId) -> Result<()> {
+    let removed = db
+        .conn()
+        .execute("DELETE FROM txn WHERE id = ?1", params![id])?;
+    if removed == 0 {
+        return Err(CoreError::NotFound(format!("transaction {id}")));
+    }
+    Ok(())
+}
+
 /// Matching transactions, newest first, splits and line items included.
 ///
 /// Ties on `txn_date` break by id descending, so "the most recent" is
