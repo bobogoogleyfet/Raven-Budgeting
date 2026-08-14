@@ -49,6 +49,19 @@ export function addView(onSaved: () => void): HTMLElement {
   let rows: RowState[] = [{ categoryId: null, subtotalText: "" }];
   let locationName: string | null = null;
   let categoryRates = new Map<number, number>();
+  /**
+   * One per rendered row: re-reads its rate from `categoryRates` and repaints
+   * the label in place.
+   *
+   * Kept instead of calling `renderRows()` when the context changes, because
+   * re-rendering replaces the very `<input>` the user is mid-click on: the
+   * browser hands focus to an element that no longer exists, the click is
+   * lost, and the field needs clicking twice. That is a real bug this form
+   * had, and it is exactly what a rebuild costs.
+   */
+  let rateLabels: (() => void)[] = [];
+  /** The merchant whose context is loaded, so leaving the field is free. */
+  let loadedFor: string | null | undefined;
   let favourites: string[] = [];
   let saving = false;
 
@@ -105,6 +118,7 @@ export function addView(onSaved: () => void): HTMLElement {
 
   function renderRows(): void {
     clear(rowsBox);
+    rateLabels = [];
     rows.forEach((state, index) => {
       // The same filtering combobox as the store field: two dozen categories
       // is more than a dropdown is comfortable to scan, and typing three
@@ -143,6 +157,7 @@ export function addView(onSaved: () => void): HTMLElement {
         rate.textContent = ppm === undefined ? "" : `${formatRatePpm(ppm)} sales tax`;
       };
       showRate();
+      rateLabels.push(showRate);
       picker.input.addEventListener("change", showRate);
 
       const row = el("div", { class: "split-row" }, [
@@ -223,7 +238,13 @@ export function addView(onSaved: () => void): HTMLElement {
   const schedulePreview = debounce(150, () => void refreshPreview());
 
   async function loadContext(name: string | null): Promise<void> {
+    // Leaving the store field commits it, whether or not a letter changed, so
+    // this runs on every tab-out and every click into another field. Reloading
+    // for a name we already hold would be an IPC round trip and a repaint for
+    // no news.
+    if (name === loadedFor) return;
     const ctx = await entryContext(name);
+    loadedFor = name;
     locationName = ctx.locationName;
     categoryRates = new Map(ctx.categoryRates.map((r) => [r.categoryId, r.ratePpm]));
     favourites = ctx.recentMerchants;
@@ -231,20 +252,20 @@ export function addView(onSaved: () => void): HTMLElement {
     clear(context);
     context.append(locationName ?? "no location");
 
-    // Only prefill an untouched first row, so recalling a store's usual
-    // category never overwrites a choice already made.
-    if (
-      ctx.defaultCategoryId !== null &&
-      rows.length === 1 &&
-      rows[0] !== undefined &&
-      rows[0].categoryId === null
-    ) {
-      rows[0].categoryId = ctx.defaultCategoryId;
-    }
-    // Unconditionally, because the rates just changed: naming a store in
-    // another town moves every row's rate, and a row still showing the old
-    // one would be a stale number sitting beside a live category.
-    renderRows();
+    // The store's remembered category is deliberately *not* filled in. It is
+    // still remembered, and `pacc add` still applies it, but on this screen a
+    // category that appears by itself is one the user did not choose and may
+    // not notice — and the receipt in their hand is the authority on what they
+    // bought. Naming Macey's should not decide that this was groceries.
+    //
+    // It also made "Save receipt" look broken: the form cleared its rows and
+    // the reloaded context put the category straight back, so the field never
+    // appeared to empty.
+
+    // The rates may have moved — a store in another town charges differently —
+    // so the labels are repainted. In place, rather than by re-rendering the
+    // rows: rebuilding them would destroy the input the user is clicking.
+    for (const repaint of rateLabels) repaint();
     renderChips();
   }
 
@@ -280,6 +301,10 @@ export function addView(onSaved: () => void): HTMLElement {
         rows = [{ categoryId: null, subtotalText: "" }];
         renderRows();
         clear(panel);
+        // Forced past the "same merchant, nothing to do" guard, because one
+        // thing *has* changed: this store was just shopped at, so the chips of
+        // most-shopped stores are out of date by exactly this receipt.
+        loadedFor = undefined;
         void loadContext(merchant.value() || null);
         onSaved();
       })

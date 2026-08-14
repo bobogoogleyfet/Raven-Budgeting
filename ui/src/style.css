@@ -126,7 +126,10 @@ select:focus {
 .split-row {
   display: flex;
   gap: 0.5rem;
-  align-items: center;
+  /* Top, not centre. The category cell is two lines tall — the picker with its
+     rate underneath — and centring floats the amount box down against the rate
+     text instead of level with the category it belongs to. */
+  align-items: flex-start;
   margin-bottom: 0.4rem;
 }
 
@@ -484,7 +487,12 @@ tr.over {
   position: relative;
   display: inline-flex;
   align-items: center;
-  max-width: 22rem;
+  /* Matches `.split-row .combo` below, and not by coincidence: the open list
+     is as wide as its input, so a wider store field hangs its dropdown over
+     the left edge of the amount boxes in the rows underneath. A click meant
+     for the amount then lands on an option row and is spent closing the list,
+     which reads as "I have to click it twice". */
+  max-width: 18rem;
   width: 100%;
 }
 
@@ -609,8 +617,59 @@ tr.over {
   min-height: 1rem;
 }
 
-/* The armed half of the two-click delete on the receipts list. */
-.remove.armed {
-  color: var(--warn);
+/* --- confirmation dialog --- */
+dialog.confirm {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  max-width: 26rem;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 28%);
+}
+
+dialog.confirm::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+
+.confirm-question {
+  margin: 0 0 0.4rem;
   font-weight: 600;
+  font-size: 1.05rem;
+}
+
+/* The receipt's own date, store and total. The point of a modal for something
+   irreversible is that it names what it is about to destroy. */
+.confirm-detail {
+  margin: 0 0 1.1rem;
+  color: var(--muted);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
+button.secondary {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+button.danger {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: var(--bad);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
 }

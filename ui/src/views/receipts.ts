@@ -1,6 +1,7 @@
 /** The receipt list. Everything entered here or with `pacc add`. */
 
 import { type TxnSummary, deleteTransaction, listTransactions } from "../api.ts";
+import { confirmDialog } from "../dialog.ts";
 import { clear, el } from "../dom.ts";
 import { formatMoney } from "../money.ts";
 
@@ -29,57 +30,44 @@ export function receiptsView(): HTMLElement {
   );
 
   /**
-   * The delete control: one click arms it, the second does it.
+   * The delete control: a click asks, a modal answers.
    *
-   * Deliberately not a `confirm()` dialog. A modal is a different question in
-   * a different place — "Are you sure?" with no receipt visible behind it — and
-   * arming in place keeps the row, its date and its total on screen while the
-   * user decides. It also costs nothing to change your mind: clicking anything
-   * else, or the same button again, disarms it.
-   *
-   * There is no undo behind this, so the armed state says "Delete?" rather
-   * than turning red and hoping.
+   * The dialog names the receipt — its date, store and total — because "are you
+   * sure?" is not a question anyone can answer about a row they may no longer
+   * be looking at. There is no undo behind this, which is exactly why the
+   * asking is worth a modal rather than something dismissible by accident.
    */
   function deleteCell(txn: TxnSummary, tr: HTMLElement): HTMLElement {
     const button = el("button", { type: "button", class: "link remove" }, ["Delete"]);
-    let armed = false;
-
-    const disarm = (): void => {
-      armed = false;
-      button.textContent = "Delete";
-      button.classList.remove("armed");
-    };
 
     button.addEventListener("click", () => {
-      if (!armed) {
-        armed = true;
-        button.textContent = "Delete?";
-        button.classList.add("armed");
-        return;
-      }
-      button.disabled = true;
-      void deleteTransaction(txn.id)
-        .then(() => {
-          // Removed from the page rather than reloading the list: a reload
-          // would scroll the user back to the top of two hundred rows to show
-          // them one that is gone.
-          tr.remove();
-          if (body.childElementCount === 0) {
-            table.hidden = true;
+      void confirmDialog({
+        question: "Delete this receipt?",
+        detail: `${txn.txnDate} · ${txn.merchantName ?? "no store"} · ${formatMoney(txn.total)}`,
+        confirmLabel: "Delete receipt",
+      }).then((yes) => {
+        if (!yes) return;
+        button.disabled = true;
+        return deleteTransaction(txn.id)
+          .then(() => {
+            // Removed from the page rather than reloading the list: a reload
+            // would scroll the user back to the top of two hundred rows to
+            // show them one that is gone.
+            tr.remove();
+            if (body.childElementCount === 0) {
+              table.hidden = true;
+              status.hidden = false;
+              status.textContent = "No receipts yet. Add one on the Add tab.";
+            }
+          })
+          .catch((error: unknown) => {
+            button.disabled = false;
             status.hidden = false;
-            status.textContent = "No receipts yet. Add one on the Add tab.";
-          }
-        })
-        .catch((error: unknown) => {
-          button.disabled = false;
-          disarm();
-          status.hidden = false;
-          status.textContent = `Could not delete that receipt: ${String(error)}`;
-        });
+            status.textContent = `Could not delete that receipt: ${String(error)}`;
+          });
+      });
     });
 
-    // Wandering off means "no". Only a second click on this button is a yes.
-    button.addEventListener("blur", disarm);
     return el("td", {}, [button]);
   }
 
