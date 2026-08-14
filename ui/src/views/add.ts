@@ -34,7 +34,7 @@ import {
 import { combobox } from "../combobox.ts";
 import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
-import { formatMoney, formatRatePpm, parseCents } from "../money.ts";
+import { formatMoney, parseCents, rateSummary, taxLabel } from "../money.ts";
 
 /** One entered line: a category and what it came to before tax. */
 interface RowState {
@@ -49,6 +49,7 @@ export function addView(onSaved: () => void): HTMLElement {
   let rows: RowState[] = [{ categoryId: null, subtotalText: "" }];
   let locationName: string | null = null;
   let taxRatePpm = 0;
+  let foodRatePpm: number | null = null;
   let favourites: string[] = [];
   let saving = false;
 
@@ -154,7 +155,7 @@ export function addView(onSaved: () => void): HTMLElement {
       el("dl", { class: "totals" }, [
         el("dt", {}, ["Subtotal"]),
         el("dd", {}, [formatMoney(p.subtotal)]),
-        el("dt", {}, [`Tax (${formatRatePpm(p.taxRatePpm)})`]),
+        el("dt", {}, [taxLabel(p.appliedRatePpm)]),
         el("dd", {}, [formatMoney(p.tax)]),
         el("dt", { class: "grand" }, ["Total"]),
         el("dd", { class: "grand" }, [formatMoney(p.total)]),
@@ -207,10 +208,13 @@ export function addView(onSaved: () => void): HTMLElement {
     const ctx = await entryContext(name);
     locationName = ctx.locationName;
     taxRatePpm = ctx.taxRatePpm;
+    foodRatePpm = ctx.foodRatePpm;
     favourites = ctx.recentMerchants;
 
     clear(context);
-    context.append(`${locationName ?? "no location"} · ${formatRatePpm(taxRatePpm)} sales tax`);
+    context.append(
+      `${locationName ?? "no location"} · ${rateSummary(taxRatePpm, foodRatePpm)} sales tax`,
+    );
 
     // Only prefill an untouched first row, so recalling a store's usual
     // category never overwrites a choice already made.

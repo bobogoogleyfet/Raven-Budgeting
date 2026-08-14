@@ -68,6 +68,7 @@ interface RawPreview {
   total: number;
   taxIsEstimated: boolean;
   taxRatePpm: number;
+  appliedRatePpm: number | null;
   unassigned: number;
   detailLevel: DetailLevel;
   rows: RawSplitRow[];
@@ -91,7 +92,17 @@ export interface Preview {
    * receipt. Render it — an estimate that looks like a fact is worse than no
    * estimate. */
   taxIsEstimated: boolean;
+  /** The location's general rate — what the store charges on most things. */
   taxRatePpm: number;
+  /**
+   * The rate this receipt was actually taxed at, or null when it straddles two
+   * — groceries at 3% and shampoo at 7.45% in one basket.
+   *
+   * Label the tax with this, never with `taxRatePpm`: on a grocery receipt
+   * that prints a percentage which does not match the money beside it, and
+   * correct arithmetic then looks like a bug.
+   */
+  appliedRatePpm: number | null;
   /** Money not yet assigned to a category. Non-zero blocks saving. */
   unassigned: Cents;
   detailLevel: DetailLevel;
@@ -190,6 +201,8 @@ export interface EntryContext {
   merchantName: string | null;
   locationName: string | null;
   taxRatePpm: number;
+  /** The reduced rate on unprepared food here; null where there is none. */
+  foodRatePpm: number | null;
   defaultCategoryId: number | null;
   detailLevel: DetailLevel;
   recentMerchants: string[];

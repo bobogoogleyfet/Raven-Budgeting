@@ -163,3 +163,52 @@ fn tax_is_computed_per_rate_bucket_not_per_line() {
         "the parts must still sum to the whole"
     );
 }
+
+#[test]
+fn the_preview_reports_the_rate_it_actually_applied() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    let p = preview_subtotals(&db, &draft(&db, &[("Groceries", 728)])).expect("preview");
+
+    // The bug this closes: the preview reported the location's *general* rate
+    // whatever the receipt was charged, so the app printed "Tax (7.25%) $0.22"
+    // — a label contradicting the money beside it. It reads as broken
+    // arithmetic, and was reported as the food rate not being applied at all.
+    assert_eq!(p.amounts.tax, m(22));
+    assert_eq!(p.applied_rate_ppm, Some(FOOD));
+    assert_eq!(
+        p.tax_rate_ppm, GENERAL,
+        "the store's general rate is still reported, for the store line"
+    );
+}
+
+#[test]
+fn a_receipt_straddling_two_rates_claims_neither() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    let p = preview_subtotals(
+        &db,
+        &draft(&db, &[("Groceries", 5_000), ("Toiletries", 2_000)]),
+    )
+    .expect("preview");
+
+    // There is no single rate here, and printing either would label the whole
+    // tax figure with a percentage true of only part of the receipt.
+    assert_eq!(p.applied_rate_ppm, None);
+}
+
+#[test]
+fn an_untaxed_row_does_not_count_as_a_second_rate() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    // A half-filled form: one real grocery line and an empty second row. That
+    // is one rate, not two — the entry form must not flip to "mixed rates"
+    // while somebody is still typing.
+    let p = preview_subtotals(&db, &draft(&db, &[("Groceries", 728), ("Toiletries", 0)]))
+        .expect("preview");
+
+    assert_eq!(p.applied_rate_ppm, Some(FOOD));
+}

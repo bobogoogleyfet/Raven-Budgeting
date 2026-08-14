@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseRatePpm, rateSummary, releaseLine } from "./setup.ts";
+import { parseRatePpm, releaseLine } from "./setup.ts";
 
 test("a percentage becomes parts per million", () => {
   assert.equal(parseRatePpm("7.75"), 77_500);
@@ -31,20 +31,6 @@ test("junk is refused rather than read as zero", () => {
   for (const input of ["", "   ", "%", "abc", "7.7.5", "seven"]) {
     assert.equal(parseRatePpm(input), null, `expected ${JSON.stringify(input)} to be refused`);
   }
-});
-
-test("a reduced food rate is named alongside the general one", () => {
-  assert.equal(rateSummary(72_500, 30_000), "Sales tax 7.25% · groceries 3%");
-});
-
-test("no reduced rate says nothing about groceries", () => {
-  // Most states tax food in full. Printing "groceries 7.25%" would imply a
-  // rule that does not exist.
-  assert.equal(rateSummary(72_500, null), "Sales tax 7.25%");
-});
-
-test("a food rate equal to the general one is not a reduction", () => {
-  assert.equal(rateSummary(72_500, 72_500), "Sales tax 7.25%");
 });
 
 test("the rates name the publication they came from", () => {

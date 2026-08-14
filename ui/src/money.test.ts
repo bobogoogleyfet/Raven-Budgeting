@@ -9,7 +9,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ZERO, formatCents, formatMoney, formatRatePpm, fromCore, parseCents } from "./money.ts";
+import {
+  ZERO,
+  formatCents,
+  formatMoney,
+  formatRatePpm,
+  fromCore,
+  parseCents,
+  rateSummary,
+  taxLabel,
+} from "./money.ts";
 
 test("formatting pads the cents rather than truncating them", () => {
   assert.equal(formatCents(fromCore(5)), "0.05");
@@ -76,4 +85,32 @@ test("rates render exactly, including the awkward ones", () => {
   assert.equal(formatRatePpm(94_375), "9.4375%");
   assert.equal(formatRatePpm(70_000), "7%");
   assert.equal(formatRatePpm(0), "0%");
+});
+
+test("a reduced food rate is named alongside the general one", () => {
+  assert.equal(rateSummary(74_500, 30_000), "7.45% · groceries 3%");
+});
+
+test("no reduced rate says nothing about groceries", () => {
+  // Most states tax food in full. Printing "groceries 7.25%" would imply a
+  // rule that does not exist.
+  assert.equal(rateSummary(74_500, null), "7.45%");
+});
+
+test("a food rate equal to the general one is not a reduction", () => {
+  assert.equal(rateSummary(74_500, 74_500), "7.45%");
+});
+
+test("the tax line is labelled with the rate that was actually applied", () => {
+  // The bug this prevents: a $7.28 grocery subtotal in Highland owes $0.22,
+  // and "Tax (7.45%) $0.22" makes correct arithmetic look broken — 7.45% of
+  // $7.28 is $0.54.
+  assert.equal(taxLabel(30_000), "Tax (3%)");
+  assert.equal(taxLabel(74_500), "Tax (7.45%)");
+});
+
+test("a basket straddling two rates does not claim one", () => {
+  // Groceries at 3% and shampoo at 7.45% in the same run. Either figure would
+  // be true of only part of the receipt.
+  assert.equal(taxLabel(null), "Tax (mixed rates)");
 });

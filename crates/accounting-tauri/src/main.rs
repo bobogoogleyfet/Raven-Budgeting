@@ -142,7 +142,12 @@ struct PreviewDto {
     tax: i64,
     total: i64,
     tax_is_estimated: bool,
+    /// The location's general rate — what the store charges on most things.
     tax_rate_ppm: u32,
+    /// The rate this receipt was actually taxed at, or null when it straddles
+    /// two. Never label a tax figure with `tax_rate_ppm`: on a grocery receipt
+    /// that prints a percentage which does not match the money beside it.
+    applied_rate_ppm: Option<u32>,
     unassigned: i64,
     detail_level: String,
     rows: Vec<SplitRowDto>,
@@ -156,6 +161,8 @@ struct ContextDto {
     merchant_name: Option<String>,
     location_name: Option<String>,
     tax_rate_ppm: u32,
+    /// The location's reduced rate on unprepared food, where it has one.
+    food_rate_ppm: Option<u32>,
     default_category_id: Option<i64>,
     detail_level: String,
     recent_merchants: Vec<String>,
@@ -403,6 +410,7 @@ fn to_preview_dto(
         total: preview.amounts.total.cents(),
         tax_is_estimated: preview.amounts.tax_is_estimated,
         tax_rate_ppm: preview.tax_rate_ppm,
+        applied_rate_ppm: preview.applied_rate_ppm,
         unassigned: preview.plan.unassigned.cents(),
         detail_level: preview.detail_level.to_string(),
         rows,
@@ -472,6 +480,7 @@ fn entry_context(state: State<'_, AppState>, merchant: Option<String>) -> CmdRes
         merchant_name: ctx.merchant.as_ref().map(|m| m.name.clone()),
         location_name: ctx.location.as_ref().map(|l| l.name.clone()),
         tax_rate_ppm: ctx.tax.rate_ppm,
+        food_rate_ppm: ctx.location.as_ref().and_then(|l| l.food_rate_ppm),
         default_category_id: ctx.default_category.as_ref().map(|c| c.id.get()),
         detail_level: ctx.detail_level.to_string(),
         recent_merchants: ctx

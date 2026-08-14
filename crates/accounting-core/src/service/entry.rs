@@ -94,7 +94,23 @@ pub struct TransactionPreview {
     pub plan: SplitPlan,
     pub context: EntryContext,
     pub detail_level: DetailLevel,
+    /// The location's general rate — what this place charges on most things.
+    ///
+    /// Not necessarily what this receipt was taxed at, and never the number to
+    /// label a tax figure with. See [`TransactionPreview::applied_rate_ppm`].
     pub tax_rate_ppm: u32,
+    /// The rate every taxed row actually used, when they all used one.
+    ///
+    /// `None` when the receipt straddles two rates — groceries at 3% and
+    /// shampoo at 7.45% in the same Walmart run — because then there is no
+    /// single rate and any one figure a UI printed would be wrong for part of
+    /// the receipt.
+    ///
+    /// This exists because the obvious thing to display is
+    /// [`TransactionPreview::tax_rate_ppm`], and on a grocery receipt that
+    /// reads "Tax (7.45%) $0.22" — a label contradicting the number beside it,
+    /// which makes correct arithmetic look like a bug.
+    pub applied_rate_ppm: Option<u32>,
     /// Things the user should see but that do not stop a save.
     pub warnings: Vec<String>,
     /// Reasons the save is impossible.
@@ -239,6 +255,12 @@ pub fn preview_transaction_with_rate(
     Ok(TransactionPreview {
         amounts,
         plan,
+        // This path reconciles against one rate for the whole receipt — it is
+        // handed a total, not per-category subtotals, so it cannot split one
+        // across two rates. `single_rate_for` already chose the food rate when
+        // every category filed against uses it, so the rate applied is simply
+        // the rate in force.
+        applied_rate_ppm: Some(context.tax.rate_ppm),
         tax_rate_ppm: context.tax.rate_ppm,
         context,
         detail_level,
@@ -389,12 +411,19 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
 
     let mut taxes = vec![Money::ZERO; draft.rows.len()];
     let mut tax = Money::ZERO;
+    // The rates that actually bore on money. A bucket holding only empty rows
+    // is not a second rate — a half-filled form would otherwise report itself
+    // as a mixed-rate receipt while the user was still typing the first line.
+    let mut rates_used: Vec<u32> = Vec::new();
     for (rate, indices) in &buckets {
         let subtotals: Vec<Money> = indices.iter().map(|i| draft.rows[*i].subtotal).collect();
         let bucket_subtotal = subtotals
             .iter()
             .try_fold(Money::ZERO, |acc, m| acc.checked_add(*m))
             .ok_or_else(|| CoreError::Invalid("the subtotals overflowed".to_string()))?;
+        if bucket_subtotal != Money::ZERO {
+            rates_used.push(*rate);
+        }
         let bucket_tax = bucket_subtotal.mul_ppm(*rate);
 
         // Money::allocate, so the parts sum to the bucket's tax exactly.
@@ -461,6 +490,15 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     Ok(TransactionPreview {
         amounts,
         plan,
+        // One rate bore on this receipt, or several did. An empty receipt
+        // reports the rate in force rather than nothing, so the form reads
+        // "Tax (7.45%) $0.00" before anything is typed rather than going
+        // briefly vague.
+        applied_rate_ppm: match rates_used.as_slice() {
+            [] => Some(context.tax.rate_ppm),
+            [only] => Some(*only),
+            _ => None,
+        },
         tax_rate_ppm: context.tax.rate_ppm,
         context,
         detail_level: DetailLevel::Grouped,

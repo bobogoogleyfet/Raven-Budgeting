@@ -38,7 +38,7 @@
 import { type Area, listAreas, rateRelease, setHomeLocation } from "../api.ts";
 import { combobox } from "../combobox.ts";
 import { el } from "../dom.ts";
-import { formatRatePpm } from "../money.ts";
+import { rateSummary } from "../money.ts";
 
 /** `"7.75"` → `77500` ppm. `null` if it is not a usable rate. */
 export function parseRatePpm(input: string): number | null {
@@ -67,22 +67,6 @@ export function releaseLine(release: { quarter: string; current: boolean } | nul
   return release.current
     ? `${source}.`
     : `${source} — superseded; a newer one has not downloaded yet.`;
-}
-
-/**
- * The one-line summary of what an area will charge.
- *
- * Names groceries explicitly rather than saying "food": the reduced rate is on
- * *unprepared* food, and a restaurant meal is taxed in full. A summary that
- * implied otherwise would have the user expecting the lower figure on a
- * receipt that will never show it.
- */
-export function rateSummary(taxRatePpm: number, foodRatePpm: number | null): string {
-  const general = `Sales tax ${formatRatePpm(taxRatePpm)}`;
-  // Equal rates are not a reduction, and printing the same number twice reads
-  // as a rule that does not exist.
-  if (foodRatePpm === null || foodRatePpm >= taxRatePpm) return general;
-  return `${general} · groceries ${formatRatePpm(foodRatePpm)}`;
 }
 
 export function setupView(onDone: () => void): HTMLElement {
@@ -134,7 +118,7 @@ export function setupView(onDone: () => void): HTMLElement {
       );
       return;
     }
-    derived.textContent = rateSummary(match.taxRatePpm, match.foodRatePpm);
+    derived.textContent = `Sales tax ${rateSummary(match.taxRatePpm, match.foodRatePpm)}`;
     rateRow.append(
       derived,
       el("span", { class: "hint" }, [" — an estimate; a receipt's own tax always wins."]),
