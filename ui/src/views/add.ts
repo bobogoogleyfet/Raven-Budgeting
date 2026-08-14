@@ -301,6 +301,10 @@ export function addView(onSaved: () => void): HTMLElement {
         rows = [{ categoryId: null, subtotalText: "" }];
         renderRows();
         clear(panel);
+        // Forced past the "same merchant, nothing to do" guard, because one
+        // thing *has* changed: this store was just shopped at, so the chips of
+        // most-shopped stores are out of date by exactly this receipt.
+        loadedFor = undefined;
         void loadContext(merchant.value() || null);
         onSaved();
       })

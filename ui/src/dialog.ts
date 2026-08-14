@@ -28,11 +28,16 @@ export interface ConfirmRequest {
 /**
  * Ask, and resolve to what the user chose.
  *
+ * Named `confirmDialog`, not `confirm`: a function called `confirm` shadows
+ * `window.confirm`, so forgetting the import would silently fall back to the
+ * native dialog this module exists to replace — and it would look like it
+ * worked.
+ *
  * Cancel is the default focus and the default outcome: Escape, the backdrop,
  * and closing the dialog any other way all resolve `false`. For a destructive
  * action the accident should be the harmless one.
  */
-export function confirm(request: ConfirmRequest): Promise<boolean> {
+export function confirmDialog(request: ConfirmRequest): Promise<boolean> {
   return new Promise((resolve) => {
     const cancel = el("button", { type: "button", class: "secondary" }, ["Cancel"]);
     const go = el("button", { type: "button", class: "danger" }, [request.confirmLabel]);

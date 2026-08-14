@@ -1,7 +1,7 @@
 /** The receipt list. Everything entered here or with `pacc add`. */
 
 import { type TxnSummary, deleteTransaction, listTransactions } from "../api.ts";
-import { confirm } from "../dialog.ts";
+import { confirmDialog } from "../dialog.ts";
 import { clear, el } from "../dom.ts";
 import { formatMoney } from "../money.ts";
 
@@ -41,7 +41,7 @@ export function receiptsView(): HTMLElement {
     const button = el("button", { type: "button", class: "link remove" }, ["Delete"]);
 
     button.addEventListener("click", () => {
-      void confirm({
+      void confirmDialog({
         question: "Delete this receipt?",
         detail: `${txn.txnDate} · ${txn.merchantName ?? "no store"} · ${formatMoney(txn.total)}`,
         confirmLabel: "Delete receipt",
