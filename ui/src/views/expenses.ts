@@ -34,8 +34,16 @@ export function expensesView(): HTMLElement {
    */
   let sort: TxnSort = "dateDesc";
   const dateSort = el("button", { type: "button", class: "sort-toggle" });
+  /**
+   * A small triangle, drawn rather than typed for the same reason the funnel
+   * is: ▼ renders at whatever weight the platform's font gives it, which next
+   * to a 0.78rem header is either invisible or a black lozenge.
+   */
+  const CARET = (down: boolean): string =>
+    `<svg viewBox="0 0 10 10" width="8" height="8" aria-hidden="true" focusable="false">` +
+    `<path d="${down ? "M1 3.5h8L5 8z" : "M1 6.5h8L5 2z"}" fill="currentColor"/></svg>`;
   const paintSort = (): void => {
-    dateSort.textContent = sort === "dateDesc" ? "▼" : "▲";
+    dateSort.innerHTML = CARET(sort === "dateDesc");
     dateSort.title = sort === "dateDesc" ? "Newest first" : "Oldest first";
   };
   dateSort.addEventListener("click", () => {
