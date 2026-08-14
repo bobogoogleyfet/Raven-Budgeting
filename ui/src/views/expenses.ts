@@ -11,6 +11,7 @@ import {
 import { confirmDialog } from "../dialog.ts";
 import { clear, el } from "../dom.ts";
 import { filterMenu } from "../filtermenu.ts";
+import { caret, trash } from "../icons.ts";
 import { formatMoney } from "../money.ts";
 
 const HOW_MANY = 200;
@@ -35,18 +36,10 @@ export function expensesView(): HTMLElement {
   // The title and the caret are one pill, so the whole header sorts rather
   // than an eight-pixel triangle being the only target.
   const dateSort = el("button", { type: "button", class: "sort-toggle" });
-  /**
-   * A small triangle, drawn rather than typed for the same reason the funnel
-   * is: ▼ renders at whatever weight the platform's font gives it, which next
-   * to a 0.78rem header is either invisible or a black lozenge.
-   */
-  const CARET = (down: boolean): string =>
-    `<svg viewBox="0 0 10 10" width="8" height="8" aria-hidden="true" focusable="false">` +
-    `<path d="${down ? "M1 3.5h8L5 8z" : "M1 6.5h8L5 2z"}" fill="currentColor"/></svg>`;
   const paintSort = (): void => {
     dateSort.replaceChildren(el("span", { class: "filter-label" }, ["Date"]));
     const icon = el("span", { class: "filter-icon" });
-    icon.innerHTML = CARET(sort === "dateDesc");
+    icon.innerHTML = caret(sort === "dateDesc");
     dateSort.append(icon);
     dateSort.title = sort === "dateDesc" ? "Newest first" : "Oldest first";
   };
@@ -84,7 +77,16 @@ export function expensesView(): HTMLElement {
    * asking is worth a modal rather than something dismissible by accident.
    */
   function deleteCell(txn: TxnSummary, tr: HTMLElement): HTMLElement {
-    const button = el("button", { type: "button", class: "link remove" }, ["Delete"]);
+    // A trash can at the row's own text size: the label said "Delete" in every
+    // row of a table whose other columns are the expense itself, which made a
+    // column of the same word the widest thing on the screen.
+    const button = el("button", {
+      type: "button",
+      class: "link icon-button",
+      title: "Delete this expense",
+      "aria-label": "Delete this expense",
+    });
+    button.innerHTML = trash();
 
     button.addEventListener("click", () => {
       void confirmDialog({

@@ -170,6 +170,23 @@ button.remove {
   line-height: 1;
 }
 
+/* A drawn icon at the row's own text size, so the Delete column is as tall as
+   the money beside it rather than a line of repeated words. */
+button.icon-button {
+  color: var(--muted);
+  font-size: inherit;
+  line-height: 0;
+  padding: 0.2rem;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+button.icon-button:hover {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+}
+
 button.primary {
   appearance: none;
   border: 0;
@@ -289,7 +306,7 @@ td {
 }
 
 th {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -538,9 +555,13 @@ tr.over {
   background: none;
   color: var(--muted);
   font: inherit;
-  line-height: 1;
+  /* Zero, because the content is a drawn triangle rather than a character —
+     a line box sized for text would push it off centre. */
+  line-height: 0;
   padding: 0.25rem 0.4rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
 
 .combo-list {

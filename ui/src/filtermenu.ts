@@ -16,23 +16,7 @@
  */
 
 import { el } from "./dom.ts";
-
-/**
- * The funnel every spreadsheet puts in a filtered column header, outlined
- * while the column shows everything and solid once it is hiding rows.
- *
- * Drawn rather than typed. The nearest characters — ⌄, ▼, 🔽 — are a caret or
- * an emoji depending on the platform's font, and one of those is a different
- * control's icon. `currentColor` makes it follow the button's own colour, so
- * the active state and the dark theme both come for free.
- */
-const FUNNEL = (filled: boolean): string =>
-  `<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false">` +
-  `<path d="M2 3h12l-4.6 5.4v4.2l-2.8 1.4V8.4z" ` +
-  (filled
-    ? `fill="currentColor"/>`
-    : `fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>`) +
-  `</svg>`;
+import { funnel } from "./icons.ts";
 
 export interface FilterOption {
   /** The id sent back to the core, as a string. */
@@ -88,7 +72,7 @@ export function filterMenu(config: { label: string; onChange: () => void }): Fil
     // the values below are text nodes too.
     button.replaceChildren(el("span", { class: "filter-label" }, [config.label]));
     const icon = el("span", { class: "filter-icon" });
-    icon.innerHTML = FUNNEL(hidden.size > 0);
+    icon.innerHTML = funnel(hidden.size > 0);
     button.append(icon);
     button.classList.toggle("active", hidden.size > 0);
   }

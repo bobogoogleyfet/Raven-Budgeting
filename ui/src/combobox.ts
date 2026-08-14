@@ -6,6 +6,8 @@
  * store you are standing in is more authoritative than the list.
  */
 
+import { caret } from "./icons.ts";
+
 /**
  * Rank `options` against what has been typed.
  *
@@ -64,7 +66,9 @@ export function combobox(config: {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "combo-toggle";
-  toggle.textContent = "▾";
+  // The same triangle the Date column sorts with: a dropdown arrow and a
+  // sort arrow are the same idea, and two glyphs would be two shapes.
+  toggle.innerHTML = caret(true);
   toggle.tabIndex = -1;
   toggle.setAttribute("aria-label", "show all stores");
 
