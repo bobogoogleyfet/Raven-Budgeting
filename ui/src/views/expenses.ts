@@ -1,6 +1,16 @@
 /** The expense list. Everything entered here or with `pacc add`. */
 
-import { type TxnSummary, deleteTransaction, listTransactions } from "../api.ts";
+import {
+  type Category,
+  type Merchant,
+  type TxnQuery,
+  type TxnSort,
+  type TxnSummary,
+  deleteTransaction,
+  listCategories,
+  listMerchants,
+  listTransactions,
+} from "../api.ts";
 import { confirmDialog } from "../dialog.ts";
 import { clear, el } from "../dom.ts";
 import { formatMoney } from "../money.ts";
@@ -86,22 +96,108 @@ export function expensesView(): HTMLElement {
     return tr;
   }
 
-  root.append(el("h1", {}, ["Expenses"]), status, table);
+  /**
+   * The narrowing and ordering controls.
+   *
+   * Plain `<select>`s rather than the filtering comboboxes the entry form uses:
+   * those exist to let a user type three letters instead of scrolling two dozen
+   * categories, which is worth it when every expense needs one. A filter is
+   * touched rarely, and a native select is the control every user already knows
+   * how to operate — including with a keyboard.
+   */
+  const categoryPicker = el("select", { id: "x-category" });
+  const storePicker = el("select", { id: "x-store" });
+  const sortPicker = el("select", { id: "x-sort" });
 
-  void listTransactions(HOW_MANY)
-    .then((rows) => {
-      if (rows.length === 0) {
-        status.textContent = "No expenses yet. Add one on the Add tab.";
-        return;
-      }
-      clear(body);
-      for (const txn of rows) body.append(row(txn));
-      status.hidden = true;
-      table.hidden = false;
+  const option = (value: string, label: string): HTMLOptionElement =>
+    el("option", { value }, [label]);
+
+  sortPicker.append(
+    option("dateDesc", "Newest first"),
+    option("dateAsc", "Oldest first"),
+    option("totalDesc", "Largest first"),
+    option("totalAsc", "Smallest first"),
+  );
+
+  function query(): TxnQuery {
+    // An empty value is "no filter", not id 0 — every id is positive, so the
+    // two can never be confused.
+    const asId = (raw: string): number | null => (raw === "" ? null : Number(raw));
+    return {
+      limit: HOW_MANY,
+      categoryId: asId(categoryPicker.value),
+      merchantId: asId(storePicker.value),
+      sort: sortPicker.value as TxnSort,
+    };
+  }
+
+  function load(): void {
+    void listTransactions(query())
+      .then((rows) => {
+        clear(body);
+        if (rows.length === 0) {
+          // Worded by case: an empty database and an over-narrow filter look
+          // identical on screen and need different things done about them.
+          const filtered = categoryPicker.value !== "" || storePicker.value !== "";
+          status.textContent = filtered
+            ? "No expenses match those filters."
+            : "No expenses yet. Add one on the Add tab.";
+          status.hidden = false;
+          table.hidden = true;
+          return;
+        }
+        for (const txn of rows) body.append(row(txn));
+        status.hidden = true;
+        table.hidden = false;
+      })
+      .catch((error: unknown) => {
+        status.hidden = false;
+        status.textContent = `Could not load expenses: ${String(error)}`;
+      });
+  }
+
+  for (const picker of [categoryPicker, storePicker, sortPicker]) {
+    picker.addEventListener("change", load);
+  }
+
+  root.append(
+    el("h1", {}, ["Expenses"]),
+    el("div", { class: "toolbar" }, [
+      el("label", { for: "x-category" }, ["Category"]),
+      categoryPicker,
+      el("label", { for: "x-store" }, ["Store"]),
+      storePicker,
+      el("label", { for: "x-sort" }, ["Sort"]),
+      sortPicker,
+    ]),
+    status,
+    table,
+  );
+
+  // The filters are populated before the first load, so a list that arrives
+  // fast is never briefly filterable by nothing.
+  void Promise.all([listCategories(), listMerchants()])
+    .then(([categories, stores]: [Category[], Merchant[]]) => {
+      categoryPicker.append(
+        option("", "All categories"),
+        ...[...categories]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((c) => option(String(c.id), c.name)),
+      );
+      storePicker.append(
+        option("", "All stores"),
+        ...[...stores]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((m) => option(String(m.id), m.name)),
+      );
     })
-    .catch((error: unknown) => {
-      status.textContent = `Could not load expenses: ${String(error)}`;
-    });
+    .catch(() => {
+      // A filter that failed to populate still leaves the list usable, and the
+      // list's own error reporting is the one that matters.
+      categoryPicker.append(option("", "All categories"));
+      storePicker.append(option("", "All stores"));
+    })
+    .finally(load);
 
   return root;
 }

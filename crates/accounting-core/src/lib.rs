@@ -128,7 +128,7 @@ pub use repo::locations::Location;
 pub use repo::merchants::Merchant;
 pub use repo::transactions::{
     DetailLevel, LineItemRecord, LoadedLineItem, LoadedSplit, NewTransaction, SplitRecord, Txn,
-    TxnFilter,
+    TxnFilter, TxnSort,
 };
 pub use service::budgets::CategoryBudgetStatus;
 pub use service::entry::{EntryContext, TransactionDraft, TransactionPreview};

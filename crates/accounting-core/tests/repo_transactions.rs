@@ -26,7 +26,7 @@ mod common;
 
 use accounting_core::domain::reconcile::Amounts;
 use accounting_core::repo::transactions::{
-    LineItemRecord, NewTransaction, SplitRecord, Txn, TxnFilter,
+    LineItemRecord, NewTransaction, SplitRecord, Txn, TxnFilter, TxnSort,
 };
 use accounting_core::repo::{categories, locations, merchants, transactions};
 use accounting_core::{
@@ -1214,5 +1214,158 @@ fn deleting_a_receipt_that_is_already_gone_says_so() {
         matches!(error, CoreError::NotFound(_)),
         "expected NotFound, got {error:?}"
     );
+    assert_clean(&db);
+}
+
+// ---------------------------------------------------------------------------
+// Filtering and ordering the list
+// ---------------------------------------------------------------------------
+
+/// Three expenses on three days, with amounts that do not follow the dates —
+/// so a date sort and a total sort cannot accidentally agree.
+fn three_expenses(db: &Db) -> (TxnId, TxnId, TxnId) {
+    let groceries = cat(db, "Groceries");
+    let household = cat(db, "Household");
+    let costco = merchant(db, "Costco");
+    let target = merchant(db, "Target");
+
+    let mut small = txn(
+        day("2026-08-10"),
+        amounts(1_000, 0),
+        vec![split(groceries, 1_000, 0)],
+    );
+    small.merchant_id = Some(costco);
+    let mut large = txn(
+        day("2026-08-11"),
+        amounts(9_000, 0),
+        vec![split(household, 9_000, 0)],
+    );
+    large.merchant_id = Some(target);
+    let mut middle = txn(
+        day("2026-08-12"),
+        amounts(5_000, 0),
+        vec![split(groceries, 5_000, 0)],
+    );
+    middle.merchant_id = Some(costco);
+
+    (
+        transactions::save(db, &small).expect("save"),
+        transactions::save(db, &large).expect("save"),
+        transactions::save(db, &middle).expect("save"),
+    )
+}
+
+fn listed(db: &Db, filter: &TxnFilter) -> Vec<TxnId> {
+    transactions::list(db, filter)
+        .expect("list")
+        .into_iter()
+        .map(|t| t.id)
+        .collect()
+}
+
+#[test]
+fn the_default_order_is_newest_first() {
+    let db = seeded_db();
+    let (small, large, middle) = three_expenses(&db);
+
+    assert_eq!(
+        listed(&db, &TxnFilter::default()),
+        vec![middle, large, small],
+        "a list of expenses is read newest first"
+    );
+    assert_clean(&db);
+}
+
+#[test]
+fn every_order_is_available_and_total() {
+    let db = seeded_db();
+    let (small, large, middle) = three_expenses(&db);
+    let sorted = |sort| {
+        listed(
+            &db,
+            &TxnFilter {
+                sort,
+                ..TxnFilter::default()
+            },
+        )
+    };
+
+    assert_eq!(sorted(TxnSort::DateAsc), vec![small, large, middle]);
+    assert_eq!(sorted(TxnSort::TotalDesc), vec![large, middle, small]);
+    assert_eq!(sorted(TxnSort::TotalAsc), vec![small, middle, large]);
+    assert_clean(&db);
+}
+
+#[test]
+fn ties_do_not_reshuffle_between_queries() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    // Same day, same amount, three times over: without a tiebreak the order
+    // would be whatever SQLite felt like, and a list that reorders itself under
+    // the user looks like the data changing.
+    let same = |_| {
+        transactions::save(
+            &db,
+            &txn(
+                day("2026-08-13"),
+                amounts(2_500, 0),
+                vec![split(groceries, 2_500, 0)],
+            ),
+        )
+        .expect("save")
+    };
+    let saved: Vec<TxnId> = (0..3).map(same).collect();
+
+    for sort in [
+        TxnSort::DateDesc,
+        TxnSort::DateAsc,
+        TxnSort::TotalDesc,
+        TxnSort::TotalAsc,
+    ] {
+        let filter = TxnFilter {
+            sort,
+            ..TxnFilter::default()
+        };
+        let first = listed(&db, &filter);
+        assert_eq!(first, listed(&db, &filter), "{sort:?} is not stable");
+        assert_eq!(first.len(), saved.len());
+    }
+    assert_clean(&db);
+}
+
+#[test]
+fn filtering_by_store_and_by_category_narrows_the_list() {
+    let db = seeded_db();
+    let (small, _large, middle) = three_expenses(&db);
+
+    let by_store = listed(
+        &db,
+        &TxnFilter {
+            merchant_id: Some(merchant(&db, "Costco")),
+            ..TxnFilter::default()
+        },
+    );
+    assert_eq!(by_store, vec![middle, small], "Costco's two, newest first");
+
+    let by_category = listed(
+        &db,
+        &TxnFilter {
+            category_id: Some(cat(&db, "Household")),
+            ..TxnFilter::default()
+        },
+    );
+    assert_eq!(by_category.len(), 1);
+
+    // Both at once is an AND, not an OR: Target sold the household goods, so
+    // Costco plus Household is nothing rather than everything.
+    let both = listed(
+        &db,
+        &TxnFilter {
+            merchant_id: Some(merchant(&db, "Costco")),
+            category_id: Some(cat(&db, "Household")),
+            ..TxnFilter::default()
+        },
+    );
+    assert!(both.is_empty(), "{both:?}");
     assert_clean(&db);
 }

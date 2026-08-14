@@ -35,12 +35,12 @@ use accounting_core::db::{Db, seed_defaults};
 use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::domain::reconcile::AmountEntry;
 use accounting_core::domain::splits::{SplitAmount, SplitDraft};
-use accounting_core::repo::transactions::{DetailLevel, TxnFilter};
+use accounting_core::repo::transactions::{DetailLevel, TxnFilter, TxnSort};
 use accounting_core::repo::{categories, locations, merchants, tax_areas, transactions};
 use accounting_core::service::budgets;
 use accounting_core::service::rates as rates_service;
 use accounting_core::service::entry::{self, SubtotalDraft, SubtotalRow, TransactionDraft};
-use accounting_core::{CategoryId, Money, TxnId};
+use accounting_core::{CategoryId, MerchantId, Money, TxnId};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -463,14 +463,39 @@ fn summarise(txn: &accounting_core::repo::transactions::Txn) -> TxnSummaryDto {
 }
 
 #[tauri::command]
-fn list_transactions(state: State<'_, AppState>, limit: usize) -> CmdResult<Vec<TxnSummaryDto>> {
+fn list_transactions(
+    state: State<'_, AppState>,
+    limit: usize,
+    category_id: Option<i64>,
+    merchant_id: Option<i64>,
+    sort: Option<String>,
+) -> CmdResult<Vec<TxnSummaryDto>> {
     let db = state.db.lock().map_err(to_message)?;
     let filter = TxnFilter {
         limit: Some(limit),
+        category_id: category_id.map(CategoryId::new),
+        merchant_id: merchant_id.map(MerchantId::new),
+        sort: parse_sort(sort.as_deref())?,
         ..TxnFilter::default()
     };
     let rows = transactions::list(&db, &filter).map_err(to_message)?;
     Ok(rows.iter().map(summarise).collect())
+}
+
+/// The sort names the UI sends, which are the enum's own variants in the
+/// spelling JSON uses.
+///
+/// An unknown name is refused rather than quietly treated as the default: a
+/// typo that silently reorders a list is a bug nobody reports, because the list
+/// still looks plausible.
+fn parse_sort(name: Option<&str>) -> CmdResult<TxnSort> {
+    match name {
+        None | Some("dateDesc") => Ok(TxnSort::DateDesc),
+        Some("dateAsc") => Ok(TxnSort::DateAsc),
+        Some("totalDesc") => Ok(TxnSort::TotalDesc),
+        Some("totalAsc") => Ok(TxnSort::TotalAsc),
+        Some(other) => Err(format!("{other} is not a sort order")),
+    }
 }
 
 #[tauri::command]

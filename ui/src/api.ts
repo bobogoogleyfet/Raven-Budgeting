@@ -185,9 +185,33 @@ export async function saveTransaction(draft: TransactionDraft): Promise<number> 
   return await invoke<number>("save_transaction", { draft });
 }
 
-/** Recent transactions, newest first. */
-export async function listTransactions(limit: number): Promise<TxnSummary[]> {
-  const rows = await invoke<RawTxnSummary[]>("list_transactions", { limit });
+/** How the expense list is ordered. */
+export type TxnSort = "dateDesc" | "dateAsc" | "totalDesc" | "totalAsc";
+
+/** Narrowing and ordering for the expense list. All optional. */
+export interface TxnQuery {
+  limit: number;
+  /** Matches an expense if *any* of its categories is this one. */
+  categoryId?: number | null;
+  merchantId?: number | null;
+  sort?: TxnSort;
+}
+
+/**
+ * Expenses, newest first unless told otherwise.
+ *
+ * The filtering and the ordering are both done in SQL rather than over the
+ * returned rows: a limit applied before a sort would order whichever hundred
+ * happened to come back, which is a different list from the first hundred of
+ * the ordered set.
+ */
+export async function listTransactions(query: TxnQuery): Promise<TxnSummary[]> {
+  const rows = await invoke<RawTxnSummary[]>("list_transactions", {
+    limit: query.limit,
+    categoryId: query.categoryId ?? null,
+    merchantId: query.merchantId ?? null,
+    sort: query.sort ?? "dateDesc",
+  });
   return rows.map(brandSummary);
 }
 

@@ -125,7 +125,6 @@ export function addView(onSaved: () => void): HTMLElement {
 
   const note = el("input", { type: "text", id: "f-note", placeholder: "optional" });
   const chips = el("div", { class: "chips" });
-  const context = el("p", { class: "hint" });
   const rowsBox = el("div", { class: "splits" });
   const addRow = el("button", { type: "button", class: "primary add-category" }, [
     "+ Add Category",
@@ -295,10 +294,11 @@ export function addView(onSaved: () => void): HTMLElement {
     categoryRates = new Map(ctx.categoryRates.map((r) => [r.categoryId, r.ratePpm]));
     favourites = ctx.recentMerchants;
 
-    clear(context);
-    context.append(locationName ?? "no location");
-    // Only when the user has not chosen one themselves: naming a store must
-    // not silently move an expense the user has already placed somewhere.
+    // The Location field says where this is being taxed, so the store no
+    // longer needs a line under it repeating the same place name.
+    //
+    // Filled in only when the user has not chosen one themselves: naming a
+    // store must not silently move an expense already placed somewhere.
     if (place.value() === "" || place.value() === lastDefaultPlace) {
       place.input.value = locationName ?? "";
     }
@@ -427,11 +427,11 @@ export function addView(onSaved: () => void): HTMLElement {
       el("label", { for: "f-date" }, ["Date"]),
       date.root,
       el("label", { for: "f-merchant" }, ["Store"]),
-      el("div", {}, [merchant.root, chips, context]),
-      el("label", { for: "f-place" }, ["Location"]),
-      place.root,
+      el("div", {}, [merchant.root, chips]),
       el("label", {}, ["Categories"]),
       el("div", {}, [rowsBox, addRow]),
+      el("label", { for: "f-place" }, ["Location"]),
+      place.root,
       el("label", { for: "f-note" }, ["Note"]),
       note,
     ]),
