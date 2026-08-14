@@ -68,6 +68,7 @@ interface RawPreview {
   total: number;
   taxIsEstimated: boolean;
   taxRatePpm: number;
+  appliedRatePpm: number | null;
   unassigned: number;
   detailLevel: DetailLevel;
   rows: RawSplitRow[];
@@ -91,7 +92,17 @@ export interface Preview {
    * receipt. Render it — an estimate that looks like a fact is worse than no
    * estimate. */
   taxIsEstimated: boolean;
+  /** The location's general rate — what the store charges on most things. */
   taxRatePpm: number;
+  /**
+   * The rate this receipt was actually taxed at, or null when it straddles two
+   * — groceries at 3% and shampoo at 7.45% in one basket.
+   *
+   * Label the tax with this, never with `taxRatePpm`: on a grocery receipt
+   * that prints a percentage which does not match the money beside it, and
+   * correct arithmetic then looks like a bug.
+   */
+  appliedRatePpm: number | null;
   /** Money not yet assigned to a category. Non-zero blocks saving. */
   unassigned: Cents;
   detailLevel: DetailLevel;
@@ -186,10 +197,26 @@ export async function needsCategorizing(): Promise<TxnSummary[]> {
   return rows.map(brandSummary);
 }
 
+/** One category and the rate it is taxed at. */
+export interface CategoryRate {
+  categoryId: number;
+  ratePpm: number;
+}
+
 export interface EntryContext {
   merchantName: string | null;
   locationName: string | null;
   taxRatePpm: number;
+  /** The reduced rate on unprepared food here; null where there is none. */
+  foodRatePpm: number | null;
+  /**
+   * What each category is taxed at here.
+   *
+   * The rate belongs to the category, not the store — groceries at 3% and
+   * shampoo at 7.45% cross the same till — so the entry form labels each row
+   * from this rather than showing one rate for the receipt.
+   */
+  categoryRates: CategoryRate[];
   defaultCategoryId: number | null;
   detailLevel: DetailLevel;
   recentMerchants: string[];
@@ -235,8 +262,32 @@ export async function saveSubtotals(draft: SubtotalDraft): Promise<number> {
 }
 
 export interface Area {
+  /** The state's own jurisdiction code, e.g. `25-090`. */
+  code: string;
   name: string;
   taxRatePpm: number;
+  /** The reduced rate on unprepared food; null where food is taxed in full. */
+  foodRatePpm: number | null;
+}
+
+/** Which quarter's publication the rates were taken from. */
+export interface RateRelease {
+  /** `2026Q3`. */
+  quarter: string;
+  /** ISO date the rates took effect. */
+  effectiveOn: string;
+  /** False once the quarter has turned with no successful refresh since. */
+  current: boolean;
+}
+
+/**
+ * Which rates are installed, or null before the first one is.
+ *
+ * Worth showing: a table that quietly stopped updating looks exactly like one
+ * that is current, and the quarter is the only thing that tells them apart.
+ */
+export async function rateRelease(): Promise<RateRelease | null> {
+  return await invoke<RateRelease | null>("rate_release");
 }
 
 /**
@@ -254,9 +305,26 @@ export async function homeLocation(): Promise<Location | null> {
   return await invoke<Location | null>("home_location");
 }
 
-/** Name where the user lives and set its sales-tax rate. Asked on first run. */
-export async function setHomeLocation(name: string, taxRatePpm: number): Promise<void> {
-  await invoke("set_home_location", { name, taxRatePpm });
+/**
+ * Name where the user lives and set its sales-tax rates. Asked on first run.
+ *
+ * `areaCode` names the published jurisdiction the rates came from. It is what
+ * makes the quarterly refresh reach this location — without it the rate table
+ * could update forever while every receipt stayed on today's figure. A rate
+ * typed by hand passes null, and then nothing revises it but the person who
+ * typed it.
+ *
+ * `foodRatePpm` is null when the area has no reduced rate on unprepared food,
+ * or when it is an area the picker does not know and there is nothing to
+ * derive one from.
+ */
+export async function setHomeLocation(
+  name: string,
+  areaCode: string | null,
+  taxRatePpm: number,
+  foodRatePpm: number | null,
+): Promise<void> {
+  await invoke("set_home_location", { name, areaCode, taxRatePpm, foodRatePpm });
 }
 
 export interface Merchant {

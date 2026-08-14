@@ -34,7 +34,7 @@ import {
 import { combobox } from "../combobox.ts";
 import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
-import { formatMoney, formatRatePpm, parseCents } from "../money.ts";
+import { formatMoney, formatRatePpm, parseCents, taxLabel } from "../money.ts";
 
 /** One entered line: a category and what it came to before tax. */
 interface RowState {
@@ -48,7 +48,7 @@ export function addView(onSaved: () => void): HTMLElement {
   let categories: Category[] = [];
   let rows: RowState[] = [{ categoryId: null, subtotalText: "" }];
   let locationName: string | null = null;
-  let taxRatePpm = 0;
+  let categoryRates = new Map<number, number>();
   let favourites: string[] = [];
   let saving = false;
 
@@ -114,6 +114,7 @@ export function addView(onSaved: () => void): HTMLElement {
         onCommit: (name) => {
           const match = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
           state.categoryId = match?.id ?? null;
+          showRate();
           schedulePreview();
         },
       });
@@ -133,7 +134,21 @@ export function addView(onSaved: () => void): HTMLElement {
         schedulePreview();
       });
 
-      const row = el("div", { class: "split-row" }, [picker.root, amount]);
+      // The rate belongs beside the category that determines it. Shown as soon
+      // as one is picked, before any amount is typed: "what will this be taxed
+      // at" is a question about the category alone.
+      const rate = el("p", { class: "hint row-rate" });
+      const showRate = (): void => {
+        const ppm = state.categoryId === null ? undefined : categoryRates.get(state.categoryId);
+        rate.textContent = ppm === undefined ? "" : `${formatRatePpm(ppm)} sales tax`;
+      };
+      showRate();
+      picker.input.addEventListener("change", showRate);
+
+      const row = el("div", { class: "split-row" }, [
+        el("div", { class: "split-cell" }, [picker.root, rate]),
+        amount,
+      ]);
       if (rows.length > 1) {
         const remove = el("button", { type: "button", class: "link remove" }, ["×"]);
         remove.addEventListener("click", () => {
@@ -154,7 +169,7 @@ export function addView(onSaved: () => void): HTMLElement {
       el("dl", { class: "totals" }, [
         el("dt", {}, ["Subtotal"]),
         el("dd", {}, [formatMoney(p.subtotal)]),
-        el("dt", {}, [`Tax (${formatRatePpm(p.taxRatePpm)})`]),
+        el("dt", {}, [taxLabel(p.appliedRatePpm)]),
         el("dd", {}, [formatMoney(p.tax)]),
         el("dt", { class: "grand" }, ["Total"]),
         el("dd", { class: "grand" }, [formatMoney(p.total)]),
@@ -206,11 +221,11 @@ export function addView(onSaved: () => void): HTMLElement {
   async function loadContext(name: string | null): Promise<void> {
     const ctx = await entryContext(name);
     locationName = ctx.locationName;
-    taxRatePpm = ctx.taxRatePpm;
+    categoryRates = new Map(ctx.categoryRates.map((r) => [r.categoryId, r.ratePpm]));
     favourites = ctx.recentMerchants;
 
     clear(context);
-    context.append(`${locationName ?? "no location"} · ${formatRatePpm(taxRatePpm)} sales tax`);
+    context.append(locationName ?? "no location");
 
     // Only prefill an untouched first row, so recalling a store's usual
     // category never overwrites a choice already made.
@@ -221,8 +236,11 @@ export function addView(onSaved: () => void): HTMLElement {
       rows[0].categoryId === null
     ) {
       rows[0].categoryId = ctx.defaultCategoryId;
-      renderRows();
     }
+    // Unconditionally, because the rates just changed: naming a store in
+    // another town moves every row's rate, and a row still showing the old
+    // one would be a stale number sitting beside a live category.
+    renderRows();
     renderChips();
   }
 

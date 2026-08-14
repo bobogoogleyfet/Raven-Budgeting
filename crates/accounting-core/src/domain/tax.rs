@@ -22,6 +22,29 @@ pub fn resolve_rate(
         .unwrap_or(location_rate_ppm)
 }
 
+/// The rate a category is taxed at, given what this location charges.
+///
+/// Two rates rather than one because states tax classes of goods differently:
+/// Utah charges a combined 3% on unprepared food and about 7.45% on everything
+/// else, so which figure applies is a property of the *category*, not of the
+/// receipt or the store.
+///
+/// `food_ppm` of `None` means this place has no reduced rate, which is the
+/// correct reading for most of the US and is why a missing rate falls back to
+/// the general one rather than to zero.
+///
+/// It lives here, alone, because it is asked in two places that must never
+/// disagree: the entry form labels each row with a rate, and the tax
+/// calculation buckets rows by one. A second copy would drift, and the symptom
+/// would be a screen showing 3% beside tax charged at 7.45%.
+#[must_use]
+pub const fn category_rate(general_ppm: u32, food_ppm: Option<u32>, uses_food_rate: bool) -> u32 {
+    match (uses_food_rate, food_ppm) {
+        (true, Some(reduced)) => reduced,
+        _ => general_ppm,
+    }
+}
+
 /// Spread the transaction's **single** tax figure across splits, weighted by
 /// their subtotals.
 ///

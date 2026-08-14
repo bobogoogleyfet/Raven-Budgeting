@@ -597,3 +597,20 @@ tr.over {
 .setup .combo {
   max-width: 22rem;
 }
+
+/* --- per-row tax rate --- */
+/* The rate is a property of the category, so it sits under the category
+   picker rather than beside the store. */
+.split-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.row-rate {
+  margin: 0;
+  font-size: 0.8rem;
+  /* Reserves its line whether or not a category is chosen, so picking one does
+     not shunt the row below it down the page. */
+  min-height: 1rem;
+}

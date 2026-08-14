@@ -14,4 +14,6 @@
 
 pub mod budgets;
 pub mod entry;
+pub mod locations;
+pub mod rates;
 pub mod reports;

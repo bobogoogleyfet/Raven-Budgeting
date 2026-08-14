@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::Db;
 use crate::domain::reconcile::{AmountEntry, Amounts, TaxContext, reconcile};
 use crate::domain::splits::{ResolvedSplit, SplitAmount, SplitDraft, SplitPlan, plan_splits};
-use crate::domain::tax::distribute_tax;
+use crate::domain::tax::{category_rate, distribute_tax};
 use crate::error::{CoreError, Result};
 use crate::ids::{CategoryId, TxnId};
 use crate::money::Money;
@@ -94,7 +94,23 @@ pub struct TransactionPreview {
     pub plan: SplitPlan,
     pub context: EntryContext,
     pub detail_level: DetailLevel,
+    /// The location's general rate — what this place charges on most things.
+    ///
+    /// Not necessarily what this receipt was taxed at, and never the number to
+    /// label a tax figure with. See [`TransactionPreview::applied_rate_ppm`].
     pub tax_rate_ppm: u32,
+    /// The rate every taxed row actually used, when they all used one.
+    ///
+    /// `None` when the receipt straddles two rates — groceries at 3% and
+    /// shampoo at 7.45% in the same Walmart run — because then there is no
+    /// single rate and any one figure a UI printed would be wrong for part of
+    /// the receipt.
+    ///
+    /// This exists because the obvious thing to display is
+    /// [`TransactionPreview::tax_rate_ppm`], and on a grocery receipt that
+    /// reads "Tax (7.45%) $0.22" — a label contradicting the number beside it,
+    /// which makes correct arithmetic look like a bug.
+    pub applied_rate_ppm: Option<u32>,
     /// Things the user should see but that do not stop a save.
     pub warnings: Vec<String>,
     /// Reasons the save is impossible.
@@ -116,6 +132,41 @@ impl TransactionPreview {
 /// no location, no category and no detail-level decision.
 pub fn entry_context(db: &Db, merchant_name: Option<&str>) -> Result<EntryContext> {
     resolve_context(db, merchant_name, None, None)
+}
+
+/// One category and the rate it is taxed at here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CategoryRate {
+    pub category_id: CategoryId,
+    pub rate_ppm: u32,
+}
+
+/// What each category is taxed at, at this context's location.
+///
+/// # Why the entry screen needs this
+///
+/// The rate is a property of the category, not of the store: at one till,
+/// groceries are 3% and shampoo is 7.45%. A single rate shown against the shop
+/// is therefore wrong for at least one line of a mixed receipt, and on a
+/// grocery run it is wrong for all of them.
+///
+/// Answered here rather than in the frontend even though it is only a choice
+/// between two numbers. The choosing is the rule, the rule already exists in
+/// [`category_rate`], and a copy of it in TypeScript would be a second
+/// implementation that drifts — the day another class of goods gets its own
+/// rate, the screen would still be showing the old two.
+///
+/// Available before an amount is typed, which is the point: picking a category
+/// should say what it will be taxed at, not wait for a number.
+pub fn category_rates(db: &Db, context: &EntryContext) -> Result<Vec<CategoryRate>> {
+    let food_rate = context.location.as_ref().and_then(|l| l.food_rate_ppm);
+    Ok(categories::list_all(db)?
+        .into_iter()
+        .map(|c| CategoryRate {
+            category_id: c.id,
+            rate_ppm: category_rate(context.tax.rate_ppm, food_rate, c.uses_food_rate),
+        })
+        .collect())
 }
 
 /// Resolve a draft into numbers, **without writing anything**.
@@ -239,6 +290,12 @@ pub fn preview_transaction_with_rate(
     Ok(TransactionPreview {
         amounts,
         plan,
+        // This path reconciles against one rate for the whole receipt — it is
+        // handed a total, not per-category subtotals, so it cannot split one
+        // across two rates. `single_rate_for` already chose the food rate when
+        // every category filed against uses it, so the rate applied is simply
+        // the rate in force.
+        applied_rate_ppm: Some(context.tax.rate_ppm),
         tax_rate_ppm: context.tax.rate_ppm,
         context,
         detail_level,
@@ -370,10 +427,9 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
         let uses_food = id
             .and_then(|id| known.iter().find(|c| c.id == id))
             .is_some_and(|c| c.uses_food_rate);
-        match (uses_food, food_rate) {
-            (true, Some(reduced)) => reduced,
-            _ => context.tax.rate_ppm,
-        }
+        // The same function the entry form labels its rows with, so the rate
+        // on screen is the rate that was charged rather than a second opinion.
+        category_rate(context.tax.rate_ppm, food_rate, uses_food)
     };
 
     // Buckets keyed by rate, each holding the indices of its rows. A BTreeMap
@@ -389,12 +445,19 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
 
     let mut taxes = vec![Money::ZERO; draft.rows.len()];
     let mut tax = Money::ZERO;
+    // The rates that actually bore on money. A bucket holding only empty rows
+    // is not a second rate — a half-filled form would otherwise report itself
+    // as a mixed-rate receipt while the user was still typing the first line.
+    let mut rates_used: Vec<u32> = Vec::new();
     for (rate, indices) in &buckets {
         let subtotals: Vec<Money> = indices.iter().map(|i| draft.rows[*i].subtotal).collect();
         let bucket_subtotal = subtotals
             .iter()
             .try_fold(Money::ZERO, |acc, m| acc.checked_add(*m))
             .ok_or_else(|| CoreError::Invalid("the subtotals overflowed".to_string()))?;
+        if bucket_subtotal != Money::ZERO {
+            rates_used.push(*rate);
+        }
         let bucket_tax = bucket_subtotal.mul_ppm(*rate);
 
         // Money::allocate, so the parts sum to the bucket's tax exactly.
@@ -461,6 +524,15 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     Ok(TransactionPreview {
         amounts,
         plan,
+        // One rate bore on this receipt, or several did. An empty receipt
+        // reports the rate in force rather than nothing, so the form reads
+        // "Tax (7.45%) $0.00" before anything is typed rather than going
+        // briefly vague.
+        applied_rate_ppm: match rates_used.as_slice() {
+            [] => Some(context.tax.rate_ppm),
+            [only] => Some(*only),
+            _ => None,
+        },
         tax_rate_ppm: context.tax.rate_ppm,
         context,
         detail_level: DetailLevel::Grouped,
