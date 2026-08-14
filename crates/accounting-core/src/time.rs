@@ -212,6 +212,83 @@ pub const fn quarter_of(month: u32) -> u32 {
     }
 }
 
+/// A calendar quarter, e.g. `2026Q3`.
+///
+/// Sales-tax rates are published and revised on this cycle, not monthly, so
+/// "which rates are these?" is a question with a quarter for an answer. Like
+/// everything else here it is pure calendar math — deciding which quarter is
+/// *current* needs today's date, which the caller supplies.
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
+pub struct Quarter {
+    pub year: i32,
+    /// 1..=4.
+    pub quarter: u32,
+}
+
+impl Quarter {
+    /// Construct, validating `quarter` is in `1..=4`.
+    #[must_use]
+    pub const fn new(year: i32, quarter: u32) -> Option<Self> {
+        if quarter >= 1 && quarter <= 4 {
+            Some(Quarter { year, quarter })
+        } else {
+            None
+        }
+    }
+
+    /// The quarter a date falls in.
+    #[must_use]
+    pub fn from_date(date: NaiveDate) -> Self {
+        Quarter {
+            year: date.year(),
+            quarter: quarter_of(date.month()),
+        }
+    }
+
+    /// The first month of the quarter: January, April, July or October.
+    #[must_use]
+    pub fn first_month(self) -> YearMonth {
+        let month = (self.quarter.clamp(1, 4) - 1) * 3 + 1;
+        YearMonth {
+            year: self.year,
+            month,
+        }
+    }
+
+    /// The day the quarter's rates take effect.
+    #[must_use]
+    pub fn effective_on(self) -> NaiveDate {
+        self.first_month().first_day()
+    }
+
+    /// The following quarter.
+    #[must_use]
+    pub fn next(self) -> Self {
+        Self::from_month(self.first_month().add_months(3))
+    }
+
+    /// The preceding quarter.
+    #[must_use]
+    pub fn prev(self) -> Self {
+        Self::from_month(self.first_month().add_months(-3))
+    }
+
+    /// The quarter a month falls in.
+    #[must_use]
+    pub fn from_month(ym: YearMonth) -> Self {
+        Quarter {
+            year: ym.year,
+            quarter: ym.quarter(),
+        }
+    }
+}
+
+impl fmt::Display for Quarter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04}Q{}", self.year, self.quarter)
+    }
+}
+
 /// Three-letter English month abbreviation; `"???"` for out-of-range input.
 #[must_use]
 pub const fn month_short_name(month: u32) -> &'static str {

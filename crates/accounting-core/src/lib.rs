@@ -84,6 +84,20 @@
 //! across that cycle's months with [`Money::allocate`]. That is why the two
 //! bases reconcile to the same total over whole cycles, why a $1,200 premium
 //! paid in March reads as $100 a month, and why nothing here writes a row.
+//!
+//! # Milestone 6 surface
+//!
+//! [`rates`] — Utah's published sales-tax table, parsed from the state's own
+//! quarterly workbook, and [`service::rates`] for installing it. Rates change
+//! on the first day of every quarter, so a list compiled by hand is wrong on a
+//! schedule and only a release could fix it; reading the publication makes that
+//! a download instead.
+//!
+//! Rule 1 and rule 2 bite here. The core does no networking: a frontend asks
+//! [`service::rates::refresh_due`], fetches [`service::rates::wanted_url`] with
+//! whatever HTTP client suits its platform, and hands back bytes. Which
+//! quarter, which URL, whether the file is the one that was asked for, and what
+//! to write are all decided in the core, once, for every frontend.
 
 #![doc(html_no_source)]
 
@@ -93,6 +107,7 @@ pub mod error;
 pub mod export;
 pub mod ids;
 pub mod money;
+pub mod rates;
 pub mod repo;
 pub mod service;
 pub mod time;
@@ -117,6 +132,6 @@ pub use repo::transactions::{
 };
 pub use service::budgets::CategoryBudgetStatus;
 pub use service::entry::{EntryContext, TransactionDraft, TransactionPreview};
-pub use service::locations::adopt_area_food_rates;
+pub use service::locations::adopt_published_areas;
 pub use service::reports::{MatrixCell, MatrixRow, MonthlyMatrix, ReportBasis, monthly_matrix};
-pub use time::{MonthRange, ParseYearMonthError, YearMonth, month_short_name, quarter_of};
+pub use time::{MonthRange, ParseYearMonthError, Quarter, YearMonth, month_short_name, quarter_of};

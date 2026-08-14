@@ -43,8 +43,31 @@ rusqlite_migration = "2.6"
 rust_xlsxwriter = { version = "0.97.1", default-features = false, features = ["chrono", "serde"] }
 csv = "1.4"
 
+# Reading the Utah Tax Commission's quarterly rate workbook. Both are already
+# in the tree (rust_xlsxwriter and tauri pull them), so this adds a direct
+# edge, not a build.
+#
+# `default-features = false` is load-bearing: zip's defaults turn on bzip2,
+# zstd, lzma and xz, every one of which compiles C and breaks the Android and
+# iOS targets. An xlsx is Deflate or Store, so `deflate-flate2` is the whole
+# requirement — and flate2's own default is pure-Rust miniz_oxide, which is why
+# the "never enable zlib" rule above is not violated by depending on it.
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+quick-xml = "0.41"
+
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+
+# Downloading the quarterly rate workbook. A *frontend* dependency: the core
+# does no networking, because an HTTP client is exactly the sort of thing that
+# differs between a desktop binary and an Android service.
+#
+# Blocking on purpose. The alternative would drag tokio into the CLI to await a
+# single 260KB GET that happens four times a year, and the desktop app can put
+# a blocking call on a thread far more cheaply than the core can grow a
+# runtime. rustls rather than the platform's TLS, so the Android and iOS builds
+# do not each need their own answer.
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 

@@ -12,6 +12,31 @@ wrecking a single month's report.
 Unlike bank-sync apps, this captures **line-item receipt data**. A bank only ever sees
 `KROGER $142.87`; this sees what was actually in the basket.
 
+## Sales tax
+
+Receipts are entered as a subtotal per category; the tax is worked out from where
+the store is. Those rates come from the Utah State Tax Commission's [quarterly
+publication][utah-rates] — every taxing jurisdiction in the state, not a list
+typed in by hand — and unprepared food is taxed at Utah's reduced 3% rather than
+the general rate, so a $7.28 grocery subtotal owes $0.22 and not $0.53.
+
+**Utah only, for now.** The rates are one state's publication in one state's file
+format. Another state means another publisher, schedule and layout, so the honest
+scope is the one state whose file is actually read. Anywhere else can still be
+named with its rate typed in.
+
+Rates change on the first day of each quarter. The app checks once the quarter
+turns and downloads the new file if it can reach the network; being offline is
+normal rather than an error, and the setup screen names the quarter on screen so
+a table that stopped updating is visible. `pacc rates` shows the same thing, and
+`pacc rates --update` fetches on demand.
+
+None of this rewrites history: every transaction records the rate used when it
+was entered, so a refresh changes what the *next* receipt is taxed at and never
+what last March's was.
+
+[utah-rates]: https://tax.utah.gov/business/sales-tax/sales/rates/
+
 ## Layout
 
 ```

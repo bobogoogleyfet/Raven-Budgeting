@@ -25,6 +25,11 @@ pub struct Location {
     /// The reduced rate for food categories here, if this place has one.
     /// `None` means food is taxed like everything else.
     pub food_rate_ppm: Option<u32>,
+    /// The published jurisdiction these rates came from, e.g. `25-090`.
+    ///
+    /// `None` means somebody typed the rate, and a quarterly refresh leaves it
+    /// alone: a figure read off a receipt outranks a published estimate.
+    pub area_code: Option<String>,
     /// Shelf prices already include tax (rare in the US, normal under VAT).
     pub prices_include_tax: bool,
     pub is_home: bool,
@@ -37,7 +42,8 @@ pub struct Location {
 const MAX_RATE_PPM: u32 = 1_000_000;
 
 const SELECT_LOCATION: &str =
-    "SELECT id, uuid, name, tax_rate_ppm, food_rate_ppm, prices_include_tax,
+    "SELECT id, uuid, name, tax_rate_ppm, food_rate_ppm, area_code,
+                                      prices_include_tax,
                                       is_home, notes, archived_at IS NOT NULL
                                  FROM location";
 
@@ -48,10 +54,11 @@ fn map_location(row: &Row<'_>) -> rusqlite::Result<Location> {
         name: row.get(2)?,
         tax_rate_ppm: row.get(3)?,
         food_rate_ppm: row.get(4)?,
-        prices_include_tax: row.get(5)?,
-        is_home: row.get(6)?,
-        notes: row.get(7)?,
-        archived: row.get(8)?,
+        area_code: row.get(5)?,
+        prices_include_tax: row.get(6)?,
+        is_home: row.get(7)?,
+        notes: row.get(8)?,
+        archived: row.get(9)?,
     })
 }
 
@@ -171,11 +178,17 @@ pub fn set_food_rate(db: &Db, id: LocationId, food_rate_ppm: Option<u32>) -> Res
     Ok(())
 }
 
+/// Set the rate by hand, and stop following any published jurisdiction.
+///
+/// Clearing `area_code` is the point as much as the rate is. A hand-typed
+/// figure is a correction — somebody had the receipt in front of them — and the
+/// next quarterly refresh must not quietly reinstate the number they replaced.
 pub fn set_rate(db: &Db, id: LocationId, tax_rate_ppm: u32) -> Result<()> {
     check_rate(tax_rate_ppm)?;
     let changed = db.conn().execute(
         "UPDATE location
             SET tax_rate_ppm = ?2,
+                area_code    = NULL,
                 updated_at   = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
           WHERE id = ?1",
         params![id, tax_rate_ppm],
@@ -184,6 +197,66 @@ pub fn set_rate(db: &Db, id: LocationId, tax_rate_ppm: u32) -> Result<()> {
         return Err(CoreError::NotFound(format!("location {id}")));
     }
     Ok(())
+}
+
+/// Take both rates from a published jurisdiction, and keep following it.
+///
+/// The recorded `area_code` is what a quarterly refresh looks for: this
+/// location's rates are the state's figures, so when the state revises them
+/// this location moves too. That is the whole mechanism by which a download
+/// reaches a receipt.
+pub fn adopt_area(
+    db: &Db,
+    id: LocationId,
+    area_code: &str,
+    tax_rate_ppm: u32,
+    food_rate_ppm: Option<u32>,
+) -> Result<()> {
+    check_rate(tax_rate_ppm)?;
+    if let Some(ppm) = food_rate_ppm
+        && ppm > MAX_RATE_PPM
+    {
+        return Err(CoreError::Invalid(format!(
+            "food rate {ppm} ppm is above 100%"
+        )));
+    }
+    let changed = db.conn().execute(
+        "UPDATE location
+            SET tax_rate_ppm  = ?2,
+                food_rate_ppm = ?3,
+                area_code     = ?4,
+                updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE id = ?1",
+        params![id, tax_rate_ppm, food_rate_ppm, area_code],
+    )?;
+    if changed == 0 {
+        return Err(CoreError::NotFound(format!("location {id}")));
+    }
+    Ok(())
+}
+
+/// Push a revised publication into every location that follows one.
+///
+/// Matched on `area_code`, so a location whose rate was typed by hand is
+/// untouched however many quarters go by. Returns how many moved.
+pub fn refresh_followed_rates(db: &Db) -> Result<usize> {
+    let changed = db.conn().execute(
+        "UPDATE location
+            SET tax_rate_ppm  = (SELECT combined_rate_ppm FROM tax_area
+                                  WHERE tax_area.code = location.area_code),
+                food_rate_ppm = (SELECT food_rate_ppm FROM tax_area
+                                  WHERE tax_area.code = location.area_code),
+                updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE area_code IS NOT NULL
+            AND EXISTS (SELECT 1 FROM tax_area WHERE tax_area.code = location.area_code)
+            -- Only where something actually differs, so updated_at still marks
+            -- a real change rather than the last time the app was launched.
+            AND (tax_rate_ppm,  COALESCE(food_rate_ppm, -1))
+             <> (SELECT combined_rate_ppm, COALESCE(food_rate_ppm, -1) FROM tax_area
+                  WHERE tax_area.code = location.area_code)",
+        [],
+    )?;
+    Ok(changed)
 }
 
 /// Make this the home location, demoting whichever one held the flag.

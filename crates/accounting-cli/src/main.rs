@@ -35,8 +35,9 @@ use accounting_core::domain::splits::{
 use accounting_core::export;
 use accounting_core::repo::budgets::{self, BudgetLineRecord, StoredBudgetLine};
 use accounting_core::repo::transactions::{Txn, TxnFilter};
-use accounting_core::repo::{categories, locations, merchants, transactions};
+use accounting_core::repo::{categories, locations, merchants, tax_areas, transactions};
 use accounting_core::service::budgets as budget_service;
+use accounting_core::service::rates as rates_service;
 use accounting_core::service::entry::{
     TransactionDraft, TransactionPreview, categorize, needs_categorizing,
     preview_transaction_with_rate, quick_add, repeat_last, save_transaction_with_rate,
@@ -163,6 +164,52 @@ enum Command {
     ///   pacc report --from 2026-01 --to 2026-06
     #[command(verbatim_doc_comment)]
     Report(ReportArgs),
+    /// Show or refresh Utah's published sales-tax rates.
+    ///
+    /// The state revises them on the first day of every quarter. With no flags
+    /// this reports which quarter is installed and whether it is current.
+    ///
+    /// Examples:
+    ///   pacc rates
+    ///   pacc rates --update
+    ///   pacc rates --file 26q4combined.xlsx
+    #[command(verbatim_doc_comment)]
+    Rates(RatesArgs),
+}
+
+#[derive(Args)]
+struct RatesArgs {
+    /// Download this quarter's publication and install it.
+    #[arg(long)]
+    update: bool,
+
+    /// Install a workbook already on disk, instead of downloading one.
+    ///
+    /// For a machine with no route to the internet: fetch the file elsewhere
+    /// and carry it over. The URL is printed by `pacc rates`.
+    #[arg(long, value_name = "PATH", conflicts_with = "update")]
+    file: Option<PathBuf>,
+
+    /// Which quarter `--file` holds. Defaults to the current one.
+    #[arg(long, value_name = "YYYYQn", value_parser = parse_quarter)]
+    quarter: Option<accounting_core::Quarter>,
+}
+
+/// `"2026Q3"` → the quarter.
+fn parse_quarter(text: &str) -> Result<accounting_core::Quarter, String> {
+    let (year, quarter) = text
+        .split_once(['Q', 'q'])
+        .ok_or_else(|| format!("`{text}` is not a quarter like 2026Q3"))?;
+    let year = year
+        .trim()
+        .parse()
+        .map_err(|_| format!("`{year}` is not a year"))?;
+    let quarter = quarter
+        .trim()
+        .parse()
+        .map_err(|_| format!("`{quarter}` is not a quarter number"))?;
+    accounting_core::Quarter::new(year, quarter)
+        .ok_or_else(|| format!("`{text}` is not a quarter like 2026Q3"))
 }
 
 #[derive(Args)]
@@ -658,9 +705,103 @@ fn main() -> anyhow::Result<()> {
         Command::Location(args) => run_location(&cli.db_path()?, args)?,
         Command::Budget(args) => run_budget(&cli.db_path()?, &args.command)?,
         Command::Report(args) => run_report(&cli.db_path()?, args)?,
+        Command::Rates(args) => run_rates(&cli.db_path()?, args)?,
     }
 
     Ok(())
+}
+
+/// Utah's published rates: what is installed, and refreshing it.
+fn run_rates(path: &Path, args: &RatesArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let today = Local::now().date_naive();
+
+    if let Some(file) = &args.file {
+        let quarter = args.quarter.unwrap_or_else(|| rates_service::wanted_quarter(today));
+        let bytes = std::fs::read(file)
+            .with_context(|| format!("could not read {}", file.display()))?;
+        let installed = rates_service::install_workbook(&db, &bytes, quarter)?;
+        report_installed(quarter, installed);
+        return Ok(());
+    }
+
+    if args.update {
+        let quarter = args.quarter.unwrap_or_else(|| rates_service::wanted_quarter(today));
+        let url = accounting_core::rates::workbook_url(quarter);
+        outln!("fetching {url}");
+        // Recorded before the result is known: an attempt that failed is still
+        // an attempt, and without it a machine with no route out would retry on
+        // every single command.
+        rates_service::record_check(&db)?;
+        let bytes = download(&url)?;
+        let installed = rates_service::install_workbook(&db, &bytes, quarter)?;
+        report_installed(quarter, installed);
+        return Ok(());
+    }
+
+    let release = tax_areas::release(&db)?;
+    let current = rates_service::wanted_quarter(today);
+    match &release {
+        Some(release) => {
+            outln!(
+                "  installed  {} ({} jurisdictions), in effect {}",
+                release.quarter,
+                tax_areas::count(&db)?,
+                release.effective_on
+            );
+            outln!("  source     {}", release.source_url);
+            match &release.checked_at {
+                Some(checked) => outln!("  checked    {checked}"),
+                None => outln!("  checked    never"),
+            }
+            if release.quarter == current.to_string() {
+                outln!("  status     current");
+            } else {
+                outln!("  status     superseded by {current} — run `pacc rates --update`");
+            }
+        }
+        None => outln!("no rates installed — run `pacc init`"),
+    }
+    Ok(())
+}
+
+fn report_installed(quarter: accounting_core::Quarter, installed: rates_service::Installed) {
+    outln!(
+        "installed {quarter}: {} jurisdictions",
+        installed.areas
+    );
+    if installed.locations_updated > 0 {
+        outln!(
+            "  {} location{} moved to the new rates",
+            installed.locations_updated,
+            if installed.locations_updated == 1 { "" } else { "s" }
+        );
+    }
+}
+
+/// Fetch a URL into memory.
+///
+/// Deliberately duplicated in the desktop shim rather than shared. The core
+/// does no networking (see its rule 1), and an HTTP client is the part most
+/// likely to differ per platform — a phone build may have to go through the
+/// system stack for proxying and battery reasons. What *is* shared is every
+/// decision worth getting right: which quarter, which URL, whether the file is
+/// the one that was asked for. That all lives in `service::rates`.
+fn download(url: &str) -> anyhow::Result<Vec<u8>> {
+    let mut response = ureq::get(url)
+        .call()
+        .with_context(|| format!("could not fetch {url}"))?;
+    let bytes = response
+        .body_mut()
+        .with_config()
+        // A quarter's workbook is a quarter of a megabyte. A cap keeps a
+        // redirect to something enormous from being read into memory on a
+        // phone; it is thirty times the real size, so it only ever fires on
+        // something that is not the file.
+        .limit(8 * 1024 * 1024)
+        .read_to_vec()
+        .with_context(|| format!("could not read the response from {url}"))?;
+    Ok(bytes)
 }
 
 /// An ISO-8601 UTC timestamp in the same shape as the schema's `strftime`
@@ -738,12 +879,14 @@ fn run_init(path: &Path) -> anyhow::Result<()> {
 
     let db = Db::open(path).with_context(|| format!("could not open {}", path.display()))?;
     seed_defaults(&db).context("could not install the default categories")?;
-    // `init` is also the upgrade path — it reports "updated" on a database
-    // that already existed — and this is the kind of gap an upgrade leaves:
-    // migration 002 can add the food-rate column but cannot know that "Provo,
-    // UT" has one.
-    let adopted = accounting_core::adopt_area_food_rates(&db)
-        .context("could not apply the reduced food rates")?;
+    // `init` is also the upgrade path — it reports "updated" on a database that
+    // already existed — and these are the gaps an upgrade leaves. A migration
+    // can add the rate table but cannot fill it, because the data is a
+    // compiled-in snapshot rather than SQL; and it cannot know that a location
+    // called "Provo, UT" is the jurisdiction the state calls "Provo".
+    rates_service::ensure_installed(&db).context("could not install the bundled rate table")?;
+    let linked = accounting_core::adopt_published_areas(&db)
+        .context("could not link locations to their published rates")?;
 
     let counts = Counts::read(&db)?;
     outln!(
@@ -759,11 +902,19 @@ fn run_init(path: &Path) -> anyhow::Result<()> {
         counts.merchants,
         counts.locations
     );
-    if adopted > 0 {
+    match tax_areas::release(&db)? {
+        Some(release) => outln!(
+            "  rates      {} ({} jurisdictions)",
+            release.quarter,
+            tax_areas::count(&db)?
+        ),
+        None => outln!("  rates      none"),
+    }
+    if linked > 0 {
         outln!(
-            "  food rate  applied to {} location{}",
-            adopted,
-            if adopted == 1 { "" } else { "s" }
+            "  linked     {} location{} to published rates",
+            linked,
+            if linked == 1 { "" } else { "s" }
         );
     }
     Ok(())
@@ -1166,15 +1317,24 @@ fn run_location(path: &Path, args: &LocationArgs) -> anyhow::Result<()> {
 
     // Created at the given rate, or 0 when none was supplied. `get_or_create`
     // deliberately does not overwrite an existing location's rate, so the
-    // `set_rate` below is what makes this command able to *change* one.
+    // writes below are what make this command able to *change* one.
     let location = locations::get_or_create(&db, name, args.rate.unwrap_or(0))?;
-    if let Some(rate) = args.rate {
-        locations::set_rate(&db, location.id, rate)?;
-    }
-    // A known area also brings its reduced food rate, so groceries are not
-    // taxed at the general rate. See `pacc doctor` output and areas.rs.
-    if let Some(area) = accounting_core::domain::areas::find(name) {
-        locations::set_food_rate(&db, location.id, area.food_rate_ppm)?;
+    let published = tax_areas::find_by_name(&db, name)?;
+    match (args.rate, &published) {
+        // An explicit --rate is a correction and wins over the publication,
+        // and `set_rate` unlinks the location so the next quarterly refresh
+        // does not put the published figure back.
+        (Some(rate), _) => locations::set_rate(&db, location.id, rate)?,
+        // A name the state publishes brings both of its rates and keeps
+        // following them, which is what makes `--update` reach this location.
+        (None, Some(area)) => locations::adopt_area(
+            &db,
+            location.id,
+            &area.code,
+            area.combined_rate_ppm,
+            area.food_rate_ppm,
+        )?,
+        (None, None) => {}
     }
     if args.home {
         // Moves the flag rather than adding a second home: the schema's

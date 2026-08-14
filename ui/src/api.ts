@@ -235,10 +235,32 @@ export async function saveSubtotals(draft: SubtotalDraft): Promise<number> {
 }
 
 export interface Area {
+  /** The state's own jurisdiction code, e.g. `25-090`. */
+  code: string;
   name: string;
   taxRatePpm: number;
   /** The reduced rate on unprepared food; null where food is taxed in full. */
   foodRatePpm: number | null;
+}
+
+/** Which quarter's publication the rates were taken from. */
+export interface RateRelease {
+  /** `2026Q3`. */
+  quarter: string;
+  /** ISO date the rates took effect. */
+  effectiveOn: string;
+  /** False once the quarter has turned with no successful refresh since. */
+  current: boolean;
+}
+
+/**
+ * Which rates are installed, or null before the first one is.
+ *
+ * Worth showing: a table that quietly stopped updating looks exactly like one
+ * that is current, and the quarter is the only thing that tells them apart.
+ */
+export async function rateRelease(): Promise<RateRelease | null> {
+  return await invoke<RateRelease | null>("rate_release");
 }
 
 /**
@@ -259,16 +281,23 @@ export async function homeLocation(): Promise<Location | null> {
 /**
  * Name where the user lives and set its sales-tax rates. Asked on first run.
  *
+ * `areaCode` names the published jurisdiction the rates came from. It is what
+ * makes the quarterly refresh reach this location — without it the rate table
+ * could update forever while every receipt stayed on today's figure. A rate
+ * typed by hand passes null, and then nothing revises it but the person who
+ * typed it.
+ *
  * `foodRatePpm` is null when the area has no reduced rate on unprepared food,
  * or when it is an area the picker does not know and there is nothing to
  * derive one from.
  */
 export async function setHomeLocation(
   name: string,
+  areaCode: string | null,
   taxRatePpm: number,
   foodRatePpm: number | null,
 ): Promise<void> {
-  await invoke("set_home_location", { name, taxRatePpm, foodRatePpm });
+  await invoke("set_home_location", { name, areaCode, taxRatePpm, foodRatePpm });
 }
 
 export interface Merchant {

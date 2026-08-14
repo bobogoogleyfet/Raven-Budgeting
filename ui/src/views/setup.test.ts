@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseRatePpm, rateSummary } from "./setup.ts";
+import { parseRatePpm, rateSummary, releaseLine } from "./setup.ts";
 
 test("a percentage becomes parts per million", () => {
   assert.equal(parseRatePpm("7.75"), 77_500);
@@ -45,4 +45,24 @@ test("no reduced rate says nothing about groceries", () => {
 
 test("a food rate equal to the general one is not a reduction", () => {
   assert.equal(rateSummary(72_500, 72_500), "Sales tax 7.25%");
+});
+
+test("the rates name the publication they came from", () => {
+  assert.equal(
+    releaseLine({ quarter: "2026Q3", current: true }),
+    "Rates from Utah's 2026Q3 publication.",
+  );
+});
+
+test("a superseded publication says so without calling itself broken", () => {
+  // Last quarter's published figures are still the state's figures, and the
+  // app works on them. What the user needs is that a newer set exists and this
+  // machine has not fetched it.
+  const line = releaseLine({ quarter: "2026Q2", current: false });
+  assert.match(line, /2026Q2/);
+  assert.match(line, /superseded/);
+});
+
+test("no publication yet prints nothing rather than a blank claim", () => {
+  assert.equal(releaseLine(null), "");
 });

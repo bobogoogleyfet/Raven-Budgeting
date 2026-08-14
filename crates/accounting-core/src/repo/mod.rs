@@ -29,6 +29,7 @@ pub mod budgets;
 pub mod categories;
 pub mod locations;
 pub mod merchants;
+pub mod tax_areas;
 pub mod transactions;
 
 // Re-exported here as well as from the crate root: `DetailLevel` is declared in

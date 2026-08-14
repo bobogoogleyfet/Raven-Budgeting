@@ -32,15 +32,16 @@
 use std::sync::Mutex;
 
 use accounting_core::db::{Db, seed_defaults};
-use accounting_core::domain::areas;
 use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::domain::reconcile::AmountEntry;
 use accounting_core::domain::splits::{SplitAmount, SplitDraft};
 use accounting_core::repo::transactions::{DetailLevel, TxnFilter};
-use accounting_core::repo::{categories, locations, merchants, transactions};
+use accounting_core::repo::{categories, locations, merchants, tax_areas, transactions};
 use accounting_core::service::budgets;
+use accounting_core::service::rates as rates_service;
 use accounting_core::service::entry::{self, SubtotalDraft, SubtotalRow, TransactionDraft};
 use accounting_core::{CategoryId, Money, TxnId};
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
@@ -220,10 +221,23 @@ struct MerchantDto {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AreaDto {
+    /// The publisher's jurisdiction code, passed back on save so the location
+    /// can follow this area through later revisions.
+    code: String,
     name: String,
     tax_rate_ppm: u32,
     /// `None` where the state taxes food like everything else.
     food_rate_ppm: Option<u32>,
+}
+
+/// Which quarter's publication the rates come from.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RateReleaseDto {
+    quarter: String,
+    effective_on: String,
+    /// False once the quarter has turned and no refresh has succeeded since.
+    current: bool,
 }
 
 #[derive(Serialize)]
@@ -498,20 +512,45 @@ fn save_subtotals(state: State<'_, AppState>, draft: SubtotalDraftDto) -> CmdRes
         .map_err(to_message)
 }
 
-/// Named areas and the rate to prefill for each, for the first-run picker.
+/// Every Utah jurisdiction the state publishes, for the first-run picker.
 ///
-/// Reference data, not database rows: these are starting points the user can
-/// override, and a receipt's own tax always wins over any of them.
+/// Read from the database rather than compiled in, because the table is
+/// replaced by a download every quarter. Special taxing districts are left out:
+/// they are real jurisdictions with real rates, and none of them is an answer
+/// to "where do you shop".
+///
+/// Still starting points. A receipt's own tax always wins over any of them.
 #[tauri::command]
-fn list_areas() -> Vec<AreaDto> {
-    areas::AREAS
-        .iter()
+fn list_areas(state: State<'_, AppState>) -> CmdResult<Vec<AreaDto>> {
+    let db = state.db.lock().map_err(to_message)?;
+    Ok(tax_areas::list_places(&db)
+        .map_err(to_message)?
+        .into_iter()
         .map(|a| AreaDto {
-            name: a.name.to_string(),
-            tax_rate_ppm: a.tax_rate_ppm,
+            code: a.code,
+            name: a.name,
+            tax_rate_ppm: a.combined_rate_ppm,
             food_rate_ppm: a.food_rate_ppm,
         })
-        .collect()
+        .collect())
+}
+
+/// Which publication is installed, for the line under the picker.
+///
+/// Shown rather than hidden for the same reason the rate itself is: a table
+/// that quietly stopped updating looks exactly like one that is current, and
+/// the quarter is the only thing on screen that can tell them apart.
+#[tauri::command]
+fn rate_release(state: State<'_, AppState>) -> CmdResult<Option<RateReleaseDto>> {
+    let db = state.db.lock().map_err(to_message)?;
+    let current = rates_service::wanted_quarter(Local::now().date_naive()).to_string();
+    Ok(tax_areas::release(&db).map_err(to_message)?.map(|r| {
+        RateReleaseDto {
+            current: r.quarter == current,
+            quarter: r.quarter,
+            effective_on: r.effective_on,
+        }
+    }))
 }
 
 /// The home location and its rate, for the first-run prompt.
@@ -538,10 +577,17 @@ fn home_location(state: State<'_, AppState>) -> CmdResult<Option<LocationDto>> {
 /// says food is taxed like everything else. That is the honest answer for an
 /// area the picker does not know: there is no second rate to derive, and
 /// inventing one would tax groceries at a figure nobody supplied.
+///
+/// `area_code` names the published jurisdiction the figures came from, when
+/// they came from one. It is what makes the quarterly refresh reach this
+/// location — without it the rates table could update forever while every
+/// receipt stayed on the figure copied in today. A hand-typed rate sends
+/// `None`, and then nothing revises it but the person who typed it.
 #[tauri::command]
 fn set_home_location(
     state: State<'_, AppState>,
     name: String,
+    area_code: Option<String>,
     tax_rate_ppm: u32,
     food_rate_ppm: Option<u32>,
 ) -> CmdResult<()> {
@@ -566,7 +612,6 @@ fn set_home_location(
     let home_id = match locations::home(&db).map_err(to_message)? {
         Some(home) => {
             locations::rename(&db, home.id, trimmed).map_err(to_message)?;
-            locations::set_rate(&db, home.id, tax_rate_ppm).map_err(to_message)?;
             home.id
         }
         None => {
@@ -576,10 +621,20 @@ fn set_home_location(
             created.id
         }
     };
-    // Written unconditionally, including the `None` that clears it: moving from
-    // Provo to a state with no reduced rate must not leave Utah's 3% behind on
-    // every grocery receipt.
-    locations::set_food_rate(&db, home_id, food_rate_ppm).map_err(to_message)?;
+
+    match &area_code {
+        // Follows the publication from here on.
+        Some(code) => locations::adopt_area(&db, home_id, code, tax_rate_ppm, food_rate_ppm)
+            .map_err(to_message)?,
+        None => {
+            // `set_rate` clears any link, which is right: a rate typed by hand
+            // must not be reverted by the next quarter's download.
+            locations::set_rate(&db, home_id, tax_rate_ppm).map_err(to_message)?;
+            // Written even when None, so moving from Provo to a state with no
+            // reduced rate does not leave Utah's 3% behind on every grocery.
+            locations::set_food_rate(&db, home_id, food_rate_ppm).map_err(to_message)?;
+        }
+    }
     Ok(())
 }
 
@@ -687,6 +742,79 @@ fn budget_status(state: State<'_, AppState>, month: String) -> CmdResult<Vec<Bud
 /// window, and nothing would report an error — the GUI would just look empty,
 /// which reads as data loss.
 ///
+/// Refresh the rate table if the quarter has turned, without blocking launch.
+///
+/// # Why this is a detached thread and not an awaited step
+///
+/// Rates change on the first day of a quarter, so this does something four
+/// times a year and nothing on the other 361 days. The app must open instantly
+/// on all of them, including the ones where the network is a captive-portal
+/// wifi that will hold a TCP connection open for thirty seconds before failing.
+/// Nothing on screen is waiting for the result.
+///
+/// # Why a failure is silent
+///
+/// Being offline is the normal state of a laptop, not an error, and the app is
+/// still perfectly usable with last quarter's rates — they are estimates that a
+/// receipt overrules anyway. What is *not* silent is the staleness itself: the
+/// setup screen names the quarter the rates came from, so a table that quietly
+/// stopped updating is visible where it matters. An error dialog on launch
+/// would be noise about a number nobody has asked for yet.
+fn refresh_rates_in_background(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let today = Local::now().date_naive();
+        let state = app.state::<AppState>();
+
+        // The lock is taken, the decision made, and the lock dropped — before
+        // the network call. Holding it across a thirty-second timeout would
+        // freeze every command the user issued in the meantime.
+        let due = {
+            let Ok(db) = state.db.lock() else { return };
+            match tax_areas::release(&db) {
+                Ok(release) => rates_service::refresh_due(release.as_ref(), today),
+                Err(_) => false,
+            }
+        };
+        if !due {
+            return;
+        }
+
+        {
+            let Ok(db) = state.db.lock() else { return };
+            // Recorded before the attempt, so a machine with no route out tries
+            // once a day rather than on every launch.
+            let _ = rates_service::record_check(&db);
+        }
+
+        let quarter = rates_service::wanted_quarter(today);
+        let Ok(bytes) = download(&accounting_core::rates::workbook_url(quarter)) else {
+            return;
+        };
+        let Ok(db) = state.db.lock() else { return };
+        let _ = rates_service::install_workbook(&db, &bytes, quarter);
+    });
+}
+
+/// Fetch a URL into memory.
+///
+/// Deliberately duplicated from the CLI rather than shared. The core does no
+/// networking — rule 1 — and an HTTP client is the piece most likely to differ
+/// per platform, since an Android build may have to go through the system stack
+/// for proxying and battery reasons. Every decision worth getting right is
+/// shared instead: which quarter, which URL, whether the file is the one that
+/// was asked for, and what to write all live in `service::rates`.
+fn download(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut response = ureq::get(url).call()?;
+    // A quarter's workbook is a quarter of a megabyte. The cap is thirty times
+    // that, so it only ever fires on something which is not the file.
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(8 * 1024 * 1024)
+        .read_to_vec()?;
+    Ok(bytes)
+}
+
 /// So on desktop this mirrors [`accounting-cli`'s `default_db_path`] exactly,
 /// `$PACC_DB` override included, and the two frontends share one database.
 ///
@@ -723,12 +851,18 @@ fn main() {
             }
             let db = Db::open(&path)?;
             seed_defaults(&db)?;
-            // A database set up before the reduced food rate existed answered
-            // the first-run prompt long ago and will never be asked again, so
-            // the rate has to arrive on its own. Idempotent — see the docs.
-            accounting_core::adopt_area_food_rates(&db)?;
+            // The compiled-in rate table, so a machine that has never been
+            // online can still tax a receipt. Skipped once anything newer has
+            // been downloaded.
+            rates_service::ensure_installed(&db)?;
+            // A database from before the table existed holds rates that are
+            // frozen and unattributed. This is the one-time conversion that
+            // points those locations at the jurisdictions they name, so the
+            // refresh below reaches them.
+            accounting_core::adopt_published_areas(&db)?;
 
             app.manage(AppState { db: Mutex::new(db) });
+            refresh_rates_in_background(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -741,6 +875,7 @@ fn main() {
             preview_subtotals,
             save_subtotals,
             list_areas,
+            rate_release,
             home_location,
             set_home_location,
             list_merchants,

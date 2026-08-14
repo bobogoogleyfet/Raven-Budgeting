@@ -63,6 +63,18 @@ pub enum CoreError {
     #[error(transparent)]
     Xlsx(#[from] rust_xlsxwriter::XlsxError),
 
+    /// The published sales-tax rate file could not be read.
+    ///
+    /// A remote artifact this app neither writes nor controls: the Tax
+    /// Commission can rename a sheet, reorder a column or serve an error page
+    /// with a 200. That makes this an ordinary outcome rather than a bug, and
+    /// it is a separate variant because the correct response is specific —
+    /// keep the rates already installed and say they are stale. Treating it as
+    /// [`CoreError::Invalid`] would invite a caller to report bad user input
+    /// for something the user did not do.
+    #[error("rate data: {0}")]
+    RateData(String),
+
     /// The CSV writer failed.
     ///
     /// The sink is a `Vec`, so this is effectively unreachable; it exists so
