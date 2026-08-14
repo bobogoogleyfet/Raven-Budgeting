@@ -235,6 +235,31 @@ export async function deleteTransaction(id: number): Promise<void> {
   await invoke("delete_transaction", { id });
 }
 
+/** One value a filterable column actually holds. */
+export interface FilterValue {
+  id: number;
+  name: string;
+}
+
+/** What the Store and Categories columns contain. */
+export interface FilterValues {
+  merchants: FilterValue[];
+  categories: FilterValue[];
+  /** Whether any expense has no store — what quick-add leaves behind. */
+  anyWithoutMerchant: boolean;
+}
+
+/**
+ * The values the expense list's filter menus should offer.
+ *
+ * Not the full chart of accounts: a menu is a description of the data in front
+ * of you, and one mostly made of shops you have never been to is a control
+ * where ticking a box does nothing visible.
+ */
+export async function filterValues(): Promise<FilterValues> {
+  return await invoke<FilterValues>("filter_values");
+}
+
 /** The needs-categorizing queue that `quick_add` feeds. */
 export async function needsCategorizing(): Promise<TxnSummary[]> {
   const rows = await invoke<RawTxnSummary[]>("needs_categorizing");

@@ -1456,3 +1456,62 @@ fn a_storeless_expense_can_be_kept_in_view() {
     assert_eq!(listed(&db, &with_blanks), vec![anonymous, shopped]);
     assert_clean(&db);
 }
+
+#[test]
+fn the_filter_menus_offer_only_what_the_columns_hold() {
+    let db = seeded_db();
+    three_expenses(&db);
+
+    let values = transactions::filter_values(&db).expect("filter values");
+
+    // The seed installs two dozen suggested shops. A menu built from those is
+    // mostly rows that match nothing, and ticking one off does nothing
+    // visible — which reads as a broken control.
+    let stores: Vec<&str> = values.merchants.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(stores, vec!["Costco", "Target"]);
+    let cats: Vec<&str> = values.categories.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(cats, vec!["Groceries", "Household"]);
+    assert!(!values.any_without_merchant);
+    assert_clean(&db);
+}
+
+#[test]
+fn a_storeless_expense_is_reported_so_it_can_be_offered() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    transactions::save(
+        &db,
+        &txn(
+            day("2026-08-13"),
+            amounts(1_000, 0),
+            vec![split(groceries, 1_000, 0)],
+        ),
+    )
+    .expect("save");
+
+    let values = transactions::filter_values(&db).expect("filter values");
+    assert!(values.merchants.is_empty());
+    // Without this the menu would have no box for them, and touching the store
+    // filter would hide every quick-added expense with no way to get it back.
+    assert!(values.any_without_merchant);
+    assert_clean(&db);
+}
+
+#[test]
+fn a_deleted_expense_stops_appearing_in_the_menus() {
+    let db = seeded_db();
+    let (small, _large, _middle) = three_expenses(&db);
+    transactions::delete(&db, small).expect("delete");
+
+    // Costco still has the third expense, so it stays. What must not happen is
+    // a menu row for a shop with nothing left behind it.
+    let values = transactions::filter_values(&db).expect("filter values");
+    let stores: Vec<&str> = values.merchants.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(stores, vec!["Costco", "Target"]);
+
+    transactions::delete(&db, _middle).expect("delete");
+    let values = transactions::filter_values(&db).expect("filter values");
+    let stores: Vec<&str> = values.merchants.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(stores, vec!["Target"], "Costco has nothing left");
+    assert_clean(&db);
+}

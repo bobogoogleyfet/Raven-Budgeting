@@ -253,6 +253,23 @@ struct CategoryRateDto {
     rate_ppm: u32,
 }
 
+/// One value a filterable column actually holds.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FilterValueDto {
+    id: i64,
+    name: String,
+}
+
+/// What the Store and Categories columns contain, for their filter menus.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FilterValuesDto {
+    merchants: Vec<FilterValueDto>,
+    categories: Vec<FilterValueDto>,
+    any_without_merchant: bool,
+}
+
 /// Which quarter's publication the rates come from.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -506,6 +523,27 @@ fn parse_sort(name: Option<&str>) -> CmdResult<TxnSort> {
         Some("totalAsc") => Ok(TxnSort::TotalAsc),
         Some(other) => Err(format!("{other} is not a sort order")),
     }
+}
+
+/// The stores and categories that actually appear on an expense.
+///
+/// The filter menus are built from this rather than from the full chart of
+/// accounts: the seed installs two dozen suggested shops, and a menu mostly
+/// made of rows that match nothing is one where ticking a box does nothing
+/// visible.
+#[tauri::command]
+fn filter_values(state: State<'_, AppState>) -> CmdResult<FilterValuesDto> {
+    let db = state.db.lock().map_err(to_message)?;
+    let values = transactions::filter_values(&db).map_err(to_message)?;
+    let named = |v: transactions::FilterValue| FilterValueDto {
+        id: v.id,
+        name: v.name,
+    };
+    Ok(FilterValuesDto {
+        merchants: values.merchants.into_iter().map(named).collect(),
+        categories: values.categories.into_iter().map(&named).collect(),
+        any_without_merchant: values.any_without_merchant,
+    })
 }
 
 #[tauri::command]
@@ -1002,6 +1040,7 @@ fn main() {
             preview_transaction,
             save_transaction,
             list_transactions,
+            filter_values,
             needs_categorizing,
             entry_context,
             preview_subtotals,

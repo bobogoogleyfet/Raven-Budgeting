@@ -103,7 +103,12 @@ h1 {
    padding below, fills its row, and shoves its own label out of the popup —
    which is exactly what happened to the filter menus. */
 input[type="checkbox"] {
-  width: auto;
+  /* Sized explicitly rather than left to the theme: a box that inherits the
+     text-field width above fills its row and pushes its own label out of the
+     popup, and one left at `auto` is clipped by the flex row it sits in. */
+  width: 0.95rem;
+  height: 0.95rem;
+  min-width: 0.95rem;
   max-width: none;
   padding: 0;
   margin: 0;
@@ -769,35 +774,46 @@ table.review tfoot tr.grand td {
    it acts on, so there is nothing to read to work out which is which. */
 .filter-head {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
+  display: block;
 }
 
-.filter-label {
-  font-weight: 600;
-}
-
+/* The whole header is the control, shaped as a pill: an 11-pixel funnel is
+   something to aim at, and the name beside it looks like it should work too.
+   Centred, so the pill sits over its column rather than beside it. */
 .filter-toggle,
 .sort-toggle {
   appearance: none;
   border: 0;
   background: none;
-  color: var(--muted);
+  color: inherit;
   font: inherit;
-  line-height: 0;
-  padding: 0.15rem 0.2rem;
+  text-transform: inherit;
+  letter-spacing: inherit;
   cursor: pointer;
-  border-radius: 3px;
-  /* The icons are drawn, so the button is exactly its glyph plus a hit area
-     — no font metrics deciding how tall a header row is. */
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
 }
 
 .filter-toggle:hover,
 .sort-toggle:hover {
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
+}
+
+.filter-toggle:focus-visible,
+.sort-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.filter-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
 }
 
 /* Filled in while the column is hiding rows, so it is visible at a glance
@@ -805,13 +821,17 @@ table.review tfoot tr.grand td {
    forgetting it is on. */
 .filter-toggle.active {
   color: var(--accent);
-  font-weight: 700;
+}
+
+.filter-toggle.active .filter-icon {
+  color: var(--accent);
 }
 
 /* The popup lives inside a `th`, which is uppercase, letter-spaced, small and
    muted. None of that belongs to a list of shop names, so the header's styling
    stops at the popup's edge. */
 .filter-popup {
+  text-align: left;
   text-transform: none;
   letter-spacing: normal;
   font-size: 0.9rem;
@@ -843,7 +863,7 @@ table.review tfoot tr.grand td {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.15rem 0.25rem;
+  padding: 0.2rem 0.3rem;
   white-space: nowrap;
   cursor: pointer;
 }
