@@ -35,12 +35,26 @@ Generated from the real core, not from a tutorial:
 
 | Rust | Dart |
 |---|---|
-| `i64` | `PlatformInt64` (an `int` on native; `BigInt` only on web, which is not a target) |
+| `i64` **in a struct field** | `PlatformInt64`, which is `typedef = int` on native |
+| `i64` **in a bare `Vec`** | `BigInt` — see below |
 | `Option<u32>` | `int?` |
 | `Vec<String>` | `List<String>` |
 | `Vec<Struct>` | `List<Struct>` |
 | `Result<T, String>` | `Future<T>` that throws |
 | doc comments | carried through to the Dart |
+
+**Money goes in a struct field, never a bare `Vec<i64>`.** The bridge ships its
+own `Int64List extends TypedList<BigInt, int>`, so indexing a returned
+`Vec<i64>` yields `BigInt` — on native, and with web generation disabled. The
+values are exact either way (`i64::MAX`, `i64::MIN` and 2^53+1 all survive), so
+this is an ergonomic trap rather than a correctness one: every amount would
+need unwrapping, and one missed conversion is a type error rather than silent
+corruption. The existing DTOs already return lists of structs, so the rule
+costs nothing — it just has to be written down before someone designs an
+endpoint around `Vec<i64>`.
+
+This was worth checking rather than assuming: research reported "i64
+round-trips exactly", which is true of the value and silent about the type.
 
 Every generated function is a `Future`, so a blocking SQLite call runs off the
 UI isolate without being marked. That matches the core's design: it is
