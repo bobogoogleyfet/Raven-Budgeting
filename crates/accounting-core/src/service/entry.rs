@@ -309,6 +309,18 @@ pub fn preview_transaction_with_rate(
 pub struct SubtotalRow {
     pub category_id: Option<CategoryId>,
     pub subtotal: Money,
+    /// The tax on this row, when the user has said what it is.
+    ///
+    /// `None` — the normal case — means "work it out from the rate". `Some`
+    /// means somebody read a figure off the paper and it wins: a published
+    /// rate is an estimate, a receipt is evidence, and the app's standing rule
+    /// is that the receipt is right.
+    ///
+    /// A row carrying one is left out of the rate buckets entirely rather than
+    /// being computed and then overwritten, because the bucket exists to
+    /// apportion a rounded total across the rows that share a rate — and a row
+    /// whose tax is already known is not sharing anything.
+    pub tax: Option<Money>,
     pub note: Option<String>,
 }
 
@@ -436,15 +448,26 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     // so the iteration order is the rate, not the hash — the apportionment
     // below must be reproducible.
     let mut buckets: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    let mut taxes = vec![Money::ZERO; draft.rows.len()];
     for (index, row) in draft.rows.iter().enumerate() {
+        // A row that was told its tax skips the buckets. Computing it and then
+        // overwriting would round the *other* rows against a bucket total that
+        // includes money this row is not contributing to.
+        if let Some(given) = row.tax {
+            taxes[index] = given;
+            continue;
+        }
         buckets
             .entry(rate_for(row.category_id))
             .or_default()
             .push(index);
     }
-
-    let mut taxes = vec![Money::ZERO; draft.rows.len()];
-    let mut tax = Money::ZERO;
+    let mut tax = draft
+        .rows
+        .iter()
+        .filter_map(|r| r.tax)
+        .try_fold(Money::ZERO, |acc, t| acc.checked_add(t))
+        .ok_or_else(|| CoreError::Invalid("the tax overflowed".to_string()))?;
     // The rates that actually bore on money. A bucket holding only empty rows
     // is not a second rate — a half-filled form would otherwise report itself
     // as a mixed-rate receipt while the user was still typing the first line.
@@ -487,9 +510,10 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
         total: subtotal
             .checked_add(tax)
             .ok_or_else(|| CoreError::Invalid("the total overflowed".to_string()))?,
-        // Computed from a rate rather than read off the paper. Always true in
-        // this mode: it never asks for a tax figure.
-        tax_is_estimated: true,
+        // Estimated only where the app did the arithmetic. A receipt whose
+        // every row was given its tax was read off the paper, and calling that
+        // an estimate would put a ≈ on the one figure that is certain.
+        tax_is_estimated: draft.rows.iter().any(|r| r.tax.is_none()),
     };
     let plan = plan_from_rows(&resolved)?;
 

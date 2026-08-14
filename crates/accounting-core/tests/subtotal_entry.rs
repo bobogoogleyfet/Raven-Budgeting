@@ -42,6 +42,7 @@ fn draft(db: &accounting_core::Db, rows: &[(&str, i64)]) -> SubtotalDraft {
             .map(|(name, cents)| SubtotalRow {
                 category_id: Some(cat(db, name)),
                 subtotal: m(*cents),
+                tax: None,
                 note: None,
             })
             .collect(),
@@ -153,6 +154,7 @@ fn a_row_without_a_category_blocks_saving() {
     d.rows.push(SubtotalRow {
         category_id: None,
         subtotal: m(500),
+        tax: None,
         note: None,
     });
 

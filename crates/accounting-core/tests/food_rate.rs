@@ -38,6 +38,7 @@ fn draft(db: &accounting_core::Db, rows: &[(&str, i64)]) -> SubtotalDraft {
             .map(|(name, cents)| SubtotalRow {
                 category_id: Some(cat(db, name)),
                 subtotal: m(*cents),
+                tax: None,
                 note: None,
             })
             .collect(),
@@ -161,6 +162,51 @@ fn tax_is_computed_per_rate_bucket_not_per_line() {
     assert_eq!(
         summed, p.amounts.tax,
         "the parts must still sum to the whole"
+    );
+}
+
+#[test]
+fn a_tax_read_off_the_receipt_beats_the_rate() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    // The register charged $0.25 where the published rate predicts $0.22. The
+    // receipt is evidence and the rate is an estimate, so the receipt wins —
+    // and the total moves with it rather than being recomputed behind it.
+    let mut d = draft(&db, &[("Groceries", 728)]);
+    d.rows[0].tax = Some(m(25));
+
+    let p = preview_subtotals(&db, &d).expect("preview");
+
+    assert_eq!(p.amounts.tax, m(25));
+    assert_eq!(p.amounts.total, m(753));
+    assert_eq!(p.plan.rows[0].tax, m(25));
+    assert!(
+        !p.amounts.tax_is_estimated,
+        "a figure the user supplied is not an estimate"
+    );
+}
+
+#[test]
+fn one_corrected_row_does_not_disturb_the_others() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    // Groceries corrected by hand, toiletries left to the rate. The corrected
+    // row must not join the bucket it no longer belongs to — apportioning a
+    // bucket total across a row whose tax is already known would round the
+    // other rows against money that is not theirs.
+    let mut d = draft(&db, &[("Groceries", 5_000), ("Toiletries", 2_000)]);
+    d.rows[0].tax = Some(m(160));
+
+    let p = preview_subtotals(&db, &d).expect("preview");
+
+    assert_eq!(p.plan.rows[0].tax, m(160), "the correction stands");
+    assert_eq!(p.plan.rows[1].tax, m(145), "$20.00 at 7.25%, untouched");
+    assert_eq!(p.amounts.tax, m(305));
+    assert!(
+        p.amounts.tax_is_estimated,
+        "one row is still the app's arithmetic, so the total is still an estimate"
     );
 }
 

@@ -34,7 +34,8 @@ import {
 import { combobox } from "../combobox.ts";
 import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
-import { formatMoney, formatRatePpm, parseCents } from "../money.ts";
+import { formatRatePpm, parseCents } from "../money.ts";
+import { type ReviewResult, linesFrom, reviewDialog } from "./review.ts";
 
 /** One entered line: a category and what it came to before tax. */
 interface RowState {
@@ -100,15 +101,20 @@ export function addView(onSaved: () => void): HTMLElement {
 
   // --- draft ----------------------------------------------------------------
 
-  function draft(): SubtotalDraft {
+  function draft(overrides?: SubtotalRow[]): SubtotalDraft {
     const entered: SubtotalRow[] = [];
-    for (const row of rows) {
-      const cents = parseCents(row.subtotalText);
-      // A row still being typed is left out rather than sent as zero: a $0.00
-      // line would claim the user meant to file nothing under that category.
-      if (cents !== null) {
-        entered.push({ categoryId: row.categoryId, subtotal: cents, note: null });
+    if (overrides === undefined) {
+      for (const row of rows) {
+        const cents = parseCents(row.subtotalText);
+        // A row still being typed is left out rather than sent as zero: a
+        // $0.00 line would claim the user meant to file nothing under that
+        // category.
+        if (cents !== null) {
+          entered.push({ categoryId: row.categoryId, subtotal: cents, tax: null, note: null });
+        }
       }
+    } else {
+      entered.push(...overrides);
     }
     const noteText = note.value.trim();
     return {
@@ -204,42 +210,18 @@ export function addView(onSaved: () => void): HTMLElement {
   }
 
   /**
-   * The rate a summary line was taxed at, as `"(3%)"` — empty when the
-   * category is unknown.
+   * What is left on the form itself: only what would stop a save.
    *
-   * Read from the same core-supplied table the pickers above are labelled
-   * with, so the summary and the rows can never print different figures for
-   * one category.
+   * The totals moved into the confirmation dialog — they are the question
+   * "does this match the paper?", and that question belongs at the moment of
+   * saving rather than under a running tally nobody reads. Blockers stay here,
+   * because a receipt that cannot be saved should say so while the user is
+   * still typing, not after they press the button.
    */
-  function rowRate(categoryId: number | null): string {
-    const ppm = categoryId === null ? undefined : categoryRates.get(categoryId);
-    return ppm === undefined ? "" : `(${formatRatePpm(ppm)})`;
-  }
-
   function renderPreview(p: Preview): void {
     clear(panel);
-
-    // Subtotal, then one tax line per category, then the total. A single "Tax"
-    // line cannot be honest here: the rate depends on the category, so on a
-    // mixed receipt one figure would be labelled with a rate true of only part
-    // of it. Naming each category's tax says where every cent came from, which
-    // is the same question the rows above answer.
-    const lines = [el("dt", {}, ["Subtotal"]), el("dd", {}, [formatMoney(p.subtotal)])];
-    for (const row of p.rows) {
-      lines.push(
-        el("dt", {}, [`${row.categoryName ?? "— no category —"} tax ${rowRate(row.categoryId)}`]),
-        el("dd", {}, [formatMoney(row.tax)]),
-      );
-    }
-    lines.push(
-      el("dt", { class: "grand" }, ["Total"]),
-      el("dd", { class: "grand" }, [formatMoney(p.total)]),
-    );
-    panel.append(el("dl", { class: "totals" }, lines));
-
     for (const b of p.blockers) panel.append(el("p", { class: "blocker" }, [b]));
     for (const w of p.warnings) panel.append(el("p", { class: "warning" }, [w]));
-
     save.disabled = saving || p.blockers.length > 0;
   }
 
@@ -342,8 +324,22 @@ export function addView(onSaved: () => void): HTMLElement {
     saving = true;
     save.disabled = true;
     clear(feedback);
-    void saveSubtotals(draft())
-      .then((id) => {
+
+    // Nothing is written until the user has seen the numbers and said yes. The
+    // dialog re-previews through the core on every correction, so what they
+    // approve is exactly what gets saved — the same guarantee the form has,
+    // carried through the editing step.
+    void previewSubtotals(draft())
+      .then((preview) =>
+        reviewDialog({
+          lines: linesFrom(preview),
+          preview,
+          recompute: (edits) => previewSubtotals(draft(withNotes(edits))),
+        }),
+      )
+      .then(async (approved) => {
+        if (approved === null) return;
+        const id = await saveSubtotals(draft(withNotes(approved)));
         // Reset to a fresh receipt rather than leaving the saved one on
         // screen, where a second click would file it twice.
         feedback.textContent = `Saved receipt #${id}.`;
@@ -355,7 +351,7 @@ export function addView(onSaved: () => void): HTMLElement {
         // thing *has* changed: this store was just shopped at, so the chips of
         // most-shopped stores are out of date by exactly this receipt.
         loadedFor = undefined;
-        void loadContext(merchant.value() || null);
+        await loadContext(merchant.value() || null);
         onSaved();
       })
       .catch((error: unknown) => {
@@ -363,8 +359,19 @@ export function addView(onSaved: () => void): HTMLElement {
       })
       .finally(() => {
         saving = false;
+        save.disabled = false;
       });
   });
+
+  /** The dialog's edits, as draft rows. It has no opinion about notes. */
+  function withNotes(edits: ReviewResult[]): SubtotalRow[] {
+    return edits.map((e) => ({
+      categoryId: e.categoryId,
+      subtotal: e.subtotal,
+      tax: e.tax,
+      note: null,
+    }));
+  }
 
   root.append(
     el("h1", {}, ["Add a receipt"]),

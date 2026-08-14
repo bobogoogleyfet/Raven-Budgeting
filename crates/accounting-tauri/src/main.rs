@@ -177,6 +177,9 @@ struct ContextDto {
 struct SubtotalRowDto {
     category_id: Option<i64>,
     subtotal: i64,
+    /// The tax on this row when the user has corrected it off the receipt;
+    /// null leaves it to the rate.
+    tax: Option<i64>,
     note: Option<String>,
 }
 
@@ -211,6 +214,7 @@ impl TryFrom<SubtotalDraftDto> for SubtotalDraft {
                 .map(|r| SubtotalRow {
                     category_id: r.category_id.map(CategoryId::new),
                     subtotal: Money::from_cents(r.subtotal),
+                    tax: r.tax.map(Money::from_cents),
                     note: r.note,
                 })
                 .collect(),

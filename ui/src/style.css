@@ -686,3 +686,44 @@ button.danger {
   padding: 0.5rem 1.1rem;
   cursor: pointer;
 }
+
+/* --- the confirm-and-correct dialog --- */
+.review-dialog {
+  max-width: 34rem;
+}
+
+table.review {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+table.review th,
+table.review td {
+  padding: 0.3rem 0.4rem;
+  text-align: left;
+}
+
+table.review th.amount,
+table.review td.amount {
+  text-align: right;
+}
+
+table.review .amount-in {
+  /* Narrower than on the form: three columns share the dialog width. */
+  max-width: 7rem;
+}
+
+/* The sums. Ruled off from the rows above because they are a different kind
+   of number — what the receipt comes to, not what was typed. */
+table.review tfoot th,
+table.review tfoot td {
+  border-top: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+table.review tfoot tr.grand th,
+table.review tfoot tr.grand td {
+  font-weight: 700;
+  border-top: 2px solid var(--line);
+}
