@@ -224,6 +224,8 @@ impl Txn {
 /// transaction.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxnFilter {
+    /// The order rows come back in.
+    pub sort: TxnSort,
     /// Inclusive lower bound on `txn_date`.
     pub from: Option<NaiveDate>,
     /// Inclusive upper bound on `txn_date`.
@@ -234,6 +236,37 @@ pub struct TxnFilter {
     pub needs_review: Option<bool>,
     pub include_archived: bool,
     pub limit: Option<usize>,
+}
+
+/// How a list of transactions is ordered.
+///
+/// Every variant ends with `id DESC` so the order is total, not merely mostly
+/// decided: several expenses a day is normal, and two of them for the same
+/// amount on the same date must not swap places between one query and the
+/// next. A list that reshuffles under a user looks like data changing.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum TxnSort {
+    /// Newest first — what a list of expenses is normally read as.
+    #[default]
+    DateDesc,
+    DateAsc,
+    /// Largest first, which is how "where did the money go" is asked.
+    TotalDesc,
+    TotalAsc,
+}
+
+impl TxnSort {
+    /// The `ORDER BY` body. No user input reaches this — it is a fixed string
+    /// per variant, which is why it can be interpolated where a filter value
+    /// never could be.
+    const fn order_by(self) -> &'static str {
+        match self {
+            TxnSort::DateDesc => "t.txn_date DESC, t.id DESC",
+            TxnSort::DateAsc => "t.txn_date ASC, t.id DESC",
+            TxnSort::TotalDesc => "t.total_cents DESC, t.txn_date DESC, t.id DESC",
+            TxnSort::TotalAsc => "t.total_cents ASC, t.txn_date DESC, t.id DESC",
+        }
+    }
 }
 
 impl TxnFilter {
@@ -751,7 +784,10 @@ pub fn delete(db: &Db, id: TxnId) -> Result<()> {
 /// well-defined for the several receipts a day a real user enters.
 pub fn list(db: &Db, filter: &TxnFilter) -> Result<Vec<Txn>> {
     let (where_sql, mut values) = filter.where_clause();
-    let mut sql = format!("{SELECT_TXN} WHERE {where_sql} ORDER BY t.txn_date DESC, t.id DESC");
+    let mut sql = format!(
+        "{SELECT_TXN} WHERE {where_sql} ORDER BY {}",
+        filter.sort.order_by()
+    );
     if let Some(limit) = filter.limit {
         values.push(Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         sql.push_str(&format!(" LIMIT ?{}", values.len()));

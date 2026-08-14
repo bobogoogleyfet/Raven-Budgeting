@@ -751,3 +751,18 @@ table.review tfoot tr.grand td {
   font-size: 1.05rem;
   margin: 1.4rem 0 0.3rem;
 }
+
+/* The expense list's filters. Labels sit against their control rather than
+   above it, so the row reads as one sentence: Category … Store … Sort … */
+.toolbar label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.toolbar select {
+  max-width: 12rem;
+}
+
+.toolbar label:not(:first-child) {
+  margin-left: 0.6rem;
+}

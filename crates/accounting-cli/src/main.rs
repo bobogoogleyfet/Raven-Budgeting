@@ -34,7 +34,7 @@ use accounting_core::domain::splits::{
 };
 use accounting_core::export;
 use accounting_core::repo::budgets::{self, BudgetLineRecord, StoredBudgetLine};
-use accounting_core::repo::transactions::{Txn, TxnFilter};
+use accounting_core::repo::transactions::{Txn, TxnFilter, TxnSort};
 use accounting_core::repo::{categories, locations, merchants, tax_areas, transactions};
 use accounting_core::service::budgets as budget_service;
 use accounting_core::service::rates as rates_service;
@@ -1127,6 +1127,9 @@ fn run_list(path: &Path, args: &ListArgs) -> anyhow::Result<()> {
         // filter", never "only the reviewed ones".
         needs_review: args.needs_review.then_some(true),
         include_archived: args.all,
+        // Newest first, which is what `pacc list` has always shown and what a
+        // terminal reader wants at the top.
+        sort: TxnSort::default(),
         limit: (args.limit > 0).then_some(args.limit),
     };
 
@@ -2020,6 +2023,7 @@ impl ExportArgs {
             category_id,
             needs_review: None,
             include_archived: self.all,
+            sort: TxnSort::default(),
             // An export is the whole set by definition; a page limit here
             // would silently truncate a year's accounts.
             limit: None,
