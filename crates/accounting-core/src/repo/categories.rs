@@ -37,6 +37,11 @@ pub struct Category {
     /// Whether a location's reduced food rate applies to this category.
     /// Groceries yes; Restaurants no, since prepared food is taxed in full.
     pub uses_food_rate: bool,
+    /// Whether the amount entered for this category is a pre-tax subtotal.
+    ///
+    /// False for rent, bills and fuel: what the user types there is what they
+    /// paid, with whatever taxes and fees already inside it. See 004.
+    pub taxable: bool,
     pub default_rollover: bool,
     pub sort_order: i64,
     pub archived: bool,
@@ -66,7 +71,8 @@ impl Category {
 }
 
 const SELECT_CATEGORY: &str = "SELECT c.id, c.uuid, c.group_id, g.name, c.name, c.system_key,
-                                      c.is_budgeted, c.uses_food_rate, c.default_rollover,
+                                      c.is_budgeted, c.uses_food_rate, c.taxable,
+                                      c.default_rollover,
                                       c.sort_order, c.archived_at IS NOT NULL
                                  FROM category c
                                  JOIN category_group g ON g.id = c.group_id";
@@ -84,9 +90,10 @@ fn map_category(row: &Row<'_>) -> rusqlite::Result<Category> {
         system_key: row.get(5)?,
         is_budgeted: row.get(6)?,
         uses_food_rate: row.get(7)?,
-        default_rollover: row.get(8)?,
-        sort_order: row.get(9)?,
-        archived: row.get(10)?,
+        taxable: row.get(8)?,
+        default_rollover: row.get(9)?,
+        sort_order: row.get(10)?,
+        archived: row.get(11)?,
     })
 }
 

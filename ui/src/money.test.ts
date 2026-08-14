@@ -15,6 +15,7 @@ import {
   formatMoney,
   formatRatePpm,
   fromCore,
+  categoryRateLabel,
   parseCents,
   rateSummary,
 } from "./money.ts";
@@ -98,4 +99,12 @@ test("no reduced rate says nothing about groceries", () => {
 
 test("a food rate equal to the general one is not a reduction", () => {
   assert.equal(rateSummary(74_500, 74_500), "7.45%");
+});
+
+test("a category with no sales tax says so, rather than showing 0%", () => {
+  // Rent, a phone bill, a tank of fuel. "0% sales tax" reads as a rate that
+  // failed to load; "no sales tax" is the actual fact.
+  assert.equal(categoryRateLabel(0), "no sales tax");
+  assert.equal(categoryRateLabel(30_000), "3% sales tax");
+  assert.equal(categoryRateLabel(74_500), "7.45% sales tax");
 });

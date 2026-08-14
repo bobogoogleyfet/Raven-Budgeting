@@ -1,0 +1,35 @@
+-- 004_taxable.sql — not everything you spend money on is taxed.
+--
+-- SHIPPED MIGRATIONS ARE IMMUTABLE. See 001_init.sql.
+--
+-- # Why this exists
+--
+-- The app added sales tax to every category, which is wrong for a large share
+-- of what a household actually spends. In Utah, rent is not taxed at all
+-- (leases of real property are outside the tax base); broadband is barred from
+-- state taxation by the federal Internet Tax Freedom Act; insurance premiums
+-- carry a 2.25% premium tax paid by the insurer and never appear as a taxed
+-- line to the customer; and motor fuel pays a per-gallon excise instead, baked
+-- into the pump price.
+--
+-- Entering $1,500 of rent produced $111.75 of tax that nobody charged and a
+-- $1,611.75 total that matched no statement anywhere.
+--
+-- # It is about the receipt as much as the statute
+--
+-- The second half of the rule is what the user is actually typing. A shop
+-- receipt shows a subtotal and adds tax to it, which is the case this app was
+-- built around. A bill does not: an electricity bill, a phone bill or a hotel
+-- folio is a single all-in figure with its taxes already inside it, and those
+-- taxes are frequently not sales tax at all — a municipal energy tax, a 911
+-- fee, a transient room tax. Adding a sales rate on top of a number that
+-- already includes them is double-counting.
+--
+-- So this column means "the amount typed for this category is a pre-tax
+-- subtotal", not "the state taxes this". They agree in almost every case and
+-- the exceptions are all bills.
+--
+-- Defaulted to 1 so nothing about existing rows changes silently; the seed
+-- turns it off for the categories that need it.
+ALTER TABLE category ADD COLUMN taxable INTEGER NOT NULL DEFAULT 1
+    CHECK (taxable IN (0, 1));

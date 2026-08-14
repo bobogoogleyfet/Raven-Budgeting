@@ -166,6 +166,78 @@ fn tax_is_computed_per_rate_bucket_not_per_line() {
 }
 
 #[test]
+fn a_bill_is_not_a_subtotal_and_gets_no_tax() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    // $1,500 of rent used to become $1,608.75 — a tax nobody charged, on a
+    // payment that matched no statement anywhere. Residential rent is outside
+    // Utah's tax base entirely, and a rent cheque has no subtotal to tax.
+    let p = preview_subtotals(&db, &draft(&db, &[("Rent", 150_000)])).expect("preview");
+
+    assert_eq!(p.amounts.tax, Money::ZERO);
+    assert_eq!(p.amounts.total, m(150_000), "you paid what you paid");
+}
+
+#[test]
+fn the_seed_knows_which_categories_are_billed_rather_than_shopped() {
+    let db = seeded_db();
+    let taxable = |name: &str| {
+        categories::list(&db)
+            .expect("list")
+            .into_iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("{name} is seeded"))
+            .taxable
+    };
+
+    // Not taxed by Utah at all: rent is outside the base, broadband is barred
+    // from state taxation by federal law, insurance carries a premium tax the
+    // insurer pays, and motor fuel pays a per-gallon excise instead.
+    assert!(!taxable("Rent"));
+    assert!(!taxable("Internet"));
+    assert!(!taxable("Car Insurance"));
+    assert!(!taxable("Health Insurance"));
+    assert!(!taxable("Gas"));
+    // Taxed, but the figure on the bill already includes it — along with a
+    // municipal energy tax, 911 fees, or transient room taxes that no sales
+    // rate could reconstruct.
+    assert!(!taxable("Electric"));
+    assert!(!taxable("Phone"));
+    assert!(!taxable("Travel"));
+    // Ordinary retail: a subtotal with tax added at the till.
+    assert!(taxable("Groceries"));
+    assert!(taxable("Restaurants"));
+    assert!(taxable("Household"));
+    assert!(taxable("Clothing"));
+    // Utah taxes repair labour as well as parts, unlike most states.
+    assert!(taxable("Car Repair"));
+}
+
+#[test]
+fn a_mixed_receipt_taxes_only_the_part_that_is_taxed() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    // One trip to a big-box store: groceries at 3%, shampoo at 7.25%, and a
+    // tank of fuel that is taxed at neither.
+    let p = preview_subtotals(
+        &db,
+        &draft(
+            &db,
+            &[("Groceries", 5_000), ("Toiletries", 2_000), ("Gas", 4_000)],
+        ),
+    )
+    .expect("preview");
+
+    assert_eq!(p.plan.rows[0].tax, m(150), "groceries at 3%");
+    assert_eq!(p.plan.rows[1].tax, m(145), "toiletries at 7.25%");
+    assert_eq!(p.plan.rows[2].tax, Money::ZERO, "fuel is not sales-taxed");
+    assert_eq!(p.amounts.tax, m(295));
+    assert_eq!(p.amounts.total, m(11_295));
+}
+
+#[test]
 fn a_tax_read_off_the_receipt_beats_the_rate() {
     let db = seeded_db();
     utah_home(&db);

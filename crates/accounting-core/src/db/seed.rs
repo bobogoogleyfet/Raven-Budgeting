@@ -41,7 +41,7 @@ const SEED_VERSION_KEY: &str = "seed_version";
 
 /// Bumped when a later release adds defaults, so the additions install on an
 /// existing database without re-adding anything a user has since deleted.
-const SEED_VERSION: i64 = 2;
+const SEED_VERSION: i64 = 3;
 
 /// A seed category. `rollover` seeds [`budget_line.rollover`] for lines later
 /// created against it.
@@ -53,6 +53,9 @@ struct SeedCategory {
     /// Whether a location's reduced food rate applies. Unprepared food only:
     /// Restaurants are prepared food and taxed in full.
     food: bool,
+    /// Whether the amount entered here is a pre-tax subtotal that the app
+    /// should add sales tax to. See [`SeedCategory::billed`].
+    taxable: bool,
 }
 
 impl SeedCategory {
@@ -63,6 +66,33 @@ impl SeedCategory {
             system_key: None,
             is_budgeted: true,
             food: false,
+            taxable: true,
+        }
+    }
+
+    /// A category you are *billed* for rather than shop for.
+    ///
+    /// The amount entered is what was paid — a rent cheque, a phone bill, a
+    /// tank of fuel, a hotel folio — with whatever taxes and fees already
+    /// inside it. Adding a sales rate on top invents money nobody was charged:
+    /// $1,500 of rent became $1,611.75, matching no statement anywhere.
+    ///
+    /// Several of these are not sales-taxed at all in Utah. Residential rent
+    /// is outside the tax base; broadband is barred from state taxation by the
+    /// federal Internet Tax Freedom Act; insurance carries a premium tax paid
+    /// by the insurer, never billed to the customer; motor fuel pays a
+    /// per-gallon excise instead, already in the pump price.
+    ///
+    /// The rest are taxed, but not at the general rate and not in a way this
+    /// app could reconstruct: electricity carries a reduced state rate plus a
+    /// municipal energy tax, a phone bill carries 911 fees and a telecom
+    /// licence tax, and a hotel stay stacks transient room taxes that can add
+    /// half again as much as sales tax. In every one of those cases the figure
+    /// on the bill is already the whole story.
+    const fn billed(name: &'static str) -> Self {
+        SeedCategory {
+            taxable: false,
+            ..SeedCategory::user(name)
         }
     }
 
@@ -85,11 +115,24 @@ impl SeedCategory {
         }
     }
 
+    /// The same category, but accumulating month to month. See
+    /// [`SeedCategory::sinking`].
+    const fn sinking_fund(self) -> Self {
+        SeedCategory {
+            rollover: true,
+            ..self
+        }
+    }
+
     const fn system(name: &'static str, key: &'static str) -> Self {
         SeedCategory {
             name,
             rollover: false,
             food: false,
+            // A transfer between the user's own accounts is not a purchase,
+            // and a reimbursable expense is recorded at what was actually paid
+            // out. Neither has a subtotal to tax.
+            taxable: false,
             system_key: Some(key),
             // Kept off budget screens: budgeting "Transfer" is meaningless and
             // budgeting "Uncategorized" encourages leaving things there.
@@ -114,13 +157,14 @@ static SEED_GROUPS: &[SeedGroup] = &[
         name: "Bills",
         hidden: false,
         categories: &[
-            SeedCategory::user("Rent"),
-            SeedCategory::user("Electric"),
-            SeedCategory::user("Internet"),
-            SeedCategory::user("Phone"),
-            SeedCategory::user("Car Insurance"),
-            SeedCategory::user("Health Insurance"),
-            SeedCategory::user("Subscriptions"),
+            // Every one of these is a bill, not a shop. See `billed`.
+            SeedCategory::billed("Rent"),
+            SeedCategory::billed("Electric"),
+            SeedCategory::billed("Internet"),
+            SeedCategory::billed("Phone"),
+            SeedCategory::billed("Car Insurance"),
+            SeedCategory::billed("Health Insurance"),
+            SeedCategory::billed("Subscriptions"),
         ],
     },
     SeedGroup {
@@ -131,7 +175,9 @@ static SEED_GROUPS: &[SeedGroup] = &[
         categories: &[
             SeedCategory::groceries("Groceries"),
             SeedCategory::user("Restaurants"),
-            SeedCategory::user("Gas"),
+            // Motor fuel pays a per-gallon excise, not sales tax, and it is
+            // already in the price on the sign.
+            SeedCategory::billed("Gas"),
             SeedCategory::user("Household"),
             SeedCategory::user("Toiletries"),
         ],
@@ -143,11 +189,18 @@ static SEED_GROUPS: &[SeedGroup] = &[
         name: "Non-Monthly",
         hidden: false,
         categories: &[
+            // Utah taxes repair labour as well as parts, unlike most states.
             SeedCategory::sinking("Car Repair"),
-            SeedCategory::sinking("Medical"),
+            // Doctor visits are a service and untaxed; prescriptions are
+            // exempt. Over-the-counter medicine is taxed, and is the exception
+            // — correct it on the receipt when it comes up.
+            SeedCategory::billed("Medical").sinking_fund(),
             SeedCategory::sinking("Gifts"),
             SeedCategory::sinking("Clothing"),
-            SeedCategory::sinking("Travel"),
+            // A hotel folio stacks transient room taxes on top of sales tax,
+            // adding half again as much; the figure on the bill is the whole
+            // story. Airfare carries federal excise and no Utah sales tax.
+            SeedCategory::billed("Travel").sinking_fund(),
         ],
     },
     SeedGroup {
@@ -363,13 +416,14 @@ fn upsert_category(
             .ok(),
     };
     if let Some(id) = existing {
-        // The food flag is set even on a category that already exists: it
-        // arrived in a later release, and a database seeded before it would
-        // otherwise keep taxing groceries at the full rate forever. It is a
-        // fact about what the category *is*, not a preference the user set.
+        // Both flags are set even on a category that already exists: they
+        // arrived in later releases, and a database seeded before them would
+        // otherwise keep taxing groceries at the full rate and adding sales
+        // tax to rent forever. They are facts about what the category *is*,
+        // not preferences the user set.
         tx.execute(
-            "UPDATE category SET uses_food_rate = ?2 WHERE id = ?1",
-            params![id, i64::from(cat.food)],
+            "UPDATE category SET uses_food_rate = ?2, taxable = ?3 WHERE id = ?1",
+            params![id, i64::from(cat.food), i64::from(cat.taxable)],
         )?;
         return Ok(id);
     }
@@ -377,8 +431,8 @@ fn upsert_category(
     tx.execute(
         "INSERT INTO category
              (uuid, group_id, name, system_key, is_budgeted, uses_food_rate,
-              default_rollover, sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+              taxable, default_rollover, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             new_uuid(),
             group_id,
@@ -386,6 +440,7 @@ fn upsert_category(
             cat.system_key,
             i64::from(cat.is_budgeted),
             i64::from(cat.food),
+            i64::from(cat.taxable),
             i64::from(cat.rollover),
             sort_order,
         ],

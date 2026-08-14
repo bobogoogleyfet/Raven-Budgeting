@@ -34,7 +34,7 @@ import {
 import { combobox } from "../combobox.ts";
 import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
-import { formatRatePpm, parseCents } from "../money.ts";
+import { categoryRateLabel, parseCents } from "../money.ts";
 import { type ReviewResult, linesFrom, reviewDialog } from "./review.ts";
 
 /** One entered line: a category and what it came to before tax. */
@@ -186,7 +186,7 @@ export function addView(onSaved: () => void): HTMLElement {
       const rate = el("p", { class: "hint row-rate" });
       const showRate = (): void => {
         const ppm = state.categoryId === null ? undefined : categoryRates.get(state.categoryId);
-        rate.textContent = ppm === undefined ? "" : `${formatRatePpm(ppm)} sales tax`;
+        rate.textContent = ppm === undefined ? "" : categoryRateLabel(ppm);
       };
       showRate();
       rateLabels.push(showRate);

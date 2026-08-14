@@ -164,7 +164,7 @@ pub fn category_rates(db: &Db, context: &EntryContext) -> Result<Vec<CategoryRat
         .into_iter()
         .map(|c| CategoryRate {
             category_id: c.id,
-            rate_ppm: category_rate(context.tax.rate_ppm, food_rate, c.uses_food_rate),
+            rate_ppm: category_rate(context.tax.rate_ppm, food_rate, c.uses_food_rate, c.taxable),
         })
         .collect())
 }
@@ -359,17 +359,19 @@ fn single_rate_for(
     draft: &TransactionDraft,
 ) -> Result<Option<u32>> {
     let base = resolve_context(db, merchant, location, None)?;
-    let Some(food) = base.location.as_ref().and_then(|l| l.food_rate_ppm) else {
-        return Ok(None);
-    };
+    let food = base.location.as_ref().and_then(|l| l.food_rate_ppm);
 
     let known = categories::list_all(db)?;
     let mut rates = draft.splits.iter().map(|split| {
-        let uses_food = split
+        let category = split
             .category_id
-            .and_then(|id| known.iter().find(|c| c.id == id))
-            .is_some_and(|c| c.uses_food_rate);
-        if uses_food { food } else { base.tax.rate_ppm }
+            .and_then(|id| known.iter().find(|c| c.id == id));
+        category_rate(
+            base.tax.rate_ppm,
+            food,
+            category.is_some_and(|c| c.uses_food_rate),
+            category.is_none_or(|c| c.taxable),
+        )
     });
 
     let Some(first) = rates.next() else {
@@ -436,12 +438,17 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     let food_rate = context.location.as_ref().and_then(|l| l.food_rate_ppm);
     let known: Vec<Category> = categories::list_all(db)?;
     let rate_for = |id: Option<CategoryId>| -> u32 {
-        let uses_food = id
-            .and_then(|id| known.iter().find(|c| c.id == id))
-            .is_some_and(|c| c.uses_food_rate);
+        let category = id.and_then(|id| known.iter().find(|c| c.id == id));
         // The same function the entry form labels its rows with, so the rate
         // on screen is the rate that was charged rather than a second opinion.
-        category_rate(context.tax.rate_ppm, food_rate, uses_food)
+        category_rate(
+            context.tax.rate_ppm,
+            food_rate,
+            category.is_some_and(|c| c.uses_food_rate),
+            // A row with no category yet is treated as taxable; it is blocked
+            // from saving anyway, and showing 0% would look like an answer.
+            category.is_none_or(|c| c.taxable),
+        )
     };
 
     // Buckets keyed by rate, each holding the indices of its rows. A BTreeMap

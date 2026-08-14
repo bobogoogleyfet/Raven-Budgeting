@@ -32,6 +32,7 @@ pub const MIGRATION_SOURCES: &[(&str, &str)] = &[
         "003_utah_rates.sql",
         include_str!("schema/003_utah_rates.sql"),
     ),
+    ("004_taxable.sql", include_str!("schema/004_taxable.sql")),
 ];
 
 /// The `user_version` a fully migrated database reports.
@@ -60,10 +61,11 @@ mod tests {
 
     #[test]
     fn schema_version_tracks_the_file_list() {
-        assert_eq!(SCHEMA_VERSION, 3);
+        assert_eq!(SCHEMA_VERSION, 4);
         assert_eq!(MIGRATION_SOURCES[0].0, "001_init.sql");
         assert_eq!(MIGRATION_SOURCES[1].0, "002_food_rate.sql");
         assert_eq!(MIGRATION_SOURCES[2].0, "003_utah_rates.sql");
+        assert_eq!(MIGRATION_SOURCES[3].0, "004_taxable.sql");
         assert!(MIGRATION_SOURCES.iter().all(|(_, sql)| !sql.is_empty()));
     }
 }
