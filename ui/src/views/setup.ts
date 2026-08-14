@@ -92,7 +92,7 @@ export function setupView(onDone: () => void): HTMLElement {
 
   const provenance = el("p", { class: "hint footnote" });
   const problem = el("p", { class: "blocker" });
-  const go = el("button", { type: "button", class: "primary" }, ["Save and start"]);
+  const go = el("button", { type: "button", class: "primary" }, ["Save and Start"]);
 
   function known(): Area | undefined {
     const name = area.value().toLowerCase();

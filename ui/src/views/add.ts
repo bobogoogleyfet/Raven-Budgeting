@@ -9,12 +9,13 @@
  * to adjudicate. So this form asks for the parts only: tax comes from the
  * location's sales-tax rate, and the total is the sum plus that tax.
  *
- * # Why the preview panel is the whole design
+ * # The numbers are never this file's opinion
  *
  * Every change sends the rows to `preview_subtotals`, which reconciles the
  * amounts and apportions the tax in Rust and returns exactly what `save` would
- * write. The panel renders that answer verbatim, so the numbers on screen are
- * not the UI's opinion of the receipt — they *are* the receipt.
+ * write. The confirmation dialog renders that answer verbatim, so the figures
+ * on screen are not the UI's reading of the receipt — they *are* what will be
+ * stored.
  *
  * That is also why this file contains no arithmetic. It never adds two
  * subtotals and never applies a rate; it asks, and it renders.
@@ -27,6 +28,9 @@ import {
   type SubtotalRow,
   entryContext,
   listCategories,
+  ensureLocation,
+  listAreas,
+  listLocations,
   listMerchants,
   previewSubtotals,
   saveSubtotals,
@@ -72,6 +76,8 @@ export function addView(onSaved: () => void): HTMLElement {
   let optionRefreshers: (() => void)[] = [];
   /** The merchant whose context is loaded, so leaving the field is free. */
   let loadedFor: string | null | undefined;
+  /** The location this form filled in last, to tell it from a user's choice. */
+  let lastDefaultPlace = "";
   let favourites: string[] = [];
   let saving = false;
 
@@ -90,15 +96,41 @@ export function addView(onSaved: () => void): HTMLElement {
   });
   date.setValue(today());
 
+  /**
+   * Where this was bought, which is what decides the tax.
+   *
+   * Optional in the sense that it is already answered: it starts at the store's
+   * remembered location, else home, and most expenses never touch it. It is
+   * here for the ones that do — a trip to another town is taxed at that town's
+   * rate, and without this the receipt would quietly record the home rate.
+   */
+  const place = combobox({
+    id: "f-place",
+    placeholder: "Select a Location",
+    onCommit: (name) => {
+      // Created here rather than on save, because the preview has to be able
+      // to name it: the core refuses a location it does not know, and showing
+      // the home rate instead would put a wrong number on screen. Picking from
+      // the list is a deliberate act, unlike the half-typed merchant names the
+      // form is careful not to persist.
+      if (name === "") {
+        schedulePreview();
+        return;
+      }
+      void ensureLocation(name)
+        .then(() => schedulePreview())
+        .catch(() => schedulePreview());
+    },
+  });
+
   const note = el("input", { type: "text", id: "f-note", placeholder: "optional" });
   const chips = el("div", { class: "chips" });
   const context = el("p", { class: "hint" });
   const rowsBox = el("div", { class: "splits" });
   const addRow = el("button", { type: "button", class: "primary add-category" }, [
-    "+ Add category",
+    "+ Add Category",
   ]);
-  const panel = el("div", { class: "preview" });
-  const save = el("button", { type: "button", class: "primary" }, ["Save expense"]);
+  const save = el("button", { type: "button", class: "primary" }, ["Save Expense"]);
   const feedback = el("p", { class: "hint", role: "status" });
 
   // --- draft ----------------------------------------------------------------
@@ -123,7 +155,7 @@ export function addView(onSaved: () => void): HTMLElement {
       id: null,
       txnDate: date.value(),
       merchant: merchant.value() || null,
-      location: locationName,
+      location: place.value() || locationName,
       rows: entered,
       notes: noteText === "" ? null : noteText,
       needsReview: false,
@@ -217,18 +249,17 @@ export function addView(onSaved: () => void): HTMLElement {
   }
 
   /**
-   * What is left on the form itself: only what would stop a save.
+   * What is left on the form itself: one line saying why it will not save.
    *
-   * The totals moved into the confirmation dialog — they are the question
-   * "does this match the paper?", and that question belongs at the moment of
-   * saving rather than under a running tally nobody reads. Blockers stay here,
-   * because a receipt that cannot be saved should say so while the user is
-   * still typing, not after they press the button.
+   * The totals moved into the confirmation dialog, and the panel that used to
+   * hold them went with them — a bordered box sitting under the button, empty
+   * most of the time, reads as something broken. What remains is a sentence in
+   * the status line, because an expense that cannot be saved should say so
+   * while it is being typed rather than after the button is pressed.
    */
   function renderPreview(p: Preview): void {
-    clear(panel);
-    for (const b of p.blockers) panel.append(el("p", { class: "blocker" }, [b]));
-    for (const w of p.warnings) panel.append(el("p", { class: "warning" }, [w]));
+    feedback.textContent = p.blockers.concat(p.warnings).join(" · ");
+    feedback.className = p.blockers.length > 0 ? "hint problem" : "hint";
     save.disabled = saving || p.blockers.length > 0;
   }
 
@@ -236,16 +267,16 @@ export function addView(onSaved: () => void): HTMLElement {
 
   async function refreshPreview(): Promise<void> {
     if (draft().rows.length === 0) {
-      clear(panel);
-      panel.append(el("p", { class: "hint" }, ["Enter what each category came to."]));
+      feedback.textContent = "";
+      feedback.className = "hint";
       save.disabled = true;
       return;
     }
     try {
       renderPreview(await previewSubtotals(draft()));
     } catch (error) {
-      clear(panel);
-      panel.append(el("p", { class: "blocker" }, [String(error)]));
+      feedback.textContent = String(error);
+      feedback.className = "hint problem";
       save.disabled = true;
     }
   }
@@ -266,6 +297,12 @@ export function addView(onSaved: () => void): HTMLElement {
 
     clear(context);
     context.append(locationName ?? "no location");
+    // Only when the user has not chosen one themselves: naming a store must
+    // not silently move an expense the user has already placed somewhere.
+    if (place.value() === "" || place.value() === lastDefaultPlace) {
+      place.input.value = locationName ?? "";
+    }
+    lastDefaultPlace = locationName ?? "";
 
     // The store's remembered category is deliberately *not* filled in. It is
     // still remembered, and `pacc add` still applies it, but on this screen a
@@ -347,18 +384,22 @@ export function addView(onSaved: () => void): HTMLElement {
       .then(async (approved) => {
         if (approved === null) return;
         const id = await saveSubtotals(draft(withNotes(approved)));
-        // Reset to a fresh receipt rather than leaving the saved one on
-        // screen, where a second click would file it twice.
+        // A blank form, not a re-run of the last one. Leaving the store and
+        // the amounts on screen invites a second click that files the same
+        // expense twice, and every field that survives is one the next expense
+        // has to be checked against.
         feedback.textContent = `Saved expense #${id}.`;
+        merchant.input.value = "";
+        place.input.value = "";
         note.value = "";
+        date.setValue(today());
         rows = [{ categoryId: null, subtotalText: "" }];
         renderRows();
-        clear(panel);
         // Forced past the "same merchant, nothing to do" guard, because one
         // thing *has* changed: this store was just shopped at, so the chips of
         // most-shopped stores are out of date by exactly this receipt.
         loadedFor = undefined;
-        await loadContext(merchant.value() || null);
+        await loadContext(null);
         onSaved();
       })
       .catch((error: unknown) => {
@@ -387,19 +428,33 @@ export function addView(onSaved: () => void): HTMLElement {
       date.root,
       el("label", { for: "f-merchant" }, ["Store"]),
       el("div", {}, [merchant.root, chips, context]),
+      el("label", { for: "f-place" }, ["Location"]),
+      place.root,
       el("label", {}, ["Categories"]),
       el("div", {}, [rowsBox, addRow]),
       el("label", { for: "f-note" }, ["Note"]),
       note,
     ]),
     el("div", { class: "actions" }, [save, feedback]),
-    panel,
   );
 
   void (async () => {
-    const [cats, stores] = await Promise.all([listCategories(), listMerchants()]);
+    const [cats, stores, places, areas] = await Promise.all([
+      listCategories(),
+      listMerchants(),
+      listLocations(),
+      listAreas(),
+    ]);
     categories = cats;
     merchant.setOptions(stores.map((m) => m.name));
+    // Places already shopped first, then every other jurisdiction the state
+    // publishes. A name from the second list becomes a real location on save,
+    // with the published rate and a link that follows the quarterly refresh.
+    const known = new Set(places.map((p) => p.name));
+    place.setOptions([
+      ...places.map((p) => p.name),
+      ...areas.map((a) => a.name).filter((name) => !known.has(name)),
+    ]);
     renderRows();
     await loadContext(null);
   })();

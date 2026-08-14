@@ -13,9 +13,10 @@ import { addView } from "./views/add.ts";
 import { budgetView } from "./views/budget.ts";
 import { inboxView } from "./views/inbox.ts";
 import { expensesView } from "./views/expenses.ts";
+import { settingsView } from "./views/settings.ts";
 import { setupView } from "./views/setup.ts";
 
-type TabName = "add" | "expenses" | "inbox" | "budget";
+type TabName = "add" | "expenses" | "inbox" | "budget" | "settings";
 
 const main = need("#main");
 const tabs = need("#tabs");
@@ -34,6 +35,8 @@ function build(tab: TabName): HTMLElement {
       return inboxView(() => undefined);
     case "budget":
       return budgetView();
+    case "settings":
+      return settingsView();
   }
 }
 

@@ -44,7 +44,7 @@ export function expensesView(): HTMLElement {
       void confirmDialog({
         question: "Delete this expense?",
         detail: `${txn.txnDate} · ${txn.merchantName ?? "no store"} · ${formatMoney(txn.total)}`,
-        confirmLabel: "Delete expense",
+        confirmLabel: "Delete Expense",
       }).then((yes) => {
         if (!yes) return;
         button.disabled = true;

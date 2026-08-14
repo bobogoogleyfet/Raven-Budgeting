@@ -739,3 +739,15 @@ table.review tfoot tr.grand td {
   padding: 0.35rem 0.8rem;
   font-weight: 500;
 }
+
+/* A blocker shown in the status line rather than in a box of its own. The
+   bordered panel that used to hold these sat under the button empty most of
+   the time, which reads as something broken. */
+.hint.problem {
+  color: var(--bad);
+}
+
+.view h2 {
+  font-size: 1.05rem;
+  margin: 1.4rem 0 0.3rem;
+}
