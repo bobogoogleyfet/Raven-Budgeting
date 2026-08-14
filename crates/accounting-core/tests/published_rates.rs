@@ -110,6 +110,28 @@ fn a_legacy_location_is_linked_to_its_published_jurisdiction() {
 }
 
 #[test]
+fn a_jurisdiction_is_found_by_the_name_a_person_would_type() {
+    let db = db_with_rates();
+    // The state publishes "Highland"; a person writes "Highland, UT", and so
+    // does every location this app made before the table existed. An exact
+    // match found nothing here, so `pacc location --name "Highland, UT"`
+    // created the place at 0% and taxed every receipt against it at nothing.
+    let found = tax_areas::find_by_name(&db, "Highland, UT")
+        .expect("lookup")
+        .expect("Highland is published");
+    assert_eq!(found.code, "25-099");
+    assert_eq!(found.combined_rate_ppm, 74_500);
+    assert_eq!(found.food_rate_ppm, Some(30_000));
+
+    assert!(
+        tax_areas::find_by_name(&db, "Boise, ID")
+            .expect("lookup")
+            .is_none(),
+        "tolerating a suffix must not start matching other states"
+    );
+}
+
+#[test]
 fn a_location_outside_the_publication_is_left_alone() {
     let db = db_with_rates();
     let id = legacy_location(&db, "Boise, ID", 60_000);

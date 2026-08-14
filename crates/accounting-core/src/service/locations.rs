@@ -61,8 +61,11 @@ pub fn adopt_published_areas(db: &Db) -> Result<usize> {
         if location.area_code.is_some() {
             continue;
         }
-        let needle = match_key(&location.name);
-        let Some(area) = published.iter().find(|a| match_key(&a.name) == needle) else {
+        let needle = tax_areas::match_key(&location.name);
+        let Some(area) = published
+            .iter()
+            .find(|a| tax_areas::match_key(&a.name) == needle)
+        else {
             continue;
         };
         locations::adopt_area(
@@ -103,40 +106,4 @@ fn mark_linked(db: &Db) -> Result<()> {
         rusqlite::params![LINK_GENERATION_KEY, LINK_GENERATION.to_string()],
     )?;
     Ok(())
-}
-
-/// The form of a name two spellings of one place agree on.
-///
-/// The state publishes bare town names — "Provo" — while locations created
-/// before the table carry the state, because a picker offering "Provo" with no
-/// context would have been ambiguous for the user. They are the same place, and
-/// a match that missed on the suffix would leave every existing install
-/// unlinked and quietly frozen at its old rate.
-fn match_key(name: &str) -> String {
-    let lowered = name.trim().to_lowercase();
-    let base = lowered
-        .strip_suffix(", ut")
-        .or_else(|| lowered.strip_suffix(", utah"))
-        .unwrap_or(&lowered);
-    base.trim().to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_state_suffix_does_not_make_it_a_different_town() {
-        assert_eq!(match_key("Provo, UT"), "provo");
-        assert_eq!(match_key("  provo, Utah "), "provo");
-        assert_eq!(match_key("Provo"), "provo");
-        assert_eq!(match_key("Salt Lake City, UT"), "salt lake city");
-    }
-
-    #[test]
-    fn a_name_that_merely_ends_in_those_letters_is_left_whole() {
-        // No comma, so no suffix — and there is no town called "Provo" hiding
-        // inside one called "Provo Ut".
-        assert_eq!(match_key("Provo Ut"), "provo ut");
-    }
 }

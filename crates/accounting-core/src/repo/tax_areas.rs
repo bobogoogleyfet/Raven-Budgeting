@@ -80,12 +80,30 @@ fn is_special_district(name: &str) -> bool {
     ["UIPA ", "MIDA "].iter().any(|p| name.starts_with(p))
 }
 
-/// Exact, case-insensitive lookup by name.
+/// Look up a jurisdiction by the name a person would type for it.
 pub fn find_by_name(db: &Db, name: &str) -> Result<Option<TaxArea>> {
-    let needle = name.trim().to_lowercase();
-    Ok(list(db)?
-        .into_iter()
-        .find(|a| a.name.trim().to_lowercase() == needle))
+    let needle = match_key(name);
+    Ok(list(db)?.into_iter().find(|a| match_key(&a.name) == needle))
+}
+
+/// The form of a name two spellings of one place agree on.
+///
+/// The state publishes bare names — "Highland" — while a person naming the
+/// place they live writes "Highland, UT", and every location this app created
+/// before the rate table existed carries that suffix. They are the same place.
+///
+/// Matching exactly instead is not a smaller feature, it is a wrong answer that
+/// looks like a working one: `pacc location --name "Highland, UT"` found no
+/// jurisdiction, so it created the location at 0% and every receipt filed
+/// against it recorded no tax at all.
+#[must_use]
+pub fn match_key(name: &str) -> String {
+    let lowered = name.trim().to_lowercase();
+    let base = lowered
+        .strip_suffix(", ut")
+        .or_else(|| lowered.strip_suffix(", utah"))
+        .unwrap_or(&lowered);
+    base.trim().to_string()
 }
 
 /// How many jurisdictions are stored.
@@ -183,6 +201,21 @@ pub fn record_check(db: &Db) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_state_suffix_does_not_make_it_a_different_town() {
+        assert_eq!(match_key("Highland, UT"), "highland");
+        assert_eq!(match_key("  provo, Utah "), "provo");
+        assert_eq!(match_key("Provo"), "provo");
+        assert_eq!(match_key("Salt Lake City, UT"), "salt lake city");
+    }
+
+    #[test]
+    fn a_name_that_merely_ends_in_those_letters_is_left_whole() {
+        // No comma, so no suffix — and there is no town called "Provo" hiding
+        // inside one called "Provo Ut".
+        assert_eq!(match_key("Provo Ut"), "provo ut");
+    }
 
     #[test]
     fn an_authoritys_district_is_not_a_town() {
