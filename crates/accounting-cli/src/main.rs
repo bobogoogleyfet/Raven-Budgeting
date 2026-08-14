@@ -1121,8 +1121,9 @@ fn run_list(path: &Path, args: &ListArgs) -> anyhow::Result<()> {
     let filter = TxnFilter {
         from,
         to,
-        merchant_id,
-        category_id,
+        merchant_ids: merchant_id.into_iter().collect(),
+        include_no_merchant: false,
+        category_ids: category_id.into_iter().collect(),
         // `--needs-review` is a switch, not a tri-state: absent means "do not
         // filter", never "only the reviewed ones".
         needs_review: args.needs_review.then_some(true),
@@ -2019,8 +2020,9 @@ impl ExportArgs {
         Ok(TxnFilter {
             from,
             to,
-            merchant_id,
-            category_id,
+            merchant_ids: merchant_id.into_iter().collect(),
+            include_no_merchant: false,
+            category_ids: category_id.into_iter().collect(),
             needs_review: None,
             include_archived: self.all,
             sort: TxnSort::default(),

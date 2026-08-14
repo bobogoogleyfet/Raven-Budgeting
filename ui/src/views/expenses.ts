@@ -1,8 +1,6 @@
 /** The expense list. Everything entered here or with `pacc add`. */
 
 import {
-  type Category,
-  type Merchant,
   type TxnQuery,
   type TxnSort,
   type TxnSummary,
@@ -13,9 +11,13 @@ import {
 } from "../api.ts";
 import { confirmDialog } from "../dialog.ts";
 import { clear, el } from "../dom.ts";
+import { filterMenu } from "../filtermenu.ts";
 import { formatMoney } from "../money.ts";
 
 const HOW_MANY = 200;
+
+/** Stands for expenses with no store, which is what quick-add leaves behind. */
+const NO_STORE = "none";
 
 export function expensesView(): HTMLElement {
   const root = el("section", { class: "view" });
@@ -23,16 +25,38 @@ export function expensesView(): HTMLElement {
   const table = el("table", { hidden: true });
   const body = el("tbody");
 
+  /**
+   * Newest first, and the caret in the Date header flips it.
+   *
+   * Only Date sorts. A list of expenses is read chronologically; the other
+   * columns are what you narrow by, which is a different question and gets a
+   * different control.
+   */
+  let sort: TxnSort = "dateDesc";
+  const dateSort = el("button", { type: "button", class: "sort-toggle" });
+  const paintSort = (): void => {
+    dateSort.textContent = sort === "dateDesc" ? "▼" : "▲";
+    dateSort.title = sort === "dateDesc" ? "Newest first" : "Oldest first";
+  };
+  dateSort.addEventListener("click", () => {
+    sort = sort === "dateDesc" ? "dateAsc" : "dateDesc";
+    paintSort();
+    load();
+  });
+  paintSort();
+
+  const storeFilter = filterMenu({ label: "Store", onChange: () => load() });
+  const categoryFilter = filterMenu({ label: "Categories", onChange: () => load() });
+
   table.append(
     el("thead", {}, [
       el("tr", {}, [
-        el("th", {}, ["Date"]),
-        el("th", {}, ["Store"]),
-        el("th", {}, ["Categories"]),
+        el("th", {}, [el("span", { class: "filter-label" }, ["Date"]), dateSort]),
+        el("th", {}, [storeFilter.root]),
+        el("th", {}, [categoryFilter.root]),
         el("th", { class: "amount" }, ["Total"]),
         // Unlabelled: a header reading "Delete" over a column of delete
-        // buttons says the same word twice, and this one is not a field of the
-        // receipt.
+        // buttons says the same word twice.
         el("th", {}, []),
       ]),
     ]),
@@ -42,7 +66,7 @@ export function expensesView(): HTMLElement {
   /**
    * The delete control: a click asks, a modal answers.
    *
-   * The dialog names the receipt — its date, store and total — because "are you
+   * The dialog names the expense — its date, store and total — because "are you
    * sure?" is not a question anyone can answer about a row they may no longer
    * be looking at. There is no undo behind this, which is exactly why the
    * asking is worth a modal rather than something dismissible by accident.
@@ -64,11 +88,7 @@ export function expensesView(): HTMLElement {
             // would scroll the user back to the top of two hundred rows to
             // show them one that is gone.
             tr.remove();
-            if (body.childElementCount === 0) {
-              table.hidden = true;
-              status.hidden = false;
-              status.textContent = "No expenses yet. Add one on the Add tab.";
-            }
+            if (body.childElementCount === 0) load();
           })
           .catch((error: unknown) => {
             button.disabled = false;
@@ -96,56 +116,47 @@ export function expensesView(): HTMLElement {
     return tr;
   }
 
-  /**
-   * The narrowing and ordering controls.
-   *
-   * Plain `<select>`s rather than the filtering comboboxes the entry form uses:
-   * those exist to let a user type three letters instead of scrolling two dozen
-   * categories, which is worth it when every expense needs one. A filter is
-   * touched rarely, and a native select is the control every user already knows
-   * how to operate — including with a keyboard.
-   */
-  const categoryPicker = el("select", { id: "x-category" });
-  const storePicker = el("select", { id: "x-store" });
-  const sortPicker = el("select", { id: "x-sort" });
+  function showEmpty(filtered: boolean): void {
+    clear(body);
+    // Worded by case: an empty database and an over-narrow filter look
+    // identical on screen and need different things done about them.
+    status.textContent = filtered
+      ? "No expenses match those filters."
+      : "No expenses yet. Add one on the Add tab.";
+    status.hidden = false;
+    // The header stays, or there would be no filter left to widen.
+    table.hidden = false;
+  }
 
-  const option = (value: string, label: string): HTMLOptionElement =>
-    el("option", { value }, [label]);
-
-  sortPicker.append(
-    option("dateDesc", "Newest first"),
-    option("dateAsc", "Oldest first"),
-    option("totalDesc", "Largest first"),
-    option("totalAsc", "Smallest first"),
-  );
-
-  function query(): TxnQuery {
-    // An empty value is "no filter", not id 0 — every id is positive, so the
-    // two can never be confused.
-    const asId = (raw: string): number | null => (raw === "" ? null : Number(raw));
+  function query(): TxnQuery | null {
+    const stores = storeFilter.selected();
+    const categories = categoryFilter.selected();
+    // Everything hidden asks for nothing. The core reads an empty set as "no
+    // filter", so that question is answered here rather than sent — a "Hide
+    // all" that showed the whole table would be the opposite of itself.
+    if (stores?.length === 0 || categories?.length === 0) return null;
     return {
       limit: HOW_MANY,
-      categoryId: asId(categoryPicker.value),
-      merchantId: asId(storePicker.value),
-      sort: sortPicker.value as TxnSort,
+      merchantIds: stores?.filter((value) => value !== NO_STORE).map(Number) ?? null,
+      includeNoMerchant: stores === null || stores.includes(NO_STORE),
+      categoryIds: categories?.map(Number) ?? null,
+      sort,
     };
   }
 
   function load(): void {
-    void listTransactions(query())
+    const asked = query();
+    if (asked === null) {
+      showEmpty(true);
+      return;
+    }
+    void listTransactions(asked)
       .then((rows) => {
-        clear(body);
         if (rows.length === 0) {
-          // Worded by case: an empty database and an over-narrow filter look
-          // identical on screen and need different things done about them.
-          const filtered = categoryPicker.value !== "" || storePicker.value !== "";
-          status.textContent = filtered
-            ? "No expenses match those filters."
-            : "No expenses yet. Add one on the Add tab.";
-          status.hidden = false;
-          table.hidden = true;
+          showEmpty(storeFilter.selected() !== null || categoryFilter.selected() !== null);
           return;
         }
+        clear(body);
         for (const txn of rows) body.append(row(txn));
         status.hidden = true;
         table.hidden = false;
@@ -156,46 +167,27 @@ export function expensesView(): HTMLElement {
       });
   }
 
-  for (const picker of [categoryPicker, storePicker, sortPicker]) {
-    picker.addEventListener("change", load);
-  }
+  root.append(el("h1", {}, ["Expenses"]), status, table);
 
-  root.append(
-    el("h1", {}, ["Expenses"]),
-    el("div", { class: "toolbar" }, [
-      el("label", { for: "x-category" }, ["Category"]),
-      categoryPicker,
-      el("label", { for: "x-store" }, ["Store"]),
-      storePicker,
-      el("label", { for: "x-sort" }, ["Sort"]),
-      sortPicker,
-    ]),
-    status,
-    table,
-  );
-
-  // The filters are populated before the first load, so a list that arrives
-  // fast is never briefly filterable by nothing.
+  // The menus are filled before the first load, so a list that arrives fast is
+  // never briefly filterable by nothing.
   void Promise.all([listCategories(), listMerchants()])
-    .then(([categories, stores]: [Category[], Merchant[]]) => {
-      categoryPicker.append(
-        option("", "All categories"),
-        ...[...categories]
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((c) => option(String(c.id), c.name)),
+    .then(([categories, stores]) => {
+      const byName = (a: { name: string }, b: { name: string }): number =>
+        a.name.localeCompare(b.name);
+      categoryFilter.setOptions(
+        [...categories].sort(byName).map((c) => ({ value: String(c.id), label: c.name })),
       );
-      storePicker.append(
-        option("", "All stores"),
-        ...[...stores]
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((m) => option(String(m.id), m.name)),
-      );
+      storeFilter.setOptions([
+        ...[...stores].sort(byName).map((m) => ({ value: String(m.id), label: m.name })),
+        // Quick-added expenses have no store, and without a box of their own
+        // they would vanish the moment the filter was touched.
+        { value: NO_STORE, label: "(No store)" },
+      ]);
     })
     .catch(() => {
-      // A filter that failed to populate still leaves the list usable, and the
+      // A menu that failed to fill still leaves the list usable, and the
       // list's own error reporting is the one that matters.
-      categoryPicker.append(option("", "All categories"));
-      storePicker.append(option("", "All stores"));
     })
     .finally(load);
 

@@ -466,15 +466,25 @@ fn summarise(txn: &accounting_core::repo::transactions::Txn) -> TxnSummaryDto {
 fn list_transactions(
     state: State<'_, AppState>,
     limit: usize,
-    category_id: Option<i64>,
-    merchant_id: Option<i64>,
+    category_ids: Option<Vec<i64>>,
+    merchant_ids: Option<Vec<i64>>,
+    include_no_merchant: Option<bool>,
     sort: Option<String>,
 ) -> CmdResult<Vec<TxnSummaryDto>> {
     let db = state.db.lock().map_err(to_message)?;
     let filter = TxnFilter {
         limit: Some(limit),
-        category_id: category_id.map(CategoryId::new),
-        merchant_id: merchant_id.map(MerchantId::new),
+        category_ids: category_ids
+            .unwrap_or_default()
+            .into_iter()
+            .map(CategoryId::new)
+            .collect(),
+        merchant_ids: merchant_ids
+            .unwrap_or_default()
+            .into_iter()
+            .map(MerchantId::new)
+            .collect(),
+        include_no_merchant: include_no_merchant.unwrap_or(false),
         sort: parse_sort(sort.as_deref())?,
         ..TxnFilter::default()
     };

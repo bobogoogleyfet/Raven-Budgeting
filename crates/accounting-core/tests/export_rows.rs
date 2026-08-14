@@ -425,7 +425,7 @@ fn a_category_filter_narrows_the_export_to_receipts_touching_that_category() {
     let exported = rows(
         &f.db,
         &TxnFilter {
-            category_id: Some(f.fuel),
+            category_ids: vec![f.fuel],
             ..TxnFilter::default()
         },
     );
@@ -451,7 +451,7 @@ fn a_category_filter_narrows_the_export_to_receipts_touching_that_category() {
     let groceries = rows(
         &f.db,
         &TxnFilter {
-            category_id: Some(f.groceries),
+            category_ids: vec![f.groceries],
             ..TxnFilter::default()
         },
     );
@@ -470,7 +470,7 @@ fn a_merchant_filter_keeps_only_that_merchants_rows() {
     let exported = rows(
         &f.db,
         &TxnFilter {
-            merchant_id: Some(f.costco),
+            merchant_ids: vec![f.costco],
             ..TxnFilter::default()
         },
     );
