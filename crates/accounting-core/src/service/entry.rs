@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::Db;
 use crate::domain::reconcile::{AmountEntry, Amounts, TaxContext, reconcile};
 use crate::domain::splits::{ResolvedSplit, SplitAmount, SplitDraft, SplitPlan, plan_splits};
-use crate::domain::tax::distribute_tax;
+use crate::domain::tax::{category_rate, distribute_tax};
 use crate::error::{CoreError, Result};
 use crate::ids::{CategoryId, TxnId};
 use crate::money::Money;
@@ -132,6 +132,41 @@ impl TransactionPreview {
 /// no location, no category and no detail-level decision.
 pub fn entry_context(db: &Db, merchant_name: Option<&str>) -> Result<EntryContext> {
     resolve_context(db, merchant_name, None, None)
+}
+
+/// One category and the rate it is taxed at here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CategoryRate {
+    pub category_id: CategoryId,
+    pub rate_ppm: u32,
+}
+
+/// What each category is taxed at, at this context's location.
+///
+/// # Why the entry screen needs this
+///
+/// The rate is a property of the category, not of the store: at one till,
+/// groceries are 3% and shampoo is 7.45%. A single rate shown against the shop
+/// is therefore wrong for at least one line of a mixed receipt, and on a
+/// grocery run it is wrong for all of them.
+///
+/// Answered here rather than in the frontend even though it is only a choice
+/// between two numbers. The choosing is the rule, the rule already exists in
+/// [`category_rate`], and a copy of it in TypeScript would be a second
+/// implementation that drifts — the day another class of goods gets its own
+/// rate, the screen would still be showing the old two.
+///
+/// Available before an amount is typed, which is the point: picking a category
+/// should say what it will be taxed at, not wait for a number.
+pub fn category_rates(db: &Db, context: &EntryContext) -> Result<Vec<CategoryRate>> {
+    let food_rate = context.location.as_ref().and_then(|l| l.food_rate_ppm);
+    Ok(categories::list_all(db)?
+        .into_iter()
+        .map(|c| CategoryRate {
+            category_id: c.id,
+            rate_ppm: category_rate(context.tax.rate_ppm, food_rate, c.uses_food_rate),
+        })
+        .collect())
 }
 
 /// Resolve a draft into numbers, **without writing anything**.
@@ -392,10 +427,9 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
         let uses_food = id
             .and_then(|id| known.iter().find(|c| c.id == id))
             .is_some_and(|c| c.uses_food_rate);
-        match (uses_food, food_rate) {
-            (true, Some(reduced)) => reduced,
-            _ => context.tax.rate_ppm,
-        }
+        // The same function the entry form labels its rows with, so the rate
+        // on screen is the rate that was charged rather than a second opinion.
+        category_rate(context.tax.rate_ppm, food_rate, uses_food)
     };
 
     // Buckets keyed by rate, each holding the indices of its rows. A BTreeMap

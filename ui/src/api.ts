@@ -197,12 +197,26 @@ export async function needsCategorizing(): Promise<TxnSummary[]> {
   return rows.map(brandSummary);
 }
 
+/** One category and the rate it is taxed at. */
+export interface CategoryRate {
+  categoryId: number;
+  ratePpm: number;
+}
+
 export interface EntryContext {
   merchantName: string | null;
   locationName: string | null;
   taxRatePpm: number;
   /** The reduced rate on unprepared food here; null where there is none. */
   foodRatePpm: number | null;
+  /**
+   * What each category is taxed at here.
+   *
+   * The rate belongs to the category, not the store — groceries at 3% and
+   * shampoo at 7.45% cross the same till — so the entry form labels each row
+   * from this rather than showing one rate for the receipt.
+   */
+  categoryRates: CategoryRate[];
   defaultCategoryId: number | null;
   detailLevel: DetailLevel;
   recentMerchants: string[];

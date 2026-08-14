@@ -165,6 +165,51 @@ fn tax_is_computed_per_rate_bucket_not_per_line() {
 }
 
 #[test]
+fn each_category_reports_the_rate_it_will_be_taxed_at() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    let context = accounting_core::service::entry::entry_context(&db, None).expect("context");
+    let rates = accounting_core::service::entry::category_rates(&db, &context).expect("rates");
+    let rate_of = |name: &str| {
+        let id = cat(&db, name);
+        rates
+            .iter()
+            .find(|r| r.category_id == id)
+            .map(|r| r.rate_ppm)
+            .expect("every category has a rate")
+    };
+
+    // What the entry form labels each row with. The rate is a property of the
+    // category, not of the store, so one figure shown against the shop is
+    // wrong for at least one line of any mixed receipt.
+    assert_eq!(rate_of("Groceries"), FOOD);
+    assert_eq!(rate_of("Toiletries"), GENERAL);
+    // Prepared food is taxed in full, which is the distinction a single "food"
+    // flag would get wrong in the user's favour.
+    assert_eq!(rate_of("Restaurants"), GENERAL);
+}
+
+#[test]
+fn the_displayed_rate_is_the_rate_that_gets_charged() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    let context = accounting_core::service::entry::entry_context(&db, None).expect("context");
+    let rates = accounting_core::service::entry::category_rates(&db, &context).expect("rates");
+    let groceries = rates
+        .iter()
+        .find(|r| r.category_id == cat(&db, "Groceries"))
+        .expect("groceries");
+
+    // The screen and the arithmetic must not be two opinions. $7.28 taxed at
+    // the rate the form advertises has to be the $0.22 the receipt shows.
+    let p = preview_subtotals(&db, &draft(&db, &[("Groceries", 728)])).expect("preview");
+    assert_eq!(p.applied_rate_ppm, Some(groceries.rate_ppm));
+    assert_eq!(p.amounts.tax, m(22));
+}
+
+#[test]
 fn the_preview_reports_the_rate_it_actually_applied() {
     let db = seeded_db();
     utah_home(&db);

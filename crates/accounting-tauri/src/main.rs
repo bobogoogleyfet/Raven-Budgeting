@@ -163,6 +163,10 @@ struct ContextDto {
     tax_rate_ppm: u32,
     /// The location's reduced rate on unprepared food, where it has one.
     food_rate_ppm: Option<u32>,
+    /// What each category is taxed at here, so the form can label a row the
+    /// moment a category is picked. The rate is a property of the category,
+    /// not of the store.
+    category_rates: Vec<CategoryRateDto>,
     default_category_id: Option<i64>,
     detail_level: String,
     recent_merchants: Vec<String>,
@@ -235,6 +239,14 @@ struct AreaDto {
     tax_rate_ppm: u32,
     /// `None` where the state taxes food like everything else.
     food_rate_ppm: Option<u32>,
+}
+
+/// One category and the rate it is taxed at.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CategoryRateDto {
+    category_id: i64,
+    rate_ppm: u32,
 }
 
 /// Which quarter's publication the rates come from.
@@ -481,6 +493,14 @@ fn entry_context(state: State<'_, AppState>, merchant: Option<String>) -> CmdRes
         location_name: ctx.location.as_ref().map(|l| l.name.clone()),
         tax_rate_ppm: ctx.tax.rate_ppm,
         food_rate_ppm: ctx.location.as_ref().and_then(|l| l.food_rate_ppm),
+        category_rates: entry::category_rates(&db, &ctx)
+            .map_err(to_message)?
+            .into_iter()
+            .map(|r| CategoryRateDto {
+                category_id: r.category_id.get(),
+                rate_ppm: r.rate_ppm,
+            })
+            .collect(),
         default_category_id: ctx.default_category.as_ref().map(|c| c.id.get()),
         detail_level: ctx.detail_level.to_string(),
         recent_merchants: ctx
