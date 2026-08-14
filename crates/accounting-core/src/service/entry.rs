@@ -499,9 +499,27 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     if plan.rows.is_empty() {
         blockers.push("nothing entered yet: add a category and what it came to".to_string());
     }
+    let mut seen: BTreeMap<CategoryId, usize> = BTreeMap::new();
     for (index, row) in plan.rows.iter().enumerate() {
         if row.category_id.is_none() {
             blockers.push(format!("row {} has no category", index + 1));
+        }
+        // One category, one row. Two rows against the same category are not a
+        // receipt with two lines — they are one line entered twice, and every
+        // report would add them back together anyway. Saying so here, with the
+        // name, beats a user finding two identical rows in the split list
+        // later and wondering which is real.
+        if let Some(id) = row.category_id
+            && let Some(first) = seen.insert(id, index + 1)
+        {
+            let name = known
+                .iter()
+                .find(|c| c.id == id)
+                .map_or("that category", |c| c.name.as_str());
+            blockers.push(format!(
+                "{name} is on rows {first} and {}; put the whole amount on one",
+                index + 1
+            ));
         }
         if row.amount.is_negative() {
             warnings.push(format!(

@@ -177,9 +177,22 @@ button.primary.small {
 
 .chips {
   display: flex;
-  flex-wrap: wrap;
+  /* One row, the width of the Store field above it. Wrapping pushed the whole
+     form down by a line or two depending on how many shops had been visited,
+     which moved the fields under the user's cursor. A chip that does not fit
+     is dropped in renderChips rather than clipped in half here. */
+  flex-wrap: nowrap;
+  max-width: 18rem;
+  overflow: hidden;
   gap: 0.3rem;
   margin-top: 0.4rem;
+}
+
+.chip {
+  /* Names are short; a chip that is squeezed rather than dropped defeats the
+     measuring above. */
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .chip {

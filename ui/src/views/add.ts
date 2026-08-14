@@ -60,6 +60,15 @@ export function addView(onSaved: () => void): HTMLElement {
    * had, and it is exactly what a rebuild costs.
    */
   let rateLabels: (() => void)[] = [];
+  /**
+   * One per rendered row: re-offers the categories nobody else has taken.
+   *
+   * Filing two rows against one category is not a receipt with two lines, it
+   * is one line entered twice — the splits would be indistinguishable in every
+   * report, and the fix is to add the amounts together. Removing the taken
+   * ones from the list says so before the user can do it.
+   */
+  let optionRefreshers: (() => void)[] = [];
   /** The merchant whose context is loaded, so leaving the field is free. */
   let loadedFor: string | null | undefined;
   let favourites: string[] = [];
@@ -116,9 +125,18 @@ export function addView(onSaved: () => void): HTMLElement {
 
   // --- rendering ------------------------------------------------------------
 
+  /** The categories still free, plus whichever this row already holds. */
+  function availableTo(state: RowState): Category[] {
+    const taken = new Set(
+      rows.filter((r) => r !== state && r.categoryId !== null).map((r) => r.categoryId),
+    );
+    return categories.filter((c) => !taken.has(c.id));
+  }
+
   function renderRows(): void {
     clear(rowsBox);
     rateLabels = [];
+    optionRefreshers = [];
     rows.forEach((state, index) => {
       // The same filtering combobox as the store field: two dozen categories
       // is more than a dropdown is comfortable to scan, and typing three
@@ -129,10 +147,18 @@ export function addView(onSaved: () => void): HTMLElement {
           const match = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
           state.categoryId = match?.id ?? null;
           showRate();
+          // Every row, not just this one: choosing Groceries here has to take
+          // Groceries out of the others' lists. In place rather than by
+          // re-rendering, which would destroy the field being tabbed into.
+          for (const refresh of optionRefreshers) refresh();
           schedulePreview();
         },
       });
-      picker.setOptions(categories.map((c) => c.name));
+      const refreshOptions = (): void => {
+        picker.setOptions(availableTo(state).map((c) => c.name));
+      };
+      refreshOptions();
+      optionRefreshers.push(refreshOptions);
       const chosen = categories.find((c) => c.id === state.categoryId);
       if (chosen !== undefined) picker.input.value = chosen.name;
 
@@ -278,6 +304,30 @@ export function addView(onSaved: () => void): HTMLElement {
         void loadContext(name).then(() => schedulePreview());
       });
       chips.append(chip);
+    }
+    dropChipsThatDoNotFit();
+  }
+
+  /**
+   * Keep the chips to one row the width of the Store field, dropping any that
+   * would not fit whole.
+   *
+   * Clipping with `overflow: hidden` would leave a sliced chip at the edge —
+   * half a shop name, still clickable, reading as a rendering fault. A chip
+   * that cannot be shown completely is not shown at all.
+   *
+   * Measured rather than estimated, because a chip's width is its name in the
+   * user's font at the user's zoom, and nothing in CSS can count how many of
+   * those fit.
+   */
+  function dropChipsThatDoNotFit(): void {
+    const limit = chips.clientWidth;
+    // Zero while the tab is hidden or before first layout. Trimming against a
+    // width of zero would drop every chip and never put them back.
+    if (limit === 0) return;
+    for (const chip of [...chips.children]) {
+      if (!(chip instanceof HTMLElement)) continue;
+      if (chip.offsetLeft + chip.offsetWidth > limit) chip.remove();
     }
   }
 

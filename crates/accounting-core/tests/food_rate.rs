@@ -165,6 +165,42 @@ fn tax_is_computed_per_rate_bucket_not_per_line() {
 }
 
 #[test]
+fn one_category_cannot_take_two_rows() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    let p = preview_subtotals(
+        &db,
+        &draft(&db, &[("Groceries", 1_000), ("Groceries", 2_000)]),
+    )
+    .expect("preview");
+
+    // Not a receipt with two lines — one line entered twice. Every report adds
+    // them back together, so the split list would just hold two rows nobody
+    // could tell apart.
+    assert!(!p.can_save(), "a duplicated category must block the save");
+    assert!(
+        p.blockers.iter().any(|b| b.contains("Groceries")),
+        "the blocker must name the category; got {:?}",
+        p.blockers
+    );
+}
+
+#[test]
+fn different_categories_are_fine_on_one_receipt() {
+    let db = seeded_db();
+    utah_home(&db);
+
+    let p = preview_subtotals(
+        &db,
+        &draft(&db, &[("Groceries", 1_000), ("Toiletries", 2_000)]),
+    )
+    .expect("preview");
+
+    assert!(p.can_save(), "unexpected blockers: {:?}", p.blockers);
+}
+
+#[test]
 fn each_category_reports_the_rate_it_will_be_taxed_at() {
     let db = seeded_db();
     utah_home(&db);
