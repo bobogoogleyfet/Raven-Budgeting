@@ -267,19 +267,28 @@ pub fn preview_transaction_with_rate(
         }
     }
     if amounts.tax_is_estimated {
-        // Worded by case. At a 0% rate the generic sentence reads "tax of
-        // $0.00 was estimated at 0%", which tells the user nothing and hides
-        // the actually useful fact: no rate is configured, so no tax was
-        // applied to a receipt that probably had some.
-        warnings.push(if context.tax.rate_ppm == 0 {
-            "no tax was applied: this location has no tax rate set".to_string()
-        } else {
-            format!(
+        // Three cases, and only two of them are worth saying anything about.
+        //
+        // The effective rate is zero for two very different reasons: nobody
+        // ever configured a rate, or the categories on this receipt are not
+        // sales-taxed. The first is a setup mistake that silently untaxes
+        // everything and is exactly what this warning is for. The second is
+        // rent, or a tank of fuel, behaving correctly — and blaming the
+        // location for it ("this location has no tax rate set", at a location
+        // charging 7.45%) sends the user off to fix something that is not
+        // broken.
+        let location_rate = context.location.as_ref().map_or(0, |l| l.tax_rate_ppm);
+        if location_rate == 0 {
+            warnings.push("no tax was applied: this location has no tax rate set".to_string());
+        } else if context.tax.rate_ppm != 0 {
+            // At a 0% *effective* rate the generic sentence would read "tax of
+            // $0.00 was estimated at 0%", which tells the user nothing.
+            warnings.push(format!(
                 "tax of {} was estimated at {}, not read off the receipt",
                 amounts.tax.to_display_string(),
                 format_rate(context.tax.rate_ppm)
-            )
-        });
+            ));
+        }
     }
     if requested_detail == DetailLevel::Itemized && !has_items {
         warnings.push(
@@ -560,7 +569,19 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
             ));
         }
     }
-    if context.tax.rate_ppm == 0 && !plan.rows.is_empty() {
+    // Only when a rate would have changed the answer. A receipt of nothing but
+    // rent, or fuel, is untaxed whether or not the location has a rate, and
+    // saying "no sales-tax rate set" there sends the user to fix a setting that
+    // is not the reason. Likewise a row whose tax was read off the paper does
+    // not need a rate to have been configured.
+    let a_rate_would_have_applied = draft.rows.iter().any(|row| {
+        row.tax.is_none()
+            && row
+                .category_id
+                .and_then(|id| known.iter().find(|c| c.id == id))
+                .is_some_and(|c| c.taxable)
+    });
+    if context.tax.rate_ppm == 0 && a_rate_would_have_applied {
         warnings.push(format!(
             "no tax was added: {} has no sales-tax rate set",
             context

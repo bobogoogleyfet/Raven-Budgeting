@@ -90,9 +90,14 @@ impl SeedCategory {
     /// half again as much as sales tax. In every one of those cases the figure
     /// on the bill is already the whole story.
     const fn billed(name: &'static str) -> Self {
+        SeedCategory::user(name).untaxed()
+    }
+
+    /// No sales tax is added to what is entered here.
+    const fn untaxed(self) -> Self {
         SeedCategory {
             taxable: false,
-            ..SeedCategory::user(name)
+            ..self
         }
     }
 
@@ -129,10 +134,16 @@ impl SeedCategory {
             name,
             rollover: false,
             food: false,
-            // A transfer between the user's own accounts is not a purchase,
-            // and a reimbursable expense is recorded at what was actually paid
-            // out. Neither has a subtotal to tax.
-            taxable: false,
+            // Taxable, because the two that see real money stand in for an
+            // ordinary purchase: Uncategorized is whatever the receipt turned
+            // out to be, and a reimbursable lunch was bought at a till like
+            // any other. Only Transfer is exempted, below, and that is because
+            // moving money between your own accounts is not buying anything.
+            //
+            // It makes no difference to `quick_add`, which resolves no
+            // location and so has no rate to apply either way; it matters when
+            // a receipt is filed against one of these at a place that does.
+            taxable: true,
             system_key: Some(key),
             // Kept off budget screens: budgeting "Transfer" is meaningless and
             // budgeting "Uncategorized" encourages leaving things there.
@@ -217,7 +228,8 @@ static SEED_GROUPS: &[SeedGroup] = &[
         hidden: false,
         // Rollover for the same reason as Non-Monthly, more obviously: an
         // emergency fund that resets each month is a chequing account.
-        categories: &[SeedCategory::sinking("Emergency Fund")],
+        // Money moved into savings is not a purchase either.
+        categories: &[SeedCategory::sinking("Emergency Fund").untaxed()],
     },
     SeedGroup {
         // Hidden, so the three load-bearing categories do not clutter the
@@ -227,7 +239,8 @@ static SEED_GROUPS: &[SeedGroup] = &[
         hidden: true,
         categories: &[
             SeedCategory::system("Uncategorized", SYSTEM_UNCATEGORIZED),
-            SeedCategory::system("Transfer", SYSTEM_TRANSFER),
+            // Money moved between the user's own accounts is not a purchase.
+            SeedCategory::system("Transfer", SYSTEM_TRANSFER).untaxed(),
             SeedCategory::system("Reimbursable", SYSTEM_REIMBURSABLE),
         ],
     },
