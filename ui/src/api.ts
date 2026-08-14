@@ -237,6 +237,8 @@ export async function saveSubtotals(draft: SubtotalDraft): Promise<number> {
 export interface Area {
   name: string;
   taxRatePpm: number;
+  /** The reduced rate on unprepared food; null where food is taxed in full. */
+  foodRatePpm: number | null;
 }
 
 /**
@@ -254,9 +256,19 @@ export async function homeLocation(): Promise<Location | null> {
   return await invoke<Location | null>("home_location");
 }
 
-/** Name where the user lives and set its sales-tax rate. Asked on first run. */
-export async function setHomeLocation(name: string, taxRatePpm: number): Promise<void> {
-  await invoke("set_home_location", { name, taxRatePpm });
+/**
+ * Name where the user lives and set its sales-tax rates. Asked on first run.
+ *
+ * `foodRatePpm` is null when the area has no reduced rate on unprepared food,
+ * or when it is an area the picker does not know and there is nothing to
+ * derive one from.
+ */
+export async function setHomeLocation(
+  name: string,
+  taxRatePpm: number,
+  foodRatePpm: number | null,
+): Promise<void> {
+  await invoke("set_home_location", { name, taxRatePpm, foodRatePpm });
 }
 
 export interface Merchant {

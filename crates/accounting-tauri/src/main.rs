@@ -222,6 +222,8 @@ struct MerchantDto {
 struct AreaDto {
     name: String,
     tax_rate_ppm: u32,
+    /// `None` where the state taxes food like everything else.
+    food_rate_ppm: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -507,6 +509,7 @@ fn list_areas() -> Vec<AreaDto> {
         .map(|a| AreaDto {
             name: a.name.to_string(),
             tax_rate_ppm: a.tax_rate_ppm,
+            food_rate_ppm: a.food_rate_ppm,
         })
         .collect()
 }
@@ -525,13 +528,23 @@ fn home_location(state: State<'_, AppState>) -> CmdResult<Option<LocationDto>> {
         }))
 }
 
-/// Name the place the user lives and set its sales-tax rate.
+/// Name the place the user lives and set its sales-tax rates.
 ///
 /// Asked once, on first run, because every later receipt without an explicit
-/// location inherits this rate — and a receipt silently recording $0.00 of tax
-/// is wrong in a way nothing else surfaces.
+/// location inherits these rates — and a receipt silently recording $0.00 of
+/// tax is wrong in a way nothing else surfaces.
+///
+/// `food_rate_ppm` is the area's reduced rate on unprepared food, and `None`
+/// says food is taxed like everything else. That is the honest answer for an
+/// area the picker does not know: there is no second rate to derive, and
+/// inventing one would tax groceries at a figure nobody supplied.
 #[tauri::command]
-fn set_home_location(state: State<'_, AppState>, name: String, tax_rate_ppm: u32) -> CmdResult<()> {
+fn set_home_location(
+    state: State<'_, AppState>,
+    name: String,
+    tax_rate_ppm: u32,
+    food_rate_ppm: Option<u32>,
+) -> CmdResult<()> {
     let db = state.db.lock().map_err(to_message)?;
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -540,21 +553,33 @@ fn set_home_location(state: State<'_, AppState>, name: String, tax_rate_ppm: u32
     if tax_rate_ppm > 1_000_000 {
         return Err("a tax rate above 100% is not a rate".to_string());
     }
+    if food_rate_ppm.is_some_and(|food| food > tax_rate_ppm) {
+        // Not merely out of range — a "reduced" rate above the general one is
+        // a mix-up of the two arguments, and it would quietly overtax exactly
+        // the receipts this rate exists to get right.
+        return Err("a reduced food rate cannot be above the general rate".to_string());
+    }
 
     // Renames the existing home rather than adding a second one: the schema
     // permits exactly one, and the user is telling us where home *is*, not
     // adding a place they visited.
-    match locations::home(&db).map_err(to_message)? {
+    let home_id = match locations::home(&db).map_err(to_message)? {
         Some(home) => {
             locations::rename(&db, home.id, trimmed).map_err(to_message)?;
             locations::set_rate(&db, home.id, tax_rate_ppm).map_err(to_message)?;
+            home.id
         }
         None => {
             let created =
                 locations::get_or_create(&db, trimmed, tax_rate_ppm).map_err(to_message)?;
             locations::set_home(&db, created.id).map_err(to_message)?;
+            created.id
         }
-    }
+    };
+    // Written unconditionally, including the `None` that clears it: moving from
+    // Provo to a state with no reduced rate must not leave Utah's 3% behind on
+    // every grocery receipt.
+    locations::set_food_rate(&db, home_id, food_rate_ppm).map_err(to_message)?;
     Ok(())
 }
 
@@ -698,6 +723,10 @@ fn main() {
             }
             let db = Db::open(&path)?;
             seed_defaults(&db)?;
+            // A database set up before the reduced food rate existed answered
+            // the first-run prompt long ago and will never be asked again, so
+            // the rate has to arrive on its own. Idempotent — see the docs.
+            accounting_core::adopt_area_food_rates(&db)?;
 
             app.manage(AppState { db: Mutex::new(db) });
             Ok(())

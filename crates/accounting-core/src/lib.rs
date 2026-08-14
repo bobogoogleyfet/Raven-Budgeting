@@ -117,5 +117,6 @@ pub use repo::transactions::{
 };
 pub use service::budgets::CategoryBudgetStatus;
 pub use service::entry::{EntryContext, TransactionDraft, TransactionPreview};
+pub use service::locations::adopt_area_food_rates;
 pub use service::reports::{MatrixCell, MatrixRow, MonthlyMatrix, ReportBasis, monthly_matrix};
 pub use time::{MonthRange, ParseYearMonthError, YearMonth, month_short_name, quarter_of};

@@ -10,10 +10,9 @@
 //! transaction records the rate that was actually used at entry time, so
 //! correcting this later never rewrites history.
 //!
-//! Utah also taxes unprepared food at a reduced rate, which a single per-area
-//! number cannot express. The schema already has `location_category_rate` for
-//! that; until it is wired up, a grocery-heavy receipt will estimate high and
-//! the user should type the real tax off the paper.
+//! Utah also taxes unprepared food at a reduced rate, so an area carries two
+//! figures rather than one: [`Area::tax_rate_ppm`] and [`Area::food_rate_ppm`].
+//! Both prefill a location, and both are estimates the receipt overrules.
 //!
 //! Weighted toward Utah County and the Wasatch Front because that is where
 //! this install lives. Anywhere not listed is typed by hand with its rate,

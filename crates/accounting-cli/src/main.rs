@@ -738,6 +738,12 @@ fn run_init(path: &Path) -> anyhow::Result<()> {
 
     let db = Db::open(path).with_context(|| format!("could not open {}", path.display()))?;
     seed_defaults(&db).context("could not install the default categories")?;
+    // `init` is also the upgrade path — it reports "updated" on a database
+    // that already existed — and this is the kind of gap an upgrade leaves:
+    // migration 002 can add the food-rate column but cannot know that "Provo,
+    // UT" has one.
+    let adopted = accounting_core::adopt_area_food_rates(&db)
+        .context("could not apply the reduced food rates")?;
 
     let counts = Counts::read(&db)?;
     outln!(
@@ -753,6 +759,13 @@ fn run_init(path: &Path) -> anyhow::Result<()> {
         counts.merchants,
         counts.locations
     );
+    if adopted > 0 {
+        outln!(
+            "  food rate  applied to {} location{}",
+            adopted,
+            if adopted == 1 { "" } else { "s" }
+        );
+    }
     Ok(())
 }
 

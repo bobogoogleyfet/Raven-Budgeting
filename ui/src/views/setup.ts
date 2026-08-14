@@ -13,10 +13,16 @@
  * combined state-plus-county-plus-city rate before entering a first receipt.
  *
  * The rate is still shown rather than hidden, because it is an **estimate**:
- * these rates change, and a single per-area number cannot express Utah's
- * reduced rate on unprepared food. Showing it is what lets a user notice it is
- * wrong. An area the list does not know asks for the rate directly, since
- * there is nothing to derive it from.
+ * these rates change, and showing one is what lets a user notice it is wrong.
+ * An area the list does not know asks for the rate directly, since there is
+ * nothing to derive it from.
+ *
+ * An area brings a second figure where the state has one: Utah taxes
+ * unprepared food at a combined 3% rather than ~7.25%, which on a $7.28
+ * grocery subtotal is the difference between $0.22 of tax and $0.53. It is
+ * shown alongside the general rate for the same reason that one is, and a
+ * hand-typed area carries no food rate — there is no second number to derive,
+ * and inventing one would tax groceries at a figure nobody supplied.
  */
 
 import { type Area, listAreas, setHomeLocation } from "../api.ts";
@@ -34,6 +40,22 @@ export function parseRatePpm(input: string): number | null {
   // 9.44%. Rounding at the fourth decimal is far below a cent on any real
   // receipt and keeps the value an integer.
   return Math.round(percent * 10_000);
+}
+
+/**
+ * The one-line summary of what an area will charge.
+ *
+ * Names groceries explicitly rather than saying "food": the reduced rate is on
+ * *unprepared* food, and a restaurant meal is taxed in full. A summary that
+ * implied otherwise would have the user expecting the lower figure on a
+ * receipt that will never show it.
+ */
+export function rateSummary(taxRatePpm: number, foodRatePpm: number | null): string {
+  const general = `Sales tax ${formatRatePpm(taxRatePpm)}`;
+  // Equal rates are not a reduction, and printing the same number twice reads
+  // as a rule that does not exist.
+  if (foodRatePpm === null || foodRatePpm >= taxRatePpm) return general;
+  return `${general} · groceries ${formatRatePpm(foodRatePpm)}`;
 }
 
 export function setupView(onDone: () => void): HTMLElement {
@@ -83,7 +105,7 @@ export function setupView(onDone: () => void): HTMLElement {
       );
       return;
     }
-    derived.textContent = `Sales tax ${formatRatePpm(match.taxRatePpm)}`;
+    derived.textContent = rateSummary(match.taxRatePpm, match.foodRatePpm);
     rateRow.append(
       derived,
       el("span", { class: "hint" }, [" — an estimate; a receipt's own tax always wins."]),
@@ -104,9 +126,13 @@ export function setupView(onDone: () => void): HTMLElement {
       problem.textContent = "Enter the sales-tax rate for that area, like 7.25.";
       return;
     }
+    // A hand-typed area gets null, not the last-picked area's food rate: the
+    // user moved the choice off the list, and carrying Utah's 3% over to
+    // Boise would undertax every grocery receipt entered there.
+    const foodPpm = match?.foodRatePpm ?? null;
 
     go.disabled = true;
-    void setHomeLocation(where, ppm)
+    void setHomeLocation(where, ppm, foodPpm)
       .then(() => onDone())
       .catch((error: unknown) => {
         problem.textContent = String(error);
@@ -137,8 +163,9 @@ export function setupView(onDone: () => void): HTMLElement {
     rateRow,
     el("div", { class: "actions" }, [go, problem]),
     el("p", { class: "hint footnote" }, [
-      "You can change this any time. Rates here are starting points, not gospel — they change, ",
-      "and Utah taxes unprepared food at a lower rate than everything else.",
+      "You can change this any time. Rates here are starting points, not gospel — they change. ",
+      "Groceries are taxed at the lower rate where the state has one; a restaurant meal is not, ",
+      "because prepared food is taxed in full.",
     ]),
   );
 
