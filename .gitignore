@@ -21,6 +21,12 @@
 *.xlsx
 *.csv
 
+# …except the bundled rate table, which is published reference data and holds
+# nothing personal. It is `include_str!`d, so leaving it ignored does not fail
+# quietly — it fails the *build*, and only for someone whose checkout is clean.
+# The author's working copy still has the file on disk and compiles fine.
+!/crates/accounting-core/src/rates/*.csv
+
 # Editor / OS
 .DS_Store
 *.swp
