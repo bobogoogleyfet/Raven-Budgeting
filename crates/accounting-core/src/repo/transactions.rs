@@ -230,9 +230,23 @@ pub struct TxnFilter {
     pub from: Option<NaiveDate>,
     /// Inclusive upper bound on `txn_date`.
     pub to: Option<NaiveDate>,
-    pub merchant_id: Option<MerchantId>,
-    /// Matches a transaction if **any** of its splits is in this category.
-    pub category_id: Option<CategoryId>,
+    /// Show only these stores. Empty means every store.
+    ///
+    /// A set rather than one id because the list's filter is a column of
+    /// checkboxes: "these four shops" is an ordinary thing to ask for, and
+    /// running the query once per shop would paginate and sort each answer
+    /// separately.
+    pub merchant_ids: Vec<MerchantId>,
+    /// Also show expenses with no store at all.
+    ///
+    /// Consulted only when `merchant_ids` narrows anything. Quick-added
+    /// expenses have no merchant, so without this they would silently vanish
+    /// the moment a user touched the store filter — the one kind of expense
+    /// most in need of being found again.
+    pub include_no_merchant: bool,
+    /// Matches a transaction if **any** of its splits is in **any** of these
+    /// categories. Empty means every category.
+    pub category_ids: Vec<CategoryId>,
     pub needs_review: Option<bool>,
     pub include_archived: bool,
     pub limit: Option<usize>,
@@ -300,17 +314,32 @@ impl TxnFilter {
             values.push(date_value(to));
             clauses.push(format!("t.txn_date <= ?{}", values.len()));
         }
-        if let Some(merchant) = self.merchant_id {
-            values.push(Value::Integer(merchant.get()));
-            clauses.push(format!("t.merchant_id = ?{}", values.len()));
+        if !self.merchant_ids.is_empty() {
+            let first = values.len() + 1;
+            for id in &self.merchant_ids {
+                values.push(Value::Integer(id.get()));
+            }
+            let list = numbered(first, self.merchant_ids.len());
+            clauses.push(if self.include_no_merchant {
+                format!("(t.merchant_id IN ({list}) OR t.merchant_id IS NULL)")
+            } else {
+                format!("t.merchant_id IN ({list})")
+            });
+        } else if !self.include_no_merchant && self.merchant_ids.is_empty() {
+            // Nothing: an empty set is "every store", not "no stores". A
+            // filter that hid everything until something was ticked would make
+            // the list look empty the moment it was opened.
         }
-        if let Some(category) = self.category_id {
-            values.push(Value::Integer(category.get()));
-            // EXISTS rather than a JOIN: a three-way split that touches the
-            // category twice must still yield one transaction, not two.
+        if !self.category_ids.is_empty() {
+            let first = values.len() + 1;
+            for id in &self.category_ids {
+                values.push(Value::Integer(id.get()));
+            }
+            // EXISTS rather than a JOIN: a three-way split that touches two of
+            // the chosen categories must still yield one transaction, not two.
             clauses.push(format!(
-                "EXISTS (SELECT 1 FROM txn_split s WHERE s.txn_id = t.id AND s.category_id = ?{})",
-                values.len()
+                "EXISTS (SELECT 1 FROM txn_split s WHERE s.txn_id = t.id AND s.category_id IN ({}))",
+                numbered(first, self.category_ids.len())
             ));
         }
         if let Some(needs) = self.needs_review {
@@ -323,6 +352,18 @@ impl TxnFilter {
         }
         (clauses.join(" AND "), values)
     }
+}
+
+/// `?3,?4,?5` — `n` bind markers starting at `first`.
+///
+/// The numbers are generated, never the values: an id list is user input, and
+/// the only difference between a filter and an injection is who wrote the
+/// string.
+fn numbered(first: usize, n: usize) -> String {
+    (first..first + n)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// `txn_date` is TEXT `'YYYY-MM-DD'` in the schema, which compares
@@ -844,7 +885,7 @@ pub fn archive(db: &Db, id: TxnId) -> Result<()> {
 /// cached pointer can go stale where an index cannot.
 pub fn last_for_merchant(db: &Db, merchant_id: MerchantId) -> Result<Option<Txn>> {
     let filter = TxnFilter {
-        merchant_id: Some(merchant_id),
+        merchant_ids: vec![merchant_id],
         limit: Some(1),
         ..TxnFilter::default()
     };
@@ -1304,14 +1345,14 @@ mod tests {
         );
         assert_eq!(
             ids(&TxnFilter {
-                merchant_id: Some(heb.id),
+                merchant_ids: vec![heb.id],
                 ..TxnFilter::default()
             }),
             vec![a_id]
         );
         assert_eq!(
             ids(&TxnFilter {
-                category_id: Some(fuel.id),
+                category_ids: vec![fuel.id],
                 ..TxnFilter::default()
             }),
             vec![b_id]
@@ -1343,7 +1384,7 @@ mod tests {
         let found = list(
             &db,
             &TxnFilter {
-                category_id: Some(groceries.id),
+                category_ids: vec![groceries.id],
                 ..TxnFilter::default()
             },
         )

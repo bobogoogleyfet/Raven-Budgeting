@@ -821,7 +821,7 @@ fn list_filters_by_merchant() {
     let rows = transactions::list(
         &f.db,
         &TxnFilter {
-            merchant_id: Some(f.costco),
+            merchant_ids: vec![f.costco],
             ..Default::default()
         },
     )
@@ -847,7 +847,7 @@ fn list_filters_by_category() {
     let rows = transactions::list(
         &f.db,
         &TxnFilter {
-            category_id: Some(f.groceries),
+            category_ids: vec![f.groceries],
             ..Default::default()
         },
     )
@@ -871,7 +871,7 @@ fn list_filters_by_category() {
     let fuel_rows = transactions::list(
         &f.db,
         &TxnFilter {
-            category_id: Some(f.fuel),
+            category_ids: vec![f.fuel],
             ..Default::default()
         },
     )
@@ -988,7 +988,7 @@ fn count_agrees_with_the_list_it_describes() {
     for filter in [
         TxnFilter::default(),
         TxnFilter {
-            merchant_id: Some(f.shell),
+            merchant_ids: vec![f.shell],
             ..Default::default()
         },
         TxnFilter {
@@ -1341,7 +1341,7 @@ fn filtering_by_store_and_by_category_narrows_the_list() {
     let by_store = listed(
         &db,
         &TxnFilter {
-            merchant_id: Some(merchant(&db, "Costco")),
+            merchant_ids: vec![merchant(&db, "Costco")],
             ..TxnFilter::default()
         },
     );
@@ -1350,7 +1350,7 @@ fn filtering_by_store_and_by_category_narrows_the_list() {
     let by_category = listed(
         &db,
         &TxnFilter {
-            category_id: Some(cat(&db, "Household")),
+            category_ids: vec![cat(&db, "Household")],
             ..TxnFilter::default()
         },
     );
@@ -1361,11 +1361,98 @@ fn filtering_by_store_and_by_category_narrows_the_list() {
     let both = listed(
         &db,
         &TxnFilter {
-            merchant_id: Some(merchant(&db, "Costco")),
-            category_id: Some(cat(&db, "Household")),
+            merchant_ids: vec![merchant(&db, "Costco")],
+            category_ids: vec![cat(&db, "Household")],
             ..TxnFilter::default()
         },
     );
     assert!(both.is_empty(), "{both:?}");
+    assert_clean(&db);
+}
+
+#[test]
+fn several_stores_or_categories_can_be_shown_at_once() {
+    let db = seeded_db();
+    let (small, large, middle) = three_expenses(&db);
+
+    // The list's filter is a column of checkboxes, so "these two shops" is the
+    // ordinary request — not something to ask for one query at a time.
+    let both_stores = listed(
+        &db,
+        &TxnFilter {
+            merchant_ids: vec![merchant(&db, "Costco"), merchant(&db, "Target")],
+            ..TxnFilter::default()
+        },
+    );
+    assert_eq!(both_stores, vec![middle, large, small]);
+
+    let two_categories = listed(
+        &db,
+        &TxnFilter {
+            category_ids: vec![cat(&db, "Groceries"), cat(&db, "Household")],
+            ..TxnFilter::default()
+        },
+    );
+    assert_eq!(two_categories.len(), 3);
+    assert_clean(&db);
+}
+
+#[test]
+fn an_empty_filter_shows_everything_rather_than_nothing() {
+    let db = seeded_db();
+    three_expenses(&db);
+
+    // Nothing ticked is "every store", not "no stores". The other reading
+    // would empty the list the moment the filter was opened.
+    let all = listed(
+        &db,
+        &TxnFilter {
+            merchant_ids: Vec::new(),
+            category_ids: Vec::new(),
+            ..TxnFilter::default()
+        },
+    );
+    assert_eq!(all.len(), 3);
+    assert_clean(&db);
+}
+
+#[test]
+fn a_storeless_expense_can_be_kept_in_view() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    let costco = merchant(&db, "Costco");
+
+    let mut shopped = txn(
+        day("2026-08-10"),
+        amounts(1_000, 0),
+        vec![split(groceries, 1_000, 0)],
+    );
+    shopped.merchant_id = Some(costco);
+    let shopped = transactions::save(&db, &shopped).expect("save");
+    // What `quick_add` leaves behind: an amount, no store, sort it out later.
+    let anonymous = transactions::save(
+        &db,
+        &txn(
+            day("2026-08-11"),
+            amounts(2_000, 0),
+            vec![split(groceries, 2_000, 0)],
+        ),
+    )
+    .expect("save");
+
+    let named_only = TxnFilter {
+        merchant_ids: vec![costco],
+        ..TxnFilter::default()
+    };
+    assert_eq!(listed(&db, &named_only), vec![shopped]);
+
+    // Without this, touching the store filter would silently hide every
+    // quick-added expense — the kind most in need of being found again.
+    let with_blanks = TxnFilter {
+        merchant_ids: vec![costco],
+        include_no_merchant: true,
+        ..TxnFilter::default()
+    };
+    assert_eq!(listed(&db, &with_blanks), vec![anonymous, shopped]);
     assert_clean(&db);
 }

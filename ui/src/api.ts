@@ -188,12 +188,20 @@ export async function saveTransaction(draft: TransactionDraft): Promise<number> 
 /** How the expense list is ordered. */
 export type TxnSort = "dateDesc" | "dateAsc" | "totalDesc" | "totalAsc";
 
-/** Narrowing and ordering for the expense list. All optional. */
+/** Narrowing and ordering for the expense list. */
 export interface TxnQuery {
   limit: number;
-  /** Matches an expense if *any* of its categories is this one. */
-  categoryId?: number | null;
-  merchantId?: number | null;
+  /**
+   * Show only these categories; `null` shows every one.
+   *
+   * `null` rather than "a list of all of them", because the two differ the
+   * moment a category is added: an explicit list built yesterday would hide
+   * anything filed under a category created since.
+   */
+  categoryIds?: number[] | null;
+  merchantIds?: number[] | null;
+  /** Also show expenses with no store — what quick-add leaves behind. */
+  includeNoMerchant?: boolean;
   sort?: TxnSort;
 }
 
@@ -208,8 +216,9 @@ export interface TxnQuery {
 export async function listTransactions(query: TxnQuery): Promise<TxnSummary[]> {
   const rows = await invoke<RawTxnSummary[]>("list_transactions", {
     limit: query.limit,
-    categoryId: query.categoryId ?? null,
-    merchantId: query.merchantId ?? null,
+    categoryIds: query.categoryIds ?? null,
+    merchantIds: query.merchantIds ?? null,
+    includeNoMerchant: query.includeNoMerchant ?? false,
     sort: query.sort ?? "dateDesc",
   });
   return rows.map(brandSummary);
