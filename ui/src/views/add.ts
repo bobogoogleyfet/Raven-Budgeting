@@ -77,7 +77,7 @@ export function addView(onSaved: () => void): HTMLElement {
 
   const merchant = combobox({
     id: "f-merchant",
-    placeholder: "Costco",
+    placeholder: "Select a Store",
     onCommit: (name) => {
       void loadContext(name === "" ? null : name).then(() => schedulePreview());
     },
@@ -94,9 +94,11 @@ export function addView(onSaved: () => void): HTMLElement {
   const chips = el("div", { class: "chips" });
   const context = el("p", { class: "hint" });
   const rowsBox = el("div", { class: "splits" });
-  const addRow = el("button", { type: "button", class: "link" }, ["+ Add category"]);
+  const addRow = el("button", { type: "button", class: "primary add-category" }, [
+    "+ Add category",
+  ]);
   const panel = el("div", { class: "preview" });
-  const save = el("button", { type: "button", class: "primary" }, ["Save receipt"]);
+  const save = el("button", { type: "button", class: "primary" }, ["Save expense"]);
   const feedback = el("p", { class: "hint", role: "status" });
 
   // --- draft ----------------------------------------------------------------
@@ -136,7 +138,12 @@ export function addView(onSaved: () => void): HTMLElement {
     const taken = new Set(
       rows.filter((r) => r !== state && r.categoryId !== null).map((r) => r.categoryId),
     );
-    return categories.filter((c) => !taken.has(c.id));
+    // Alphabetical, not the seed's grouping order. The list is filtered by
+    // typing, so its only job unfiltered is to be scannable — and the one
+    // order a reader can predict is the alphabet.
+    return categories
+      .filter((c) => !taken.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   function renderRows(): void {
@@ -148,7 +155,7 @@ export function addView(onSaved: () => void): HTMLElement {
       // is more than a dropdown is comfortable to scan, and typing three
       // letters beats scrolling on every receipt.
       const picker = combobox({
-        placeholder: "Groceries",
+        placeholder: "Select a Category",
         onCommit: (name) => {
           const match = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
           state.categoryId = match?.id ?? null;
@@ -266,7 +273,7 @@ export function addView(onSaved: () => void): HTMLElement {
     // not notice — and the receipt in their hand is the authority on what they
     // bought. Naming Macey's should not decide that this was groceries.
     //
-    // It also made "Save receipt" look broken: the form cleared its rows and
+    // It also made "Save expense" look broken: the form cleared its rows and
     // the reloaded context put the category straight back, so the field never
     // appeared to empty.
 
@@ -342,7 +349,7 @@ export function addView(onSaved: () => void): HTMLElement {
         const id = await saveSubtotals(draft(withNotes(approved)));
         // Reset to a fresh receipt rather than leaving the saved one on
         // screen, where a second click would file it twice.
-        feedback.textContent = `Saved receipt #${id}.`;
+        feedback.textContent = `Saved expense #${id}.`;
         note.value = "";
         rows = [{ categoryId: null, subtotalText: "" }];
         renderRows();
@@ -374,7 +381,7 @@ export function addView(onSaved: () => void): HTMLElement {
   }
 
   root.append(
-    el("h1", {}, ["Add a receipt"]),
+    el("h1", {}, ["Add an expense"]),
     el("div", { class: "form" }, [
       el("label", { for: "f-date" }, ["Date"]),
       date.root,
