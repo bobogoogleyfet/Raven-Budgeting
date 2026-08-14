@@ -1123,3 +1123,96 @@ fn fifty_transactions_all_load_with_their_splits_intact() {
 
     assert_clean(&db);
 }
+
+// ---------------------------------------------------------------------------
+// Delete
+// ---------------------------------------------------------------------------
+
+#[test]
+fn deleting_a_transaction_takes_its_splits_and_line_items_with_it() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    let household = cat(&db, "Household");
+
+    let mut new = txn(
+        day("2026-08-13"),
+        amounts(5000, 400),
+        vec![split(groceries, 3000, 240), split(household, 2000, 160)],
+    );
+    // The items must come to the split's *amount* — $30.00 plus its $2.40 of
+    // tax — because that invariant is what `save` checks before writing.
+    new.splits[0].line_items = vec![item("Milk", 1240), item("Bread", 2000)];
+    let id = transactions::save(&db, &new).expect("save");
+    let before = row_counts(&db);
+    assert_eq!(before.splits, 2);
+    assert_eq!(before.line_items, 2);
+
+    transactions::delete(&db, id).expect("delete");
+
+    let after = row_counts(&db);
+    assert_eq!(after.txns, 0);
+    // Through ON DELETE CASCADE, twice over: an orphaned split is money that
+    // belongs to no receipt, and the integrity check would rightly call it a
+    // violation.
+    assert_eq!(after.splits, 0, "splits outlived their transaction");
+    assert_eq!(after.line_items, 0, "line items outlived their split");
+    assert_clean(&db);
+}
+
+#[test]
+fn deleting_leaves_the_other_receipts_alone() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+
+    let keep = transactions::save(
+        &db,
+        &txn(
+            day("2026-08-12"),
+            amounts(1000, 80),
+            vec![split(groceries, 1000, 80)],
+        ),
+    )
+    .expect("save");
+    let doomed = transactions::save(
+        &db,
+        &txn(
+            day("2026-08-13"),
+            amounts(2000, 160),
+            vec![split(groceries, 2000, 160)],
+        ),
+    )
+    .expect("save");
+
+    transactions::delete(&db, doomed).expect("delete");
+
+    assert_eq!(row_counts(&db).txns, 1);
+    let survivor = transactions::get(&db, keep).expect("the other receipt survives");
+    assert_eq!(survivor.total, m(1080));
+    assert_clean(&db);
+}
+
+#[test]
+fn deleting_a_receipt_that_is_already_gone_says_so() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    let id = transactions::save(
+        &db,
+        &txn(
+            day("2026-08-13"),
+            amounts(1000, 80),
+            vec![split(groceries, 1000, 80)],
+        ),
+    )
+    .expect("save");
+
+    transactions::delete(&db, id).expect("first delete");
+
+    // Two windows open on one database is ordinary, and a silent success would
+    // tell the second one it removed something it did not.
+    let error = transactions::delete(&db, id).expect_err("second delete");
+    assert!(
+        matches!(error, CoreError::NotFound(_)),
+        "expected NotFound, got {error:?}"
+    );
+    assert_clean(&db);
+}

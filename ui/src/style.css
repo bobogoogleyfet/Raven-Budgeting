@@ -326,12 +326,6 @@ tr.over {
   color: var(--warn);
 }
 
-.estimated {
-  color: var(--muted);
-  margin-left: 0.35em;
-  cursor: help;
-}
-
 .toolbar {
   display: flex;
   align-items: center;
@@ -613,4 +607,10 @@ tr.over {
   /* Reserves its line whether or not a category is chosen, so picking one does
      not shunt the row below it down the page. */
   min-height: 1rem;
+}
+
+/* The armed half of the two-click delete on the receipts list. */
+.remove.armed {
+  color: var(--warn);
+  font-weight: 600;
 }

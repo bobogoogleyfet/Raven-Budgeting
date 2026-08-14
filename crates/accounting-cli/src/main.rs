@@ -122,6 +122,13 @@ enum Command {
     List(ListArgs),
     /// Show one transaction in full: header, splits, line items.
     Show(ShowArgs),
+    /// Delete a transaction, with its splits and line items.
+    ///
+    /// Irreversible. For a receipt that should not exist — entered twice, or
+    /// saved with the wrong amount — rather than for correcting one, which is
+    /// what re-saving it does.
+    #[command(verbatim_doc_comment)]
+    Delete(ShowArgs),
     /// Record a total now and categorize it later, from `pacc inbox`.
     QuickAdd(QuickAddArgs),
     /// The needs-categorizing queue, with the command to clear each entry.
@@ -696,6 +703,7 @@ fn main() -> anyhow::Result<()> {
         Command::Add(args) => run_add(&cli.db_path()?, args)?,
         Command::List(args) => run_list(&cli.db_path()?, args)?,
         Command::Show(args) => run_show(&cli.db_path()?, args.id)?,
+        Command::Delete(args) => run_delete(&cli.db_path()?, args.id)?,
         Command::QuickAdd(args) => run_quick_add(&cli.db_path()?, args)?,
         Command::Inbox(args) => run_inbox(&cli, args)?,
         Command::Categorize(args) => run_categorize(&cli.db_path()?, args)?,
@@ -1156,6 +1164,23 @@ fn run_show(path: &Path, id: i64) -> anyhow::Result<()> {
     let db = open_existing(path)?;
     let txn = transactions::get(&db, TxnId::new(id))?;
     print_txn(&txn);
+    Ok(())
+}
+
+fn run_delete(path: &Path, id: i64) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    // Loaded before it is destroyed so the confirmation can describe what went
+    // — "deleted 12" is not something a user can check against their memory,
+    // and there is nothing left to look up afterwards.
+    let txn = transactions::get(&db, TxnId::new(id))?;
+    let describe = format!(
+        "{} {} {}",
+        txn.txn_date,
+        txn.merchant_name.as_deref().unwrap_or("—"),
+        txn.total.to_display_string()
+    );
+    transactions::delete(&db, TxnId::new(id))?;
+    outln!("deleted {id}: {describe}");
     Ok(())
 }
 

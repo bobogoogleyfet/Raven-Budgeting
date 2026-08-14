@@ -697,6 +697,18 @@ fn list_locations(state: State<'_, AppState>) -> CmdResult<Vec<LocationDto>> {
         .collect())
 }
 
+/// Delete a receipt, with its splits and line items.
+///
+/// Irreversible, and deliberately not softened here: the confirmation belongs
+/// on screen, next to the row the user is pointing at, where they can still see
+/// what it is. A command that asked its own question would be one the UI could
+/// not phrase.
+#[tauri::command]
+fn delete_transaction(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
+    let db = state.db.lock().map_err(to_message)?;
+    transactions::delete(&db, TxnId::new(id)).map_err(to_message)
+}
+
 /// Assign categories to a quick-added receipt and clear its review flag.
 ///
 /// The amounts are already on disk and are not re-entered; this only decides
@@ -910,6 +922,7 @@ fn main() {
             list_merchants,
             list_locations,
             categorize,
+            delete_transaction,
             budget_status,
         ])
         .run(tauri::generate_context!())
