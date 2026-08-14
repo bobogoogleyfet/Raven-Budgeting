@@ -615,6 +615,58 @@ fn home_location(state: State<'_, AppState>) -> CmdResult<Option<LocationDto>> {
 /// they came from one. It is what makes the quarterly refresh reach this
 /// location — without it the rates table could update forever while every
 /// receipt stayed on the figure copied in today. A hand-typed rate sends
+/// Make sure a location exists by that name, creating it from the published
+/// rate table if it does not.
+///
+/// # Why the entry form needs this
+///
+/// A draft names its location, and the core refuses a name it does not know —
+/// deliberately, because falling back to "no location" would switch the rate to
+/// 0% and produce a plausible, wrong number. But the entry form offers every
+/// jurisdiction Utah publishes, most of which the user has never shopped in, so
+/// something has to turn "Provo" from a name into a row before the receipt can
+/// reference it.
+///
+/// The rates come from the publication and the link with them, so a place named
+/// here follows the quarterly refresh exactly like the home location does. A
+/// name the table does not know is created at 0% — no rate has been supplied
+/// and inventing one would be worse than a visible zero.
+#[tauri::command]
+fn ensure_location(state: State<'_, AppState>, name: String) -> CmdResult<LocationDto> {
+    let db = state.db.lock().map_err(to_message)?;
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("a location needs a name".to_string());
+    }
+
+    let published = tax_areas::find_by_name(&db, trimmed).map_err(to_message)?;
+    let rate = published.as_ref().map_or(0, |a| a.combined_rate_ppm);
+    let location = locations::get_or_create(&db, trimmed, rate).map_err(to_message)?;
+    if let Some(area) = published {
+        // Also on a location that already existed: it may predate the rate
+        // table, and this is the same conversion `adopt_published_areas` does
+        // for the ones that were there at upgrade time.
+        if location.area_code.is_none() {
+            locations::adopt_area(
+                &db,
+                location.id,
+                &area.code,
+                area.combined_rate_ppm,
+                area.food_rate_ppm,
+            )
+            .map_err(to_message)?;
+        }
+    }
+
+    let fresh = locations::get(&db, location.id).map_err(to_message)?;
+    Ok(LocationDto {
+        id: fresh.id.get(),
+        name: fresh.name,
+        tax_rate_ppm: fresh.tax_rate_ppm,
+        is_home: fresh.is_home,
+    })
+}
+
 /// `None`, and then nothing revises it but the person who typed it.
 #[tauri::command]
 fn set_home_location(
@@ -923,6 +975,7 @@ fn main() {
             rate_release,
             home_location,
             set_home_location,
+            ensure_location,
             list_merchants,
             list_locations,
             categorize,

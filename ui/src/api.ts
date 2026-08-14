@@ -367,6 +367,19 @@ export async function listLocations(): Promise<Location[]> {
   return await invoke<Location[]>("list_locations");
 }
 
+/**
+ * Make sure a location exists by that name, creating it if it does not.
+ *
+ * The entry form offers every jurisdiction the state publishes, most of which
+ * the user has never shopped in. A draft names its location and the core
+ * refuses a name it does not know — rightly, since falling back to "no
+ * location" would switch the rate to 0% and produce a plausible, wrong number
+ * — so a chosen place has to become a row before the expense can reference it.
+ */
+export async function ensureLocation(name: string): Promise<Location> {
+  return await invoke<Location>("ensure_location", { name });
+}
+
 /** Assign categories to a quick-added receipt and clear its review flag. */
 export async function categorize(id: number, splits: SplitDraft[]): Promise<void> {
   await invoke("categorize", { id, splits });

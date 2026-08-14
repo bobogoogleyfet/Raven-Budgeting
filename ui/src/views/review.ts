@@ -88,7 +88,7 @@ export function reviewDialog(config: {
     const problem = el("p", { class: "blocker" });
 
     const cancel = el("button", { type: "button", class: "secondary" }, ["Back"]);
-    const go = el("button", { type: "button", class: "primary" }, ["Save expense"]);
+    const go = el("button", { type: "button", class: "primary" }, ["Save Expense"]);
 
     /** Tax inputs, so the computed ones can be refreshed after a change. */
     const taxInputs: HTMLInputElement[] = [];
