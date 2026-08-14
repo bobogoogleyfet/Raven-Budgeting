@@ -17,7 +17,6 @@ import {
   fromCore,
   parseCents,
   rateSummary,
-  taxLabel,
 } from "./money.ts";
 
 test("formatting pads the cents rather than truncating them", () => {
@@ -99,18 +98,4 @@ test("no reduced rate says nothing about groceries", () => {
 
 test("a food rate equal to the general one is not a reduction", () => {
   assert.equal(rateSummary(74_500, 74_500), "7.45%");
-});
-
-test("the tax line is labelled with the rate that was actually applied", () => {
-  // The bug this prevents: a $7.28 grocery subtotal in Highland owes $0.22,
-  // and "Tax (7.45%) $0.22" makes correct arithmetic look broken — 7.45% of
-  // $7.28 is $0.54.
-  assert.equal(taxLabel(30_000), "Tax (3%)");
-  assert.equal(taxLabel(74_500), "Tax (7.45%)");
-});
-
-test("a basket straddling two rates does not claim one", () => {
-  // Groceries at 3% and shampoo at 7.45% in the same run. Either figure would
-  // be true of only part of the receipt.
-  assert.equal(taxLabel(null), "Tax (mixed rates)");
 });

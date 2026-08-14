@@ -34,7 +34,7 @@ import {
 import { combobox } from "../combobox.ts";
 import { dateField } from "../datefield.ts";
 import { clear, debounce, el, today } from "../dom.ts";
-import { formatMoney, formatRatePpm, parseCents, taxLabel } from "../money.ts";
+import { formatMoney, formatRatePpm, parseCents } from "../money.ts";
 
 /** One entered line: a category and what it came to before tax. */
 interface RowState {
@@ -162,35 +162,39 @@ export function addView(onSaved: () => void): HTMLElement {
     });
   }
 
+  /**
+   * The rate a summary line was taxed at, as `"(3%)"` — empty when the
+   * category is unknown.
+   *
+   * Read from the same core-supplied table the pickers above are labelled
+   * with, so the summary and the rows can never print different figures for
+   * one category.
+   */
+  function rowRate(categoryId: number | null): string {
+    const ppm = categoryId === null ? undefined : categoryRates.get(categoryId);
+    return ppm === undefined ? "" : `(${formatRatePpm(ppm)})`;
+  }
+
   function renderPreview(p: Preview): void {
     clear(panel);
 
-    panel.append(
-      el("dl", { class: "totals" }, [
-        el("dt", {}, ["Subtotal"]),
-        el("dd", {}, [formatMoney(p.subtotal)]),
-        el("dt", {}, [taxLabel(p.appliedRatePpm)]),
-        el("dd", {}, [formatMoney(p.tax)]),
-        el("dt", { class: "grand" }, ["Total"]),
-        el("dd", { class: "grand" }, [formatMoney(p.total)]),
-      ]),
-    );
-
-    if (p.rows.length > 0) {
-      const body = el("tbody");
-      for (const row of p.rows) {
-        body.append(
-          el("tr", {}, [
-            el("td", {}, [row.categoryName ?? "— no category —"]),
-            el("td", { class: "amount" }, [formatMoney(row.amount)]),
-          ]),
-        );
-      }
-      panel.append(
-        el("p", { class: "preview-caption" }, ["Each category, with its share of the tax"]),
-        el("table", { class: "split-preview" }, [body]),
+    // Subtotal, then one tax line per category, then the total. A single "Tax"
+    // line cannot be honest here: the rate depends on the category, so on a
+    // mixed receipt one figure would be labelled with a rate true of only part
+    // of it. Naming each category's tax says where every cent came from, which
+    // is the same question the rows above answer.
+    const lines = [el("dt", {}, ["Subtotal"]), el("dd", {}, [formatMoney(p.subtotal)])];
+    for (const row of p.rows) {
+      lines.push(
+        el("dt", {}, [`${row.categoryName ?? "— no category —"} tax ${rowRate(row.categoryId)}`]),
+        el("dd", {}, [formatMoney(row.tax)]),
       );
     }
+    lines.push(
+      el("dt", { class: "grand" }, ["Total"]),
+      el("dd", { class: "grand" }, [formatMoney(p.total)]),
+    );
+    panel.append(el("dl", { class: "totals" }, lines));
 
     for (const b of p.blockers) panel.append(el("p", { class: "blocker" }, [b]));
     for (const w of p.warnings) panel.append(el("p", { class: "warning" }, [w]));
