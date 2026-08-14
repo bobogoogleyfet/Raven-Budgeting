@@ -1,4 +1,4 @@
-/** The receipt list. Everything entered here or with `pacc add`. */
+/** The expense list. Everything entered here or with `pacc add`. */
 
 import { type TxnSummary, deleteTransaction, listTransactions } from "../api.ts";
 import { confirmDialog } from "../dialog.ts";
@@ -7,7 +7,7 @@ import { formatMoney } from "../money.ts";
 
 const HOW_MANY = 200;
 
-export function receiptsView(): HTMLElement {
+export function expensesView(): HTMLElement {
   const root = el("section", { class: "view" });
   const status = el("p", { class: "hint", role: "status" }, ["Loading…"]);
   const table = el("table", { hidden: true });
@@ -42,9 +42,9 @@ export function receiptsView(): HTMLElement {
 
     button.addEventListener("click", () => {
       void confirmDialog({
-        question: "Delete this receipt?",
+        question: "Delete this expense?",
         detail: `${txn.txnDate} · ${txn.merchantName ?? "no store"} · ${formatMoney(txn.total)}`,
-        confirmLabel: "Delete receipt",
+        confirmLabel: "Delete expense",
       }).then((yes) => {
         if (!yes) return;
         button.disabled = true;
@@ -57,13 +57,13 @@ export function receiptsView(): HTMLElement {
             if (body.childElementCount === 0) {
               table.hidden = true;
               status.hidden = false;
-              status.textContent = "No receipts yet. Add one on the Add tab.";
+              status.textContent = "No expenses yet. Add one on the Add tab.";
             }
           })
           .catch((error: unknown) => {
             button.disabled = false;
             status.hidden = false;
-            status.textContent = `Could not delete that receipt: ${String(error)}`;
+            status.textContent = `Could not delete that expense: ${String(error)}`;
           });
       });
     });
@@ -86,12 +86,12 @@ export function receiptsView(): HTMLElement {
     return tr;
   }
 
-  root.append(el("h1", {}, ["Receipts"]), status, table);
+  root.append(el("h1", {}, ["Expenses"]), status, table);
 
   void listTransactions(HOW_MANY)
     .then((rows) => {
       if (rows.length === 0) {
-        status.textContent = "No receipts yet. Add one on the Add tab.";
+        status.textContent = "No expenses yet. Add one on the Add tab.";
         return;
       }
       clear(body);
@@ -100,7 +100,7 @@ export function receiptsView(): HTMLElement {
       table.hidden = false;
     })
     .catch((error: unknown) => {
-      status.textContent = `Could not load receipts: ${String(error)}`;
+      status.textContent = `Could not load expenses: ${String(error)}`;
     });
 
   return root;

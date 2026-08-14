@@ -25,7 +25,7 @@ export function inboxView(onChanged: () => void): HTMLElement {
 
     if (rows.length === 0) {
       status.hidden = false;
-      status.textContent = "Nothing waiting. Quick-added receipts show up here.";
+      status.textContent = "Nothing waiting. Quick-added expenses show up here.";
       return;
     }
     status.hidden = true;

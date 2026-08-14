@@ -727,3 +727,15 @@ table.review tfoot tr.grand td {
   font-weight: 700;
   border-top: 2px solid var(--line);
 }
+
+/* --- add another category --- */
+/* A button rather than a link: it does the same kind of thing as Save, and a
+   link-looking control in a column of inputs reads as help text. */
+.add-category {
+  /* Tucked under the rows it extends, and well clear of the Note field below.
+     Sitting midway between the two made it ambiguous which one it belonged to. */
+  margin-top: 0.15rem;
+  margin-bottom: 1.1rem;
+  padding: 0.35rem 0.8rem;
+  font-weight: 500;
+}

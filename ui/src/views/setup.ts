@@ -170,7 +170,7 @@ export function setupView(onDone: () => void): HTMLElement {
   root.append(
     el("h1", {}, ["Where do you shop?"]),
     el("p", { class: "hint" }, [
-      "Sales tax is worked out from where a store is, so receipts only need their subtotals. ",
+      "Sales tax is worked out from where a store is, so expenses only need their subtotals. ",
       "This is the default for anywhere you have not named specifically.",
     ]),
     el("div", { class: "form" }, [el("label", { for: "s-area" }, ["Home area"]), area.root]),

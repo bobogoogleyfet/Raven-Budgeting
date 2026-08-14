@@ -88,7 +88,7 @@ export function reviewDialog(config: {
     const problem = el("p", { class: "blocker" });
 
     const cancel = el("button", { type: "button", class: "secondary" }, ["Back"]);
-    const go = el("button", { type: "button", class: "primary" }, ["Save receipt"]);
+    const go = el("button", { type: "button", class: "primary" }, ["Save expense"]);
 
     /** Tax inputs, so the computed ones can be refreshed after a change. */
     const taxInputs: HTMLInputElement[] = [];
@@ -179,7 +179,7 @@ export function reviewDialog(config: {
     ]);
 
     const dialog = el("dialog", { class: "confirm review-dialog" }, [
-      el("p", { class: "confirm-question" }, ["Does this match the receipt?"]),
+      el("p", { class: "confirm-question" }, ["Does this match your receipt?"]),
       el("p", { class: "confirm-detail" }, [
         "Correct any amount or tax that differs from the paper — the receipt wins.",
       ]),
