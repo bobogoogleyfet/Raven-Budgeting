@@ -42,6 +42,7 @@ fn draft(db: &accounting_core::Db, rows: &[(&str, i64)]) -> SubtotalDraft {
             .map(|(name, cents)| SubtotalRow {
                 category_id: Some(cat(db, name)),
                 subtotal: m(*cents),
+                tax: None,
                 note: None,
             })
             .collect(),
@@ -153,6 +154,7 @@ fn a_row_without_a_category_blocks_saving() {
     d.rows.push(SubtotalRow {
         category_id: None,
         subtotal: m(500),
+        tax: None,
         note: None,
     });
 
@@ -193,10 +195,19 @@ fn a_saved_receipt_round_trips_with_its_derived_tax() {
     let id = save_subtotals(&db, &d, NOW).expect("save");
     let txn = transactions::get(&db, id).expect("get");
 
-    // $150.00 at 7.75% is $11.625, which rounds to $11.63.
+    // $100.00 of groceries at 7.75% is $7.75. The $50.00 of fuel adds nothing:
+    // motor fuel pays a per-gallon excise rather than sales tax, and it is
+    // already inside the price on the sign. Taxing it would invent $3.88.
     assert_eq!(txn.subtotal, m(15_000));
-    assert_eq!(txn.tax, m(1_163));
-    assert_eq!(txn.total, m(16_163));
+    assert_eq!(txn.tax, m(775));
+    assert_eq!(txn.total, m(15_775));
+    let fuel = txn
+        .splits
+        .iter()
+        .find(|s| s.category_name == "Gas")
+        .expect("the fuel row");
+    assert_eq!(fuel.tax, Money::ZERO);
+    assert_eq!(fuel.amount, m(5_000), "what you paid is what you paid");
     assert!(txn.tax_is_estimated);
     assert_eq!(txn.tax_rate_ppm, Some(RATE));
     assert_eq!(txn.merchant_name.as_deref(), Some("Costco"));

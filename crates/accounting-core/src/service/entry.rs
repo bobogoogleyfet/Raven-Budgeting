@@ -164,7 +164,7 @@ pub fn category_rates(db: &Db, context: &EntryContext) -> Result<Vec<CategoryRat
         .into_iter()
         .map(|c| CategoryRate {
             category_id: c.id,
-            rate_ppm: category_rate(context.tax.rate_ppm, food_rate, c.uses_food_rate),
+            rate_ppm: category_rate(context.tax.rate_ppm, food_rate, c.uses_food_rate, c.taxable),
         })
         .collect())
 }
@@ -267,19 +267,28 @@ pub fn preview_transaction_with_rate(
         }
     }
     if amounts.tax_is_estimated {
-        // Worded by case. At a 0% rate the generic sentence reads "tax of
-        // $0.00 was estimated at 0%", which tells the user nothing and hides
-        // the actually useful fact: no rate is configured, so no tax was
-        // applied to a receipt that probably had some.
-        warnings.push(if context.tax.rate_ppm == 0 {
-            "no tax was applied: this location has no tax rate set".to_string()
-        } else {
-            format!(
+        // Three cases, and only two of them are worth saying anything about.
+        //
+        // The effective rate is zero for two very different reasons: nobody
+        // ever configured a rate, or the categories on this receipt are not
+        // sales-taxed. The first is a setup mistake that silently untaxes
+        // everything and is exactly what this warning is for. The second is
+        // rent, or a tank of fuel, behaving correctly — and blaming the
+        // location for it ("this location has no tax rate set", at a location
+        // charging 7.45%) sends the user off to fix something that is not
+        // broken.
+        let location_rate = context.location.as_ref().map_or(0, |l| l.tax_rate_ppm);
+        if location_rate == 0 {
+            warnings.push("no tax was applied: this location has no tax rate set".to_string());
+        } else if context.tax.rate_ppm != 0 {
+            // At a 0% *effective* rate the generic sentence would read "tax of
+            // $0.00 was estimated at 0%", which tells the user nothing.
+            warnings.push(format!(
                 "tax of {} was estimated at {}, not read off the receipt",
                 amounts.tax.to_display_string(),
                 format_rate(context.tax.rate_ppm)
-            )
-        });
+            ));
+        }
     }
     if requested_detail == DetailLevel::Itemized && !has_items {
         warnings.push(
@@ -309,6 +318,18 @@ pub fn preview_transaction_with_rate(
 pub struct SubtotalRow {
     pub category_id: Option<CategoryId>,
     pub subtotal: Money,
+    /// The tax on this row, when the user has said what it is.
+    ///
+    /// `None` — the normal case — means "work it out from the rate". `Some`
+    /// means somebody read a figure off the paper and it wins: a published
+    /// rate is an estimate, a receipt is evidence, and the app's standing rule
+    /// is that the receipt is right.
+    ///
+    /// A row carrying one is left out of the rate buckets entirely rather than
+    /// being computed and then overwritten, because the bucket exists to
+    /// apportion a rounded total across the rows that share a rate — and a row
+    /// whose tax is already known is not sharing anything.
+    pub tax: Option<Money>,
     pub note: Option<String>,
 }
 
@@ -347,17 +368,19 @@ fn single_rate_for(
     draft: &TransactionDraft,
 ) -> Result<Option<u32>> {
     let base = resolve_context(db, merchant, location, None)?;
-    let Some(food) = base.location.as_ref().and_then(|l| l.food_rate_ppm) else {
-        return Ok(None);
-    };
+    let food = base.location.as_ref().and_then(|l| l.food_rate_ppm);
 
     let known = categories::list_all(db)?;
     let mut rates = draft.splits.iter().map(|split| {
-        let uses_food = split
+        let category = split
             .category_id
-            .and_then(|id| known.iter().find(|c| c.id == id))
-            .is_some_and(|c| c.uses_food_rate);
-        if uses_food { food } else { base.tax.rate_ppm }
+            .and_then(|id| known.iter().find(|c| c.id == id));
+        category_rate(
+            base.tax.rate_ppm,
+            food,
+            category.is_some_and(|c| c.uses_food_rate),
+            category.is_none_or(|c| c.taxable),
+        )
     });
 
     let Some(first) = rates.next() else {
@@ -424,27 +447,43 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     let food_rate = context.location.as_ref().and_then(|l| l.food_rate_ppm);
     let known: Vec<Category> = categories::list_all(db)?;
     let rate_for = |id: Option<CategoryId>| -> u32 {
-        let uses_food = id
-            .and_then(|id| known.iter().find(|c| c.id == id))
-            .is_some_and(|c| c.uses_food_rate);
+        let category = id.and_then(|id| known.iter().find(|c| c.id == id));
         // The same function the entry form labels its rows with, so the rate
         // on screen is the rate that was charged rather than a second opinion.
-        category_rate(context.tax.rate_ppm, food_rate, uses_food)
+        category_rate(
+            context.tax.rate_ppm,
+            food_rate,
+            category.is_some_and(|c| c.uses_food_rate),
+            // A row with no category yet is treated as taxable; it is blocked
+            // from saving anyway, and showing 0% would look like an answer.
+            category.is_none_or(|c| c.taxable),
+        )
     };
 
     // Buckets keyed by rate, each holding the indices of its rows. A BTreeMap
     // so the iteration order is the rate, not the hash — the apportionment
     // below must be reproducible.
     let mut buckets: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    let mut taxes = vec![Money::ZERO; draft.rows.len()];
     for (index, row) in draft.rows.iter().enumerate() {
+        // A row that was told its tax skips the buckets. Computing it and then
+        // overwriting would round the *other* rows against a bucket total that
+        // includes money this row is not contributing to.
+        if let Some(given) = row.tax {
+            taxes[index] = given;
+            continue;
+        }
         buckets
             .entry(rate_for(row.category_id))
             .or_default()
             .push(index);
     }
-
-    let mut taxes = vec![Money::ZERO; draft.rows.len()];
-    let mut tax = Money::ZERO;
+    let mut tax = draft
+        .rows
+        .iter()
+        .filter_map(|r| r.tax)
+        .try_fold(Money::ZERO, |acc, t| acc.checked_add(t))
+        .ok_or_else(|| CoreError::Invalid("the tax overflowed".to_string()))?;
     // The rates that actually bore on money. A bucket holding only empty rows
     // is not a second rate — a half-filled form would otherwise report itself
     // as a mixed-rate receipt while the user was still typing the first line.
@@ -487,9 +526,10 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
         total: subtotal
             .checked_add(tax)
             .ok_or_else(|| CoreError::Invalid("the total overflowed".to_string()))?,
-        // Computed from a rate rather than read off the paper. Always true in
-        // this mode: it never asks for a tax figure.
-        tax_is_estimated: true,
+        // Estimated only where the app did the arithmetic. A receipt whose
+        // every row was given its tax was read off the paper, and calling that
+        // an estimate would put a ≈ on the one figure that is certain.
+        tax_is_estimated: draft.rows.iter().any(|r| r.tax.is_none()),
     };
     let plan = plan_from_rows(&resolved)?;
 
@@ -499,9 +539,27 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     if plan.rows.is_empty() {
         blockers.push("nothing entered yet: add a category and what it came to".to_string());
     }
+    let mut seen: BTreeMap<CategoryId, usize> = BTreeMap::new();
     for (index, row) in plan.rows.iter().enumerate() {
         if row.category_id.is_none() {
             blockers.push(format!("row {} has no category", index + 1));
+        }
+        // One category, one row. Two rows against the same category are not a
+        // receipt with two lines — they are one line entered twice, and every
+        // report would add them back together anyway. Saying so here, with the
+        // name, beats a user finding two identical rows in the split list
+        // later and wondering which is real.
+        if let Some(id) = row.category_id
+            && let Some(first) = seen.insert(id, index + 1)
+        {
+            let name = known
+                .iter()
+                .find(|c| c.id == id)
+                .map_or("that category", |c| c.name.as_str());
+            blockers.push(format!(
+                "{name} is on rows {first} and {}; put the whole amount on one",
+                index + 1
+            ));
         }
         if row.amount.is_negative() {
             warnings.push(format!(
@@ -511,7 +569,19 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
             ));
         }
     }
-    if context.tax.rate_ppm == 0 && !plan.rows.is_empty() {
+    // Only when a rate would have changed the answer. A receipt of nothing but
+    // rent, or fuel, is untaxed whether or not the location has a rate, and
+    // saying "no sales-tax rate set" there sends the user to fix a setting that
+    // is not the reason. Likewise a row whose tax was read off the paper does
+    // not need a rate to have been configured.
+    let a_rate_would_have_applied = draft.rows.iter().any(|row| {
+        row.tax.is_none()
+            && row
+                .category_id
+                .and_then(|id| known.iter().find(|c| c.id == id))
+                .is_some_and(|c| c.taxable)
+    });
+    if context.tax.rate_ppm == 0 && a_rate_would_have_applied {
         warnings.push(format!(
             "no tax was added: {} has no sales-tax rate set",
             context

@@ -248,6 +248,13 @@ export async function entryContext(merchant: string | null): Promise<EntryContex
 export interface SubtotalRow {
   categoryId: number | null;
   subtotal: number;
+  /**
+   * The tax on this row, when the user has corrected it off the receipt.
+   *
+   * `null` leaves it to the location's rate, which is the normal case. A
+   * number means the paper said so, and the paper wins.
+   */
+  tax: number | null;
   note: string | null;
 }
 

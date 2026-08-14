@@ -136,3 +136,14 @@ export function rateSummary(taxRatePpm: number, foodRatePpm: number | null): str
   if (foodRatePpm === null || foodRatePpm >= taxRatePpm) return general;
   return `${general} · groceries ${formatRatePpm(foodRatePpm)}`;
 }
+
+/**
+ * What a category row says under its picker.
+ *
+ * A zero rate is not "taxed at nothing", it is "not sales-taxed at all" — rent,
+ * a phone bill, a tank of fuel — and printing "0% sales tax" invites the reader
+ * to wonder which rate failed to load.
+ */
+export function categoryRateLabel(ppm: number): string {
+  return ppm === 0 ? "no sales tax" : `${formatRatePpm(ppm)} sales tax`;
+}

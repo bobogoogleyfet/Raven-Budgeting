@@ -38,7 +38,19 @@ pub fn resolve_rate(
 /// calculation buckets rows by one. A second copy would drift, and the symptom
 /// would be a screen showing 3% beside tax charged at 7.45%.
 #[must_use]
-pub const fn category_rate(general_ppm: u32, food_ppm: Option<u32>, uses_food_rate: bool) -> u32 {
+pub const fn category_rate(
+    general_ppm: u32,
+    food_ppm: Option<u32>,
+    uses_food_rate: bool,
+    taxable: bool,
+) -> u32 {
+    if !taxable {
+        // Not "0% is the rate here" but "no sales tax is added to this at
+        // all": rent, a phone bill, a tank of fuel. The amount the user types
+        // for those is the amount they paid, taxes and fees already inside it,
+        // and adding a rate on top would invent money nobody was charged.
+        return 0;
+    }
     match (uses_food_rate, food_ppm) {
         (true, Some(reduced)) => reduced,
         _ => general_ppm,
