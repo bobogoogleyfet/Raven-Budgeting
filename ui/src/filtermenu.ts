@@ -63,11 +63,17 @@ export function narrowedTo(all: readonly string[], hidden: ReadonlySet<string>):
 
 export function filterMenu(config: { label: string; onChange: () => void }): FilterMenu {
   const root = el("div", { class: "filter-head" });
+  /**
+   * The title and the funnel are one button, shaped as a pill.
+   *
+   * An 11-pixel icon is a target you have to aim at. Making the whole header
+   * cell the control means the name and the funnel do the same thing, which is
+   * also what they look like they should do.
+   */
   const button = el("button", {
     type: "button",
     class: "filter-toggle",
     title: `Filter by ${config.label.toLowerCase()}`,
-    "aria-label": `Filter by ${config.label.toLowerCase()}`,
   });
   const list = el("div", { class: "filter-list", hidden: true });
   const popup = el("div", { class: "filter-popup", hidden: true });
@@ -78,8 +84,12 @@ export function filterMenu(config: { label: string; onChange: () => void }): Fil
   /** The funnel fills in when the column is filtered, so it is visible at a
    * glance which columns are hiding rows. */
   function paint(): void {
-    // Static markup, no user data: the labels below are set as text nodes.
-    button.innerHTML = FUNNEL(hidden.size > 0);
+    // Static markup; the column's name is set as a text node beside it, and
+    // the values below are text nodes too.
+    button.replaceChildren(el("span", { class: "filter-label" }, [config.label]));
+    const icon = el("span", { class: "filter-icon" });
+    icon.innerHTML = FUNNEL(hidden.size > 0);
+    button.append(icon);
     button.classList.toggle("active", hidden.size > 0);
   }
 
@@ -143,7 +153,7 @@ export function filterMenu(config: { label: string; onChange: () => void }): Fil
     if (event.key === "Escape" && !popup.hidden) close();
   });
 
-  root.append(el("span", { class: "filter-label" }, [config.label]), button, popup);
+  root.append(button, popup);
   paint();
 
   return {

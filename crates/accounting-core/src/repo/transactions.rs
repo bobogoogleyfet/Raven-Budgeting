@@ -862,6 +862,88 @@ pub fn count(db: &Db, filter: &TxnFilter) -> Result<usize> {
     Ok(usize::try_from(n).unwrap_or(0))
 }
 
+/// One value a column actually holds, for a filter menu to offer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilterValue {
+    pub id: i64,
+    pub name: String,
+}
+
+/// What the Store and Categories columns actually contain.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct FilterValues {
+    pub merchants: Vec<FilterValue>,
+    pub categories: Vec<FilterValue>,
+    /// Whether any expense has no store — what `quick_add` leaves behind.
+    pub any_without_merchant: bool,
+}
+
+/// The distinct values present in the list's filterable columns.
+///
+/// # Why not just list every store and category
+///
+/// Because a filter menu is a description of the data in front of you. The
+/// seed installs two dozen suggested shops and as many categories, and a menu
+/// built from those is mostly rows that match nothing — you scroll past
+/// Walgreens to reach Costco, having never been to Walgreens. Worse, ticking
+/// one off does nothing visible, which reads as a broken control.
+///
+/// Deliberately unfiltered by the list's own filters: hiding Costco must not
+/// remove Costco from the menu that is hiding it, or there would be no way to
+/// put it back.
+pub fn filter_values(db: &Db) -> Result<FilterValues> {
+    let conn = db.conn();
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT m.id, m.name
+           FROM txn t
+           JOIN merchant m ON m.id = t.merchant_id
+          WHERE t.archived_at IS NULL
+          ORDER BY m.name",
+    )?;
+    let merchants = stmt
+        .query_map([], |row| {
+            Ok(FilterValue {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT c.id, c.name
+           FROM txn_split s
+           JOIN txn t ON t.id = s.txn_id
+           JOIN category c ON c.id = s.category_id
+          WHERE t.archived_at IS NULL
+          ORDER BY c.name",
+    )?;
+    let categories = stmt
+        .query_map([], |row| {
+            Ok(FilterValue {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let any_without_merchant: bool = conn.query_row(
+        "SELECT EXISTS (
+             SELECT 1 FROM txn WHERE merchant_id IS NULL AND archived_at IS NULL
+         )",
+        [],
+        |r| r.get(0),
+    )?;
+
+    Ok(FilterValues {
+        merchants,
+        categories,
+        any_without_merchant,
+    })
+}
+
 /// Soft-delete a transaction. Idempotent, and the original archive time
 /// survives a second call — "when was this deleted" must not drift every time
 /// someone re-runs a script.

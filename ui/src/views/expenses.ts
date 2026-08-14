@@ -5,8 +5,7 @@ import {
   type TxnSort,
   type TxnSummary,
   deleteTransaction,
-  listCategories,
-  listMerchants,
+  filterValues,
   listTransactions,
 } from "../api.ts";
 import { confirmDialog } from "../dialog.ts";
@@ -33,6 +32,8 @@ export function expensesView(): HTMLElement {
    * different control.
    */
   let sort: TxnSort = "dateDesc";
+  // The title and the caret are one pill, so the whole header sorts rather
+  // than an eight-pixel triangle being the only target.
   const dateSort = el("button", { type: "button", class: "sort-toggle" });
   /**
    * A small triangle, drawn rather than typed for the same reason the funnel
@@ -43,7 +44,10 @@ export function expensesView(): HTMLElement {
     `<svg viewBox="0 0 10 10" width="8" height="8" aria-hidden="true" focusable="false">` +
     `<path d="${down ? "M1 3.5h8L5 8z" : "M1 6.5h8L5 2z"}" fill="currentColor"/></svg>`;
   const paintSort = (): void => {
-    dateSort.innerHTML = CARET(sort === "dateDesc");
+    dateSort.replaceChildren(el("span", { class: "filter-label" }, ["Date"]));
+    const icon = el("span", { class: "filter-icon" });
+    icon.innerHTML = CARET(sort === "dateDesc");
+    dateSort.append(icon);
     dateSort.title = sort === "dateDesc" ? "Newest first" : "Oldest first";
   };
   dateSort.addEventListener("click", () => {
@@ -59,7 +63,7 @@ export function expensesView(): HTMLElement {
   table.append(
     el("thead", {}, [
       el("tr", {}, [
-        el("th", {}, [el("span", { class: "filter-label" }, ["Date"]), dateSort]),
+        el("th", {}, [dateSort]),
         el("th", {}, [storeFilter.root]),
         el("th", {}, [categoryFilter.root]),
         el("th", { class: "amount" }, ["Total"]),
@@ -96,6 +100,7 @@ export function expensesView(): HTMLElement {
             // would scroll the user back to the top of two hundred rows to
             // show them one that is gone.
             tr.remove();
+            void loadMenus();
             if (body.childElementCount === 0) load();
           })
           .catch((error: unknown) => {
@@ -175,29 +180,41 @@ export function expensesView(): HTMLElement {
       });
   }
 
-  root.append(el("h1", {}, ["Expenses"]), status, table);
+  // Under the table, not above it: it is what the list has to say when the
+  // rows run out, and a message above the header pushes the whole table down
+  // every time a filter matches nothing.
+  root.append(el("h1", {}, ["Expenses"]), table, status);
 
-  // The menus are filled before the first load, so a list that arrives fast is
-  // never briefly filterable by nothing.
-  void Promise.all([listCategories(), listMerchants()])
-    .then(([categories, stores]) => {
-      const byName = (a: { name: string }, b: { name: string }): number =>
-        a.name.localeCompare(b.name);
-      categoryFilter.setOptions(
-        [...categories].sort(byName).map((c) => ({ value: String(c.id), label: c.name })),
-      );
-      storeFilter.setOptions([
-        ...[...stores].sort(byName).map((m) => ({ value: String(m.id), label: m.name })),
-        // Quick-added expenses have no store, and without a box of their own
-        // they would vanish the moment the filter was touched.
-        { value: NO_STORE, label: "(No store)" },
-      ]);
-    })
-    .catch(() => {
-      // A menu that failed to fill still leaves the list usable, and the
-      // list's own error reporting is the one that matters.
-    })
-    .finally(load);
+  /**
+   * Fill the menus from what the columns actually hold.
+   *
+   * Re-read after a delete as well as at startup: removing the last expense
+   * from a shop should take that shop out of the menu, or the list offers a
+   * filter that can only ever match nothing.
+   */
+  function loadMenus(): Promise<void> {
+    return filterValues()
+      .then((values) => {
+        categoryFilter.setOptions(
+          values.categories.map((c) => ({ value: String(c.id), label: c.name })),
+        );
+        storeFilter.setOptions([
+          ...values.merchants.map((m) => ({ value: String(m.id), label: m.name })),
+          // Quick-added expenses have no store, and without a box of their own
+          // they would vanish the moment the filter was touched. Offered only
+          // when there is one, so the menu never lists a row matching nothing.
+          ...(values.anyWithoutMerchant ? [{ value: NO_STORE, label: "(No store)" }] : []),
+        ]);
+      })
+      .catch(() => {
+        // A menu that failed to fill still leaves the list usable, and the
+        // list's own error reporting is the one that matters.
+      });
+  }
+
+  // Filled before the first load, so a list that arrives fast is never briefly
+  // filterable by nothing.
+  void loadMenus().finally(load);
 
   return root;
 }
