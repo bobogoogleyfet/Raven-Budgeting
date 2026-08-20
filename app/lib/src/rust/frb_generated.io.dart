@@ -44,6 +44,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   LocationDto dco_decode_box_autoadd_location_dto(dynamic raw);
 
   @protected
+  RateReleaseDto dco_decode_box_autoadd_rate_release_dto(dynamic raw);
+
+  @protected
   SubtotalDraftDto dco_decode_box_autoadd_subtotal_draft_dto(dynamic raw);
 
   @protected
@@ -101,6 +104,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<SplitDraftDto> dco_decode_list_split_draft_dto(dynamic raw);
+
+  @protected
   List<SplitRowDto> dco_decode_list_split_row_dto(dynamic raw);
 
   @protected
@@ -131,6 +137,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   LocationDto? dco_decode_opt_box_autoadd_location_dto(dynamic raw);
 
   @protected
+  RateReleaseDto? dco_decode_opt_box_autoadd_rate_release_dto(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
 
   @protected
@@ -138,6 +147,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PreviewDto dco_decode_preview_dto(dynamic raw);
+
+  @protected
+  RateReleaseDto dco_decode_rate_release_dto(dynamic raw);
+
+  @protected
+  SplitDraftDto dco_decode_split_draft_dto(dynamic raw);
 
   @protected
   SplitRowDto dco_decode_split_row_dto(dynamic raw);
@@ -177,6 +192,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   LocationDto sse_decode_box_autoadd_location_dto(SseDeserializer deserializer);
+
+  @protected
+  RateReleaseDto sse_decode_box_autoadd_rate_release_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   SubtotalDraftDto sse_decode_box_autoadd_subtotal_draft_dto(
@@ -244,6 +264,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<SplitDraftDto> sse_decode_list_split_draft_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<SplitRowDto> sse_decode_list_split_row_dto(SseDeserializer deserializer);
 
   @protected
@@ -280,6 +305,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RateReleaseDto? sse_decode_opt_box_autoadd_rate_release_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
@@ -287,6 +317,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PreviewDto sse_decode_preview_dto(SseDeserializer deserializer);
+
+  @protected
+  RateReleaseDto sse_decode_rate_release_dto(SseDeserializer deserializer);
+
+  @protected
+  SplitDraftDto sse_decode_split_draft_dto(SseDeserializer deserializer);
 
   @protected
   SplitRowDto sse_decode_split_row_dto(SseDeserializer deserializer);
@@ -333,6 +369,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_location_dto(
     LocationDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_rate_release_dto(
+    RateReleaseDto self,
     SseSerializer serializer,
   );
 
@@ -430,6 +472,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_split_draft_dto(
+    List<SplitDraftDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_split_row_dto(
     List<SplitRowDto> self,
     SseSerializer serializer,
@@ -478,6 +526,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_rate_release_dto(
+    RateReleaseDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
 
   @protected
@@ -488,6 +542,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_preview_dto(PreviewDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_rate_release_dto(
+    RateReleaseDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_split_draft_dto(SplitDraftDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_split_row_dto(SplitRowDto self, SseSerializer serializer);

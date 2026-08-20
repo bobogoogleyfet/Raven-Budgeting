@@ -110,7 +110,7 @@ pub fn delete_transaction(id: i64) -> Result<(), String> {
     transactions::delete(&db, TxnId::new(id)).map_err(to_message)
 }
 
-fn summarise(txn: &transactions::Txn) -> TxnSummaryDto {
+pub(crate) fn summarise(txn: &transactions::Txn) -> TxnSummaryDto {
     TxnSummaryDto {
         id: txn.id.get(),
         txn_date: txn.txn_date.to_string(),

@@ -18,7 +18,7 @@ import 'rust/api/transactions.dart' as rust_txn;
 
 export 'rust/api/categories.dart' show CategoryDto;
 export 'rust/api/entry.dart'
-    show AreaDto, ContextDto, LocationDto, MerchantDto;
+    show AreaDto, ContextDto, LocationDto, MerchantDto, RateReleaseDto;
 
 /// One row of the expense list.
 class TxnSummary {
@@ -418,3 +418,59 @@ Future<List<rust_entry.LocationDto>> listLocations() => rust_entry.listLocations
 
 /// Every jurisdiction the state publishes.
 Future<List<rust_entry.AreaDto>> listAreas() => rust_entry.listAreas();
+
+/// The needs-categorizing queue, newest first.
+///
+/// Not "everything filed under Uncategorized": the queue is what `quick-add`
+/// flagged for review, which is a different set — a hand-entered receipt left
+/// uncategorized was never flagged, and a quick-add whose store had a
+/// remembered category still needs looking at.
+Future<List<TxnSummary>> needsCategorizing() async {
+  final rows = await rust_entry.needsCategorizing();
+  return [
+    for (final r in rows)
+      TxnSummary(
+        id: r.id,
+        txnDate: r.txnDate,
+        merchantName: r.merchantName,
+        total: fromCore(r.total),
+        taxIsEstimated: r.taxIsEstimated,
+        needsReview: r.needsReview,
+        categories: r.categories,
+      ),
+  ];
+}
+
+/// File a quick-added receipt under one category.
+///
+/// Sent as the remainder rather than as the total this screen happens to be
+/// showing: the core assigns the exact amount on disk, and the two differ the
+/// moment another window edits the row.
+Future<void> categorizeWhole(int id, int categoryId) => rust_entry.categorize(
+      id: id,
+      splits: [
+        rust_entry.SplitDraftDto(categoryId: categoryId, cents: null, note: null),
+      ],
+    );
+
+/// Name the place the user lives and set its sales-tax rates.
+///
+/// A hand-typed rate must send a null `areaCode` *and* a null `foodRatePpm`:
+/// the user moved the choice off the list, so there is no jurisdiction to
+/// follow, and carrying Utah's 3% over to Boise would undertax every grocery
+/// receipt entered there.
+Future<void> setHomeLocation({
+  required String name,
+  required String? areaCode,
+  required int taxRatePpm,
+  required int? foodRatePpm,
+}) =>
+    rust_entry.setHomeLocation(
+      name: name,
+      areaCode: areaCode,
+      taxRatePpm: taxRatePpm,
+      foodRatePpm: foodRatePpm,
+    );
+
+/// Which rate publication is installed, or null if none is.
+Future<rust_entry.RateReleaseDto?> rateRelease() => rust_entry.rateRelease();

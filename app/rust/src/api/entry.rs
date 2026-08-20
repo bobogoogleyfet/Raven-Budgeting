@@ -9,6 +9,7 @@
 //! this layer's reading of the receipt: they *are* what will be stored.
 
 use accounting_core::repo::{locations, merchants, tax_areas};
+use accounting_core::domain::splits::{SplitAmount, SplitDraft};
 use accounting_core::service::entry::{self, SubtotalDraft, SubtotalRow};
 use accounting_core::{CategoryId, Money, TxnId};
 
@@ -329,4 +330,149 @@ pub fn list_areas() -> Result<Vec<AreaDto>, String> {
             food_rate_ppm: a.food_rate_ppm,
         })
         .collect())
+}
+
+/// One split of a receipt being categorized.
+///
+/// Deliberately not the core's `SplitAmount` enum. That would cross the bridge
+/// as a `freezed` sealed class — three packages and a codegen step — to model
+/// a choice this app makes in one place and one way. A null `cents` is the
+/// remainder, which is the only shape the inbox sends; a percentage split can
+/// join it here the day a screen offers one.
+pub struct SplitDraftDto {
+    pub category_id: Option<i64>,
+    /// An exact amount in cents, or null for "whatever the others did not
+    /// claim".
+    pub cents: Option<i64>,
+    pub note: Option<String>,
+}
+
+/// The needs-categorizing queue, newest first.
+///
+/// `pacc quick-add 42.18` records a total in the checkout line and files it
+/// under Uncategorized so the decision can happen later. This is later.
+pub fn needs_categorizing() -> Result<Vec<crate::api::transactions::TxnSummaryDto>, String> {
+    let db = db::locked()?;
+    let rows = entry::needs_categorizing(&db, None).map_err(to_message)?;
+    Ok(rows.iter().map(crate::api::transactions::summarise).collect())
+}
+
+/// Assign categories to a quick-added receipt and clear its review flag.
+///
+/// The amounts are already on disk and are not re-entered; this only decides
+/// which envelopes they came out of. Re-previewing instead would derive tax
+/// from a rate and silently rewrite a total that was recorded as tax-free.
+pub fn categorize(id: i64, splits: Vec<SplitDraftDto>) -> Result<(), String> {
+    let drafts: Vec<SplitDraft> = splits
+        .into_iter()
+        .map(|split| SplitDraft {
+            id: None,
+            category_id: split.category_id.map(CategoryId::new),
+            amount: match split.cents {
+                Some(cents) => SplitAmount::Fixed(Money::from_cents(cents)),
+                // The remainder, rather than the total this layer happens to
+                // have rendered: the core assigns the exact amount on disk, and
+                // the two differ the moment another window edits the row.
+                None => SplitAmount::Remainder,
+            },
+            note: split.note,
+            line_items: Vec::new(),
+        })
+        .collect();
+
+    let db = db::locked()?;
+    entry::categorize(&db, TxnId::new(id), &drafts).map_err(to_message)
+}
+
+/// Name the place the user lives and set its sales-tax rates.
+///
+/// Asked once, on first run, because every later receipt without an explicit
+/// location inherits these rates — and a receipt silently recording $0.00 of
+/// tax is wrong in a way nothing else surfaces.
+///
+/// `area_code` names the published jurisdiction the figures came from, when
+/// they came from one. It is what makes the quarterly refresh reach this
+/// location. A hand-typed rate sends `None`, and then nothing revises it but
+/// the person who typed it — which is why a hand-typed rate must also send a
+/// `None` food rate rather than the last area's.
+pub fn set_home_location(
+    name: String,
+    area_code: Option<String>,
+    tax_rate_ppm: u32,
+    food_rate_ppm: Option<u32>,
+) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("a location needs a name".to_string());
+    }
+    if tax_rate_ppm > 1_000_000 {
+        return Err("a tax rate above 100% is not a rate".to_string());
+    }
+    // Not merely out of range — a "reduced" rate above the general one is a
+    // mix-up of the two arguments, and it would quietly overtax exactly the
+    // receipts this rate exists to get right.
+    if food_rate_ppm.is_some_and(|food| food > tax_rate_ppm) {
+        return Err("a reduced food rate cannot be above the general rate".to_string());
+    }
+
+    let db = db::locked()?;
+    // Renames the existing home rather than adding a second one: the schema
+    // permits exactly one, and the user is telling us where home *is*, not
+    // adding a place they visited.
+    let home_id = match locations::home(&db).map_err(to_message)? {
+        Some(home) => {
+            locations::rename(&db, home.id, trimmed).map_err(to_message)?;
+            home.id
+        }
+        None => {
+            let created =
+                locations::get_or_create(&db, trimmed, tax_rate_ppm).map_err(to_message)?;
+            locations::set_home(&db, created.id).map_err(to_message)?;
+            created.id
+        }
+    };
+
+    match area_code {
+        // Follows the publication from here on.
+        Some(code) => locations::adopt_area(&db, home_id, &code, tax_rate_ppm, food_rate_ppm)
+            .map_err(to_message)?,
+        None => {
+            // `set_rate` clears any link, which is right: a rate typed by hand
+            // must not be reverted by the next quarter's download.
+            locations::set_rate(&db, home_id, tax_rate_ppm).map_err(to_message)?;
+            // Written even when None, so moving from Provo to a state with no
+            // reduced rate does not leave Utah's 3% behind on every grocery.
+            locations::set_food_rate(&db, home_id, food_rate_ppm).map_err(to_message)?;
+        }
+    }
+    Ok(())
+}
+
+/// Which rate publication is installed.
+pub struct RateReleaseDto {
+    pub quarter: String,
+    pub effective_on: String,
+    /// False once the quarter has turned and no refresh has succeeded since.
+    pub current: bool,
+}
+
+/// Which publication is installed, for the line under the picker.
+///
+/// Shown rather than hidden for the same reason the rate itself is: a table
+/// that quietly stopped updating looks exactly like one that is current, and
+/// the quarter is the only thing on screen that can tell them apart.
+///
+/// The clock is read here, which is this layer's business and not the core's.
+pub fn rate_release() -> Result<Option<RateReleaseDto>, String> {
+    let db = db::locked()?;
+    let wanted =
+        accounting_core::service::rates::wanted_quarter(chrono::Local::now().date_naive())
+            .to_string();
+    Ok(tax_areas::release(&db)
+        .map_err(to_message)?
+        .map(|r| RateReleaseDto {
+            current: r.quarter == wanted,
+            quarter: r.quarter,
+            effective_on: r.effective_on,
+        }))
 }

@@ -3,13 +3,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'src/destinations.dart';
+import 'src/api.dart' show homeLocation;
 import 'src/rust/api/db.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/screens/budget_screen.dart';
 import 'src/screens/entry_screen.dart';
 import 'src/screens/expenses_screen.dart';
+import 'src/screens/home_area_form.dart';
+import 'src/screens/inbox_screen.dart';
+import 'src/screens/settings_screen.dart';
 import 'src/screens/home_screen.dart';
-import 'src/screens/placeholder_screen.dart';
 import 'src/shell.dart';
 import 'src/theme.dart';
 
@@ -27,13 +30,45 @@ Future<void> main() async {
     );
   }
 
-  runApp(AccountingApp(databasePath: await openDatabase()));
+  final String path = await openDatabase();
+  // First run asks where the user lives before anything else.
+  //
+  // Detected by the home location still carrying a 0% rate, which is what the
+  // seed installs: no rate means every receipt would record $0.00 of tax, and
+  // the app cannot guess the right one.
+  //
+  // A failure here is not worth blocking entry over — the entry form will
+  // surface the real error when it calls the same core.
+  bool configured = false;
+  try {
+    final home = await homeLocation();
+    configured = home != null && home.taxRatePpm > 0;
+  } catch (_) {
+    configured = false;
+  }
+
+  runApp(AccountingApp(databasePath: path, configured: configured));
 }
 
-class AccountingApp extends StatelessWidget {
-  const AccountingApp({super.key, required this.databasePath});
+class AccountingApp extends StatefulWidget {
+  const AccountingApp({
+    super.key,
+    required this.databasePath,
+    required this.configured,
+  });
 
   final String databasePath;
+
+  /// Whether the app has been told where home is. Until it has, there is
+  /// nothing worth showing: every receipt entered would record no tax.
+  final bool configured;
+
+  @override
+  State<AccountingApp> createState() => _AccountingAppState();
+}
+
+class _AccountingAppState extends State<AccountingApp> {
+  late bool _configured = widget.configured;
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +76,16 @@ class AccountingApp extends StatelessWidget {
       title: 'Personal Accounting',
       theme: lightTheme(),
       darkTheme: darkTheme(),
-      home: AppShell(screenBuilder: _screenFor, onNewExpense: _newExpense),
+      home: _configured
+          ? AppShell(screenBuilder: _screenFor, onNewExpense: _newExpense)
+          : Scaffold(
+              appBar: AppBar(title: const Text('Welcome')),
+              body: HomeAreaForm(
+                firstRun: true,
+                submitLabel: 'Save and start',
+                onSaved: () => setState(() => _configured = true),
+              ),
+            ),
     );
   }
 
@@ -50,13 +94,8 @@ class AccountingApp extends StatelessWidget {
       Destination.home => const HomeScreen(),
       Destination.expenses => const ExpensesScreen(),
       Destination.budget => const BudgetScreen(),
-      Destination.inbox =>
-        PlaceholderScreen(destination: destination, phase: 'phase 5'),
-      Destination.settings => PlaceholderScreen(
-          destination: destination,
-          phase: 'phase 5',
-          databasePath: databasePath,
-        ),
+      Destination.inbox => const InboxScreen(),
+      Destination.settings => SettingsScreen(databasePath: widget.databasePath),
     };
   }
 
