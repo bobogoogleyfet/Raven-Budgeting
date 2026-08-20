@@ -9,6 +9,12 @@ renders natively on all five targets from one codebase, and Material Design 3
 gives the interface a specification to follow rather than a stylesheet someone
 has to keep inventing.
 
+Material 3 is followed to the letter, not approximately: components and tokens
+as specified, `ColorScheme.fromSeed` for the palette, and spacing, shape,
+elevation and type taken from the token set rather than picked by eye. Where
+the spec and a habit carried over from the TypeScript UI disagree, the spec
+wins and the behaviour rule being preserved gets written down.
+
 The core does not change. `accounting-core` is 14,258 lines of domain, storage
 and export with four boundary rules — no UI, no path discovery, fully
 synchronous, all money math inside — written precisely so that a second
@@ -28,6 +34,10 @@ Not researched — built and run, on this machine, 2026-08-14.
 
 Versions: Flutter 3.47.0 (upgraded from 3.24.5), Dart 3.10, `flutter_rust_bridge`
 2.12.0, codegen `flutter_rust_bridge_codegen 2.12.0`.
+
+Rechecked 2026-08-20: Flutter is still 3.47.0 and frb 2.12.0 is still the
+latest stable (2.13.0 is in beta), but Dart is **3.13.0**, not 3.10 — newer,
+and inside frb's `>=3.4.0 <4.0.0` constraint, so nothing had to move.
 
 ### Type mapping, observed rather than assumed
 
@@ -86,16 +96,32 @@ none: logic there would have to be written again for every platform.
 Each phase ends with something runnable. The Tauri app stays usable throughout,
 so there is never a day without a working expense tracker.
 
-1. **Foundation.** `app/` scaffolded, bridge crate wired to `accounting-core`,
-   database path resolution (the CLI and Tauri already share `pacc.db`; Flutter
-   must too), M3 theme, adaptive navigation shell. Ends with an app that opens
-   the real database and lists categories.
-2. **Money and dates.** Port `money.ts` and the date logic to Dart with their
-   tests — 12 money tests and 8 date tests, including the round-trip of every
-   cent from 0 to 20,000. Nothing else is built on floats, so this comes first.
-3. **Expenses list.** Table, sort caret, spreadsheet filter menus, delete
-   confirmation. The most self-contained screen and the best shakedown for the
-   table story.
+1. **Foundation — built 2026-08-20.** `app/` scaffolded, bridge crate wired to
+   `accounting-core`, database path resolution (the CLI and Tauri already share
+   `pacc.db`; Flutter must too), M3 theme, adaptive navigation shell. Ends with
+   an app that opens the real database and lists categories.
+
+   Run against the real `~/.local/share/personal-accounting/pacc.db`: it opens
+   the same file the CLI and Tauri do, and lists the 24 seeded categories under
+   their group headings.
+2. **Money and dates — built 2026-08-20.** Port `money.ts` and the date logic
+   to Dart with their tests, including the round-trip of every cent from 0 to
+   20,000. Nothing else is built on floats, so this comes first.
+
+   Dart enforces the rule better than TypeScript could: `Cents` is an extension
+   type that does not implement `int`, so `a - b` on two of them does not
+   compile at all, where the TS brand could only make the *result* unusable.
+   Two cases were added that the original does not have — the thousands
+   separator and a negative, neither of which its loop reaches.
+3. **Expenses list — built 2026-08-20.** Table, sort caret, spreadsheet filter
+   menus, delete confirmation. The most self-contained screen and the best
+   shakedown for the table story.
+
+   A table where there is width and a list of tiles on a phone, with one set of
+   controls above both: the rules the filter menus carry are fiddly enough
+   written once. One addition to what the TypeScript does — the list says when
+   it is showing only the most recent 200, because a list that silently stops
+   is one you trust wrongly.
 4. **Entry form.** The hardest screen: repeating category rows, three
    autocompletes, the review dialog with its editable tax. Every behaviour rule
    in the inventory applies here.
@@ -105,6 +131,25 @@ so there is never a day without a working expense tracker.
    on Android, and everything before it de-risks it.
 7. **Retire Tauri.** Delete `crates/accounting-tauri` and `ui/`, and the
    stale-bundle build guard with them.
+
+## Navigation
+
+Five destinations — Home, Expenses, Inbox, Budget, Settings — and entering an
+expense is **not** one of them. It is a task rather than a place, so it lives
+on the button that floats over every screen: the rail's leading slot where
+there is one, a floating button where there is not. The app therefore opens one
+tap away from recording something, which is the point.
+
+Home is the budget at a glance — how much is left of each, or how far over —
+with the three most recent expenses under it. A phone gets the name and the
+figure; where there is width, the working goes underneath, and past 1200dp the
+recent expenses sit beside the budget rather than below it.
+
+This settled after one wrong turn worth recording: entering an expense was
+briefly the home surface itself, with no destination selected. That works on a
+rail and a drawer, which both accept a null selection, and does not work on a
+`NavigationBar`, which asserts a valid index. Making the form a task and Home a
+place removed the special case rather than papering over it.
 
 ## What must survive the port
 
@@ -121,6 +166,11 @@ because they look like implementation detail and are not:
   rows today and different rows tomorrow.
 - **`today()` from local getters, never `toISOString()`.** At 8pm in Utah that
   files a receipt into tomorrow, and at a month boundary into the wrong budget.
+- **A DTO may need a field the Tauri shell never exposed.** `BudgetRowDto`
+  there drops `SpendStatus::remaining`, because that screen shows funding and
+  overspending and never "left". The home screen answers "how much is left",
+  so the bridge exposes the core's own figure rather than subtracting spent
+  from budgeted in Dart.
 - **Money never computed in the UI.** TypeScript enforced this with a branded
   `Cents` type — arithmetic compiles but the result cannot be sent back. Dart
   has no such brand by default: use an extension type, or the rule evaporates
@@ -152,6 +202,14 @@ discover later.
   Cargo's defaults.
 - **Do not reflexively `flutter clean`.** The Rust target directory lives
   inside the trees it deletes, so a clean means a cold rebuild of SQLite.
+- **`Vec<i64>` arguments arrive as `Int64List`** — the bridge's own class of
+  that name, not `dart:typed_data`'s. Mixing them up is a type error that names
+  the same type twice and explains nothing. Convert once at the boundary; the
+  rule that money stays in a struct field means only ids ever go through it.
+- **Name the Rust crate with underscores.** The scaffolder copies
+  `--rust-crate-name` verbatim into `rust_builder/pubspec.yaml`, where a
+  hyphen is not a legal Dart package name. It fails several steps later as
+  `Not a valid package name: "null"`, having already created the project.
 - **Pin all four packages to one version** — the Dart package, the Rust crate,
   the codegen and the macros. Minor versions may change the handler ABI, and
   the symptom is a content-hash mismatch at runtime.

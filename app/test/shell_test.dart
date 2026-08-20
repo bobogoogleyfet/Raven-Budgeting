@@ -1,0 +1,105 @@
+import 'package:app/src/destinations.dart';
+import 'package:app/src/shell.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// The navigation component is a function of the window size class, so the
+/// test sets a window size and asks which one appeared. The breakpoints are
+/// Material 3's; these widths sit either side of them.
+Future<List<String>> pumpAtWidth(WidgetTester tester, double width) async {
+  final started = <String>[];
+  tester.view.physicalSize = Size(width, 800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: AppShell(
+        screenBuilder: (context, destination) =>
+            Text('screen:${destination.label}'),
+        onNewExpense: (context) => started.add('new'),
+      ),
+    ),
+  );
+  // Settle before asserting: Scaffold animates its floating button out when a
+  // resize moves it into the rail, so mid-flight there are briefly two.
+  await tester.pumpAndSettle();
+  return started;
+}
+
+void main() {
+  testWidgets('opens on Home', (tester) async {
+    await pumpAtWidth(tester, 1000);
+
+    expect(find.text('screen:${Destination.home.label}'), findsOneWidget);
+  });
+
+  testWidgets('entering an expense is not a destination', (tester) async {
+    await pumpAtWidth(tester, 1000);
+
+    // Twice: the app bar title and the drawer's own label.
+    expect(find.text('Home'), findsWidgets);
+    expect(find.text('Add'), findsNothing);
+  });
+
+  testWidgets('compact windows get a bottom bar', (tester) async {
+    await pumpAtWidth(tester, 599);
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(find.byType(NavigationDrawer), findsNothing);
+  });
+
+  testWidgets('medium windows get a rail', (tester) async {
+    await pumpAtWidth(tester, 700);
+
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byType(NavigationDrawer), findsNothing);
+  });
+
+  testWidgets('expanded windows get a standard drawer', (tester) async {
+    await pumpAtWidth(tester, 1000);
+
+    expect(find.byType(NavigationDrawer), findsOneWidget);
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(find.byType(NavigationBar), findsNothing);
+  });
+
+  testWidgets('the selection drives the screen', (tester) async {
+    await pumpAtWidth(tester, 1000);
+
+    await tester.tap(find.text(Destination.budget.label));
+    await tester.pumpAndSettle();
+
+    expect(find.text('screen:${Destination.budget.label}'), findsOneWidget);
+    expect(find.text('screen:${Destination.home.label}'), findsNothing);
+  });
+
+  testWidgets('the primary action is reachable at every width', (tester) async {
+    for (final width in <double>[599, 700, 1000]) {
+      final started = await pumpAtWidth(tester, width);
+
+      // By type, not by tooltip: the extended button at expanded widths shows
+      // its label, and a visible label is the name — a tooltip repeating it
+      // would be noise to a screen reader.
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(started, ['new'], reason: 'width $width');
+    }
+  });
+
+  testWidgets('the same selection survives a resize across a breakpoint',
+      (tester) async {
+    await pumpAtWidth(tester, 599);
+    await tester.tap(find.text(Destination.inbox.label));
+    await tester.pumpAndSettle();
+
+    tester.view.physicalSize = const Size(1000, 800);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationDrawer), findsOneWidget);
+    expect(find.text('screen:${Destination.inbox.label}'), findsOneWidget);
+  });
+}

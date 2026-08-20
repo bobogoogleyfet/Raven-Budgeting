@@ -9,6 +9,10 @@ members = [
     # stops `cargo test --workspace` from resolving at all, taking the core's
     # tests down with it. The README has the apt line.
     "crates/accounting-tauri",
+    # The Flutter frontend's bridge crate. A `cdylib`, so `cargo build` alone
+    # proves nothing about the app — cargokit builds it again from Flutter's
+    # own build, and only `flutter build linux` links it against the bundle.
+    "app/rust",
 ]
 
 [workspace.package]
@@ -78,6 +82,16 @@ tempfile = "3.27"
 # the tests exercise the real argument parsing rather than a library shim.
 assert_cmd = "2.0"
 predicates = "3.1"
+
+# The bridge turns a Rust panic into a Dart `PanicException` by catching the
+# unwind, and the generated FFI decoders contain their own `unwrap()`s. Under
+# `panic = "abort"` the process would die at the panic site instead, so that
+# setting must never appear here.
+[profile.release]
+# Neither cargokit nor the Flutter tooling strips, and the frb template ships
+# no release profile at all, so without this we inherit Cargo's defaults and
+# ship the debug symbols of a bundled SQLite.
+strip = "symbols"
 
 # Bundled SQLite is C; compiling it unoptimized makes debug test runs crawl.
 [profile.dev.package.libsqlite3-sys]
