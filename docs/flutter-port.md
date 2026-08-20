@@ -140,10 +140,28 @@ on the button that floats over every screen: the rail's leading slot where
 there is one, a floating button where there is not. The app therefore opens one
 tap away from recording something, which is the point.
 
-Home is the budget at a glance — how much is left of each, or how far over —
-with the three most recent expenses under it. A phone gets the name and the
-figure; where there is width, the working goes underneath, and past 1200dp the
-recent expenses sit beside the budget rather than below it.
+Home is the budget at a glance: a ring of per-category meters with the month's
+spending against the month's budget in the hole, and the three most recent
+expenses under it. Past 1200dp the recent expenses sit beside the budget rather
+than below it.
+
+The ring is not a pie. A pie encodes one value per slice as an angle; each of
+these arcs encodes two — its length is that category's share of the month's
+budget, and its fill is how much of that category has gone. Over budget fills
+the arc and turns it red, because there is no 110% of an arc.
+
+Colour does one job: state. Every segment is the accent hue until the core says
+the category is over, so identity comes from the legend and from tapping a
+segment, never from hue — which is why the segments do not each get a colour.
+Over is named in words and carries an icon as well as the colour.
+
+The two data colours are M3's `primary` and `error`, validated rather than
+eyeballed: CVD separation ΔE 17.3 light and 11.1 dark against a target of 8,
+contrast over surface above 3:1 in both modes, fill against track 3.80:1. They
+fail a categorical palette's lightness-band and chroma-floor checks, which is
+the right outcome to accept: this is one accent plus a reserved status colour,
+not a set of series hues, and bending M3's roles to pass a check aimed at a
+different problem would be the wrong trade.
 
 This settled after one wrong turn worth recording: entering an expense was
 briefly the home surface itself, with no destination selected. That works on a
@@ -166,6 +184,11 @@ because they look like implementation detail and are not:
   rows today and different rows tomorrow.
 - **`today()` from local getters, never `toISOString()`.** At 8pm in Utah that
   files a receipt into tomorrow, and at a month boundary into the wrong budget.
+- **A total is arithmetic, so the core owns it.** `service::budgets::
+  month_totals` sums the month's contributions and spending, rather than a
+  frontend adding the rows up. Both figures are the month's, not the cycle's: a
+  $780 insurance bill in a month's budget total would swamp every other
+  envelope and answer a question nobody asked.
 - **A DTO may need a field the Tauri shell never exposed.** `BudgetRowDto`
   there drops `SpendStatus::remaining`, because that screen shows funding and
   overspending and never "left". The home screen answers "how much is left",
