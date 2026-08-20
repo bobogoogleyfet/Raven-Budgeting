@@ -66,13 +66,37 @@ List<DraftRow> editsFrom(List<ReviewLine> lines) => [
 /// total are *not* editable: they are sums, and a sum you can type is a sum
 /// that can disagree with its parts.
 ///
-/// Returns the approved rows, or null if the user said no.
-Future<List<DraftRow>?> showReviewDialog({
+/// What the user wants to happen once this expense is written.
+///
+/// Asked here rather than after saving, because this dialog is already the
+/// moment they decide the receipt is finished — a second prompt afterwards
+/// would interrupt the same decision twice, and a silent choice would be wrong
+/// half the time. Somebody working through a pile of receipts and somebody
+/// entering the one in their pocket want opposite things, and neither is rare
+/// enough to be the exception.
+enum SaveThen {
+  /// Stay on the form, cleared and focused, for the next receipt.
+  another,
+
+  /// Close the form and go back to the overview.
+  home,
+}
+
+/// An approved expense, and where the user wants to go once it is saved.
+class ReviewOutcome {
+  const ReviewOutcome(this.rows, this.then);
+
+  final List<DraftRow> rows;
+  final SaveThen then;
+}
+
+/// Returns the approved rows and what to do next, or null if the user said no.
+Future<ReviewOutcome?> showReviewDialog({
   required BuildContext context,
   required Preview preview,
   required Future<Preview> Function(List<DraftRow> edits) recompute,
 }) {
-  return showDialog<List<DraftRow>>(
+  return showDialog<ReviewOutcome>(
     context: context,
     builder: (context) => _ReviewDialog(preview: preview, recompute: recompute),
   );
@@ -228,16 +252,37 @@ class _ReviewDialogState extends State<_ReviewDialog> {
           ),
         ),
       ),
+      // Three actions, which M3 allows and this dialog earns: one of them
+      // cancels and the other two are the same save with different
+      // destinations.
+      //
+      // Kept to two words each because they are read at a glance, not because
+      // it keeps them on one row — it does not. Below roughly 400px the
+      // OverflowBar stacks all three vertically however short they are, which
+      // is M3's own fallback and reads fine. Measured at 320 and 360px: no
+      // clipping, no overflow. The length is for legibility; the stacking
+      // takes care of itself.
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Back'),
         ),
+        TextButton(
+          onPressed: blocked
+              ? null
+              : () => Navigator.of(context)
+                  .pop(ReviewOutcome(editsFrom(_lines), SaveThen.home)),
+          child: const Text('Save & Home'),
+        ),
         FilledButton(
-          // Named for the action, never "OK".
-          onPressed:
-              blocked ? null : () => Navigator.of(context).pop(editsFrom(_lines)),
-          child: const Text('Save Expense'),
+          // Named for the action, never "OK". This one is the default because
+          // the form is already open and cleared behind the dialog: carrying
+          // on is the cheaper of the two, and leaving is one tap either way.
+          onPressed: blocked
+              ? null
+              : () => Navigator.of(context)
+                  .pop(ReviewOutcome(editsFrom(_lines), SaveThen.another)),
+          child: const Text('Save & New'),
         ),
       ],
     );

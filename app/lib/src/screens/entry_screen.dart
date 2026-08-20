@@ -110,6 +110,10 @@ class _EntryScreenState extends State<EntryScreen> {
   /// read in.
   final FocusNode _merchantFocus = FocusNode();
   final FocusNode _noteFocus = FocusNode();
+  /// Drives the date field's month segment, so a saved form can put the cursor
+  /// back where the next receipt starts. `autofocus` cannot: it fires when the
+  /// field appears, and the form is cleared in place rather than rebuilt.
+  final FocusNode _dateFocus = FocusNode();
 
   String _date = today();
   List<CategoryDto> _categories = const [];
@@ -147,6 +151,7 @@ class _EntryScreenState extends State<EntryScreen> {
     _note.dispose();
     _merchantFocus.dispose();
     _noteFocus.dispose();
+    _dateFocus.dispose();
     for (final row in _rows) {
       row.dispose();
     }
@@ -321,15 +326,24 @@ class _EntryScreenState extends State<EntryScreen> {
       // they approve is exactly what gets saved.
       final preview = await widget.core.previewSubtotals(_draft());
       if (!mounted) return;
-      final approved = await showReviewDialog(
+      final outcome = await showReviewDialog(
         context: context,
         preview: preview,
         recompute: (edits) => widget.core.previewSubtotals(_draft(edits)),
       );
-      if (approved == null || !mounted) return;
+      if (outcome == null || !mounted) return;
 
-      final id = await widget.core.saveSubtotals(_draft(approved));
+      final id = await widget.core.saveSubtotals(_draft(outcome.rows));
       if (!mounted) return;
+
+      // Asked for in the dialog, honoured here. Popping with `true` rather
+      // than navigating from inside the form: this screen is pushed as a
+      // full-screen dialog and does not know what is underneath it, so where
+      // "home" is stays the caller's business.
+      if (outcome.then == SaveThen.home) {
+        Navigator.of(context).pop(true);
+        return;
+      }
       // A blank form, not a re-run of the last one. Leaving the store and the
       // amounts on screen invites a second click that files the same expense
       // twice, and every field that survives is one the next expense has to be
@@ -353,6 +367,12 @@ class _EntryScreenState extends State<EntryScreen> {
       // has changed: this store was just shopped at, so the recent-store chips
       // are out of date by exactly this receipt.
       await _loadContext(null, force: true);
+      if (mounted) {
+        // Back to the top of a blank form, date selected. The alternative is a
+        // cleared form with the cursor nowhere, which makes the next receipt
+        // start with a hunt for the first field.
+        _dateFocus.requestFocus();
+      }
       widget.onSaved?.call();
     } catch (error) {
       if (mounted) setState(() => _problem = '$error');
@@ -380,6 +400,7 @@ class _EntryScreenState extends State<EntryScreen> {
           label: 'Date',
           child: DateField(
             value: _date,
+            focusNode: _dateFocus,
             // The first thing a receipt needs is its date, and it is already
             // filled in — so the form opens with it selected, ready to be
             // typed over or passed straight through with Enter.

@@ -27,6 +27,7 @@ class DateField extends StatefulWidget {
     this.label,
     this.autofocus = false,
     this.onSubmitted,
+    this.focusNode,
   });
 
   /// `YYYY-MM-DD`, or empty.
@@ -44,6 +45,18 @@ class DateField extends StatefulWidget {
   /// Enter moves on: the field is done, the form is not.
   final VoidCallback? onSubmitted;
 
+  /// Drives the *month* segment, which is where the field starts.
+  ///
+  /// Exists so a form can put the cursor back here after a save without
+  /// rebuilding the widget — `autofocus` fires once, when the field first
+  /// appears, and a cleared form is the same field it always was. Focusing
+  /// the segment selects it whole (see [initState]), so the date comes back
+  /// highlighted and the next receipt can be typed straight over it.
+  ///
+  /// The caller owns it and must dispose it; when null the field makes and
+  /// disposes its own.
+  final FocusNode? focusNode;
+
   @override
   State<DateField> createState() => _DateFieldState();
 }
@@ -52,7 +65,7 @@ class _DateFieldState extends State<DateField> {
   final TextEditingController _month = TextEditingController();
   final TextEditingController _day = TextEditingController();
   final TextEditingController _year = TextEditingController();
-  final FocusNode _monthFocus = FocusNode();
+  late final FocusNode _monthFocus = widget.focusNode ?? FocusNode();
   final FocusNode _dayFocus = FocusNode();
   final FocusNode _yearFocus = FocusNode();
 
@@ -92,8 +105,13 @@ class _DateFieldState extends State<DateField> {
     for (final c in [_month, _day, _year]) {
       c.dispose();
     }
-    for (final n in [_monthFocus, _dayFocus, _yearFocus]) {
+    for (final n in [_dayFocus, _yearFocus]) {
       n.dispose();
+    }
+    // Only the one we made. Disposing a node the caller owns would leave them
+    // holding a dead object, and they may well outlive this field.
+    if (widget.focusNode == null) {
+      _monthFocus.dispose();
     }
     super.dispose();
   }

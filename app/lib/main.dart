@@ -131,9 +131,9 @@ class _AccountingAppState extends State<AccountingApp> {
   /// Entering an expense is a focused task, so it gets a screen of its own
   /// rather than a pane inside the shell — Material 3's full-screen dialog,
   /// which is also what makes it work identically on a phone.
-  void _newExpense(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  Future<void> _newExpense(BuildContext context) async {
+    final bool? goHome = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         fullscreenDialog: true,
         builder: (context) => Scaffold(
           appBar: AppBar(title: const Text('New expense')),
@@ -141,6 +141,13 @@ class _AccountingAppState extends State<AccountingApp> {
         ),
       ),
     );
+    // The form pops `true` when the user chose "Save & Home". Dismissing it any
+    // other way — the close button, Back, the system gesture — returns null and
+    // leaves them wherever they were, which is the only answer that is right
+    // for all of those.
+    if (goHome ?? false) {
+      _shell.currentState?.show(Destination.home);
+    }
   }
 }
 

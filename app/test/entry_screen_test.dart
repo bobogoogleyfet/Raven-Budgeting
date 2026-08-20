@@ -252,7 +252,7 @@ void main() {
     expect(find.text(r'$7.50'), findsOneWidget);
     expect(fake.saves, isEmpty);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Save Expense'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & New'));
     await tester.pumpAndSettle();
 
     expect(fake.saves, hasLength(1));
@@ -283,7 +283,7 @@ void main() {
     await tester.enterText(taxField, '0.25');
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Save Expense'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & New'));
     await tester.pumpAndSettle();
 
     // Only a figure the user actually touched is sent as an override, or every
@@ -326,7 +326,7 @@ void main() {
     await enterAmount(tester, '7.28');
     await tester.tap(find.widgetWithText(FilledButton, 'Save expense'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Save Expense'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & New'));
     await tester.pumpAndSettle();
 
     // Leaving the amounts on screen invites a second click that files the same
@@ -335,6 +335,118 @@ void main() {
     expect(find.widgetWithText(TextField, '0.00'), findsOneWidget);
     // And the context is re-read, because this store was just shopped at.
     expect(fake.contexts.length, greaterThan(1));
+  });
+
+  testWidgets('the dialog offers both destinations, and neither is "OK"',
+      (tester) async {
+    final fake = Fake()
+      ..previewResult = (draft) => preview(
+            rows: [row(1, 'Groceries', 728, 22)],
+            subtotal: 728,
+            tax: 22,
+            total: 750,
+          );
+    await pump(tester, fake);
+    await enterAmount(tester, '7.28');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save expense'));
+    await tester.pumpAndSettle();
+
+    // Somebody working through a pile of receipts and somebody entering the one
+    // in their pocket want opposite things, and the dialog is where that is
+    // already being decided.
+    expect(find.widgetWithText(TextButton, 'Save & Home'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Save & New'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Back'), findsOneWidget);
+    // Short because they are read at a glance. Not to keep them on one row:
+    // below ~400px the OverflowBar stacks all three whatever their length,
+    // which is M3's own fallback and is fine.
+    for (final label in ['Save & Home', 'Save & New']) {
+      expect(label.length, lessThanOrEqualTo(12), reason: '"$label" is a button');
+    }
+  });
+
+  testWidgets('Save & New leaves the date focused, ready for the next receipt',
+      (tester) async {
+    final fake = Fake()
+      ..previewResult = (draft) => preview(
+            rows: [row(1, 'Groceries', 728, 22)],
+            subtotal: 728,
+            tax: 22,
+            total: 750,
+          );
+    await pump(tester, fake);
+    await enterAmount(tester, '7.28');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save expense'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & New'));
+    await tester.pumpAndSettle();
+
+    // A cleared form with the cursor nowhere makes the next receipt start with
+    // a hunt for the first field. `autofocus` cannot do this: it fires when the
+    // field appears, and the form is cleared in place rather than rebuilt.
+    final EditableText month = tester.widget(
+      find.byType(EditableText).first,
+    );
+    expect(month.focusNode.hasFocus, isTrue,
+        reason: 'the date should be focused again after saving');
+    // Focusing a segment selects it whole, so the date is typed over rather
+    // than appended to.
+    expect(month.controller.selection.baseOffset, 0);
+    expect(
+      month.controller.selection.extentOffset,
+      month.controller.text.length,
+    );
+  });
+
+  testWidgets('Save & Home closes the form and asks to go home',
+      (tester) async {
+    final fake = Fake()
+      ..previewResult = (draft) => preview(
+            rows: [row(1, 'Groceries', 728, 22)],
+            subtotal: 728,
+            tax: 22,
+            total: 750,
+          );
+    tester.view.physicalSize = const Size(900, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    // Pushed the way the app pushes it: a full-screen dialog over something
+    // else, which is why the form pops a result instead of navigating itself.
+    Object? popped = 'not popped';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                popped = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute<bool>(
+                    fullscreenDialog: true,
+                    builder: (_) => Scaffold(body: EntryScreen(core: fake.api)),
+                  ),
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await enterAmount(tester, '7.28');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save expense'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Save & Home'));
+    await tester.pumpAndSettle();
+
+    expect(fake.saves.length, 1, reason: 'the expense is still written');
+    expect(find.byType(EntryScreen), findsNothing, reason: 'the form closed');
+    // `true` and not just "popped": dismissing any other way must leave the
+    // user where they were.
+    expect(popped, isTrue);
   });
 
   testWidgets('a failed save says so and keeps the receipt', (tester) async {
@@ -350,7 +462,7 @@ void main() {
     await enterAmount(tester, '7.28');
     await tester.tap(find.widgetWithText(FilledButton, 'Save expense'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Save Expense'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & New'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('not found: location'), findsOneWidget);
