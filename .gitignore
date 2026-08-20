@@ -37,3 +37,8 @@
 # capabilities/. Checking it in means reviewing a machine-written diff each
 # time the config changes.
 /crates/accounting-tauri/gen/schemas/
+
+# Worktrees live inside the repo, and `git add -A` will otherwise commit one
+# as a submodule gitlink — which clones as an empty directory and makes
+# `git submodule status` fail on a mapping that was never intended to exist.
+/.claude/worktrees/
