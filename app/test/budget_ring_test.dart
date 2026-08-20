@@ -1,9 +1,17 @@
+import 'dart:math' as math;
+
 import 'package:app/src/widgets/budget_ring.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 RingSegment segment(String label, int budgeted, int spent, {bool over = false}) =>
-    RingSegment(label: label, budgeted: budgeted, spent: spent, isOver: over);
+    RingSegment(
+      label: label,
+      budgeted: budgeted,
+      spent: spent,
+      isOver: over,
+      colour: Colors.blue,
+    );
 
 Future<List<int?>> pumpRing(
   WidgetTester tester,
@@ -32,6 +40,19 @@ Future<List<int?>> pumpRing(
   return taps;
 }
 
+/// A point on the ring, `degrees` clockwise from twelve o'clock.
+///
+/// Mid-segment rather than on a boundary: the gaps between segments are as
+/// wide as the stroke, because a round cap overhangs its own arc and a
+/// narrower gap lets neighbours touch.
+Offset onRing(Rect ring, double degrees) {
+  const double thickness = 20;
+  final double radius = ring.shortestSide / 2 - thickness / 2;
+  final double radians = (degrees - 90) * math.pi / 180;
+  return ring.center +
+      Offset(math.cos(radians) * radius, math.sin(radians) * radius);
+}
+
 void main() {
   testWidgets('a tap at twelve o clock lands on the first segment',
       (tester) async {
@@ -42,8 +63,9 @@ void main() {
       segment('Gas', 100, 50),
     ]);
 
+    // Two equal budgets: the first owns twelve o'clock round to six.
     final Rect ring = tester.getRect(find.byType(BudgetRing));
-    await tester.tapAt(Offset(ring.center.dx + 4, ring.top + 12));
+    await tester.tapAt(onRing(ring, 45));
     await tester.pumpAndSettle();
 
     expect(taps, [0]);
@@ -57,7 +79,7 @@ void main() {
     ]);
 
     final Rect ring = tester.getRect(find.byType(BudgetRing));
-    await tester.tapAt(Offset(ring.center.dx - 4, ring.bottom - 12));
+    await tester.tapAt(onRing(ring, 225));
     await tester.pumpAndSettle();
 
     expect(taps, [1]);
@@ -74,13 +96,16 @@ void main() {
       segment('Gas', 100, 0),
     ]);
 
+    // Three quarters of the circle belongs to the first budget: clockwise from
+    // the top it runs past three and six o'clock and ends at nine. So 135° is
+    // still its, and 315° — up past nine — is the second's.
     final Rect ring = tester.getRect(find.byType(BudgetRing));
-    await tester.tapAt(Offset(ring.left + 12, ring.center.dy + 4));
+    await tester.tapAt(onRing(ring, 135));
     await tester.pumpAndSettle();
 
     expect(taps, [0]);
 
-    await tester.tapAt(Offset(ring.left + 12, ring.center.dy - 4));
+    await tester.tapAt(onRing(ring, 315));
     await tester.pumpAndSettle();
     expect(taps, [0, 1]);
   });

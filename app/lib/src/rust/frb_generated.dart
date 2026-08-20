@@ -74,7 +74,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 300733089;
+  int get rustContentHash => -235377680;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -141,6 +141,15 @@ abstract class RustLibApi extends BaseApi {
 
   Future<PlatformInt64> crateApiEntrySaveSubtotals({
     required SubtotalDraftDto draft,
+  });
+
+  Future<SupersededDto> crateApiBudgetSetBudget({
+    required PlatformInt64 categoryId,
+    required PlatformInt64 amountCents,
+    required String period,
+    int? everyNMonths,
+    required String month,
+    required bool rollover,
   });
 
   Future<void> crateApiEntrySetHomeLocation({
@@ -741,6 +750,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "save_subtotals", argNames: ["draft"]);
 
   @override
+  Future<SupersededDto> crateApiBudgetSetBudget({
+    required PlatformInt64 categoryId,
+    required PlatformInt64 amountCents,
+    required String period,
+    int? everyNMonths,
+    required String month,
+    required bool rollover,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(categoryId, serializer);
+          sse_encode_i_64(amountCents, serializer);
+          sse_encode_String(period, serializer);
+          sse_encode_opt_box_autoadd_u_32(everyNMonths, serializer);
+          sse_encode_String(month, serializer);
+          sse_encode_bool(rollover, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 21,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_superseded_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiBudgetSetBudgetConstMeta,
+        argValues: [
+          categoryId,
+          amountCents,
+          period,
+          everyNMonths,
+          month,
+          rollover,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiBudgetSetBudgetConstMeta => const TaskConstMeta(
+    debugName: "set_budget",
+    argNames: [
+      "categoryId",
+      "amountCents",
+      "period",
+      "everyNMonths",
+      "month",
+      "rollover",
+    ],
+  );
+
+  @override
   Future<void> crateApiEntrySetHomeLocation({
     required String name,
     String? areaCode,
@@ -758,7 +823,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -1210,6 +1275,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       subtotal: dco_decode_i_64(arr[1]),
       tax: dco_decode_opt_box_autoadd_i_64(arr[2]),
       note: dco_decode_opt_String(arr[3]),
+    );
+  }
+
+  @protected
+  SupersededDto dco_decode_superseded_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SupersededDto(
+      restated: dco_decode_bool(arr[0]),
+      closedAfter: dco_decode_opt_String(arr[1]),
     );
   }
 
@@ -1843,6 +1920,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SupersededDto sse_decode_superseded_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_restated = sse_decode_bool(deserializer);
+    var var_closedAfter = sse_decode_opt_String(deserializer);
+    return SupersededDto(restated: var_restated, closedAfter: var_closedAfter);
+  }
+
+  @protected
   TxnSummaryDto sse_decode_txn_summary_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_id = sse_decode_i_64(deserializer);
@@ -2383,6 +2468,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_64(self.subtotal, serializer);
     sse_encode_opt_box_autoadd_i_64(self.tax, serializer);
     sse_encode_opt_String(self.note, serializer);
+  }
+
+  @protected
+  void sse_encode_superseded_dto(SupersededDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.restated, serializer);
+    sse_encode_opt_String(self.closedAfter, serializer);
   }
 
   @protected

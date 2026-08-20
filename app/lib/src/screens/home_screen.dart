@@ -5,6 +5,7 @@ import '../breakpoints.dart';
 import '../dates.dart';
 import '../money.dart';
 import '../widgets/budget_ring.dart';
+import '../widgets/chart_palette.dart';
 import '../widgets/money_text.dart';
 import '../widgets/section.dart';
 
@@ -20,11 +21,15 @@ typedef RecentLoader = Future<List<TxnSummary>> Function(int limit);
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
+    this.onSetBudget,
     this.loadBudget = budgetStatus,
     this.loadTotals = monthTotals,
     this.loadRecent = _recent,
     this.month,
   });
+
+  /// Offered where a new user first notices there is no budget.
+  final VoidCallback? onSetBudget;
 
   final BudgetLoader loadBudget;
   final TotalsLoader loadTotals;
@@ -80,6 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
           unbudgeted: budget.where((r) => !r.isBudgeted).length,
           totals: totals,
           recent: recent,
+          onSetBudget: widget.onSetBudget,
         );
       },
     );
@@ -93,7 +99,10 @@ class _Overview extends StatefulWidget {
     required this.unbudgeted,
     required this.totals,
     required this.recent,
+    required this.onSetBudget,
   });
+
+  final VoidCallback? onSetBudget;
 
   final String month;
   final List<BudgetRow> budget;
@@ -106,10 +115,68 @@ class _Overview extends StatefulWidget {
 }
 
 class _OverviewState extends State<_Overview> {
-  /// Which segment the user tapped, if any. Tapping is how a segment says
-  /// which category it is — the ring itself is one colour, because colour here
-  /// means state and not identity.
+  /// The categories with a hue of their own, biggest budget first.
+  ///
+  /// Seven is the palette's ceiling; past it a hue is indistinguishable from
+  /// one already in use. The tail is not dropped — it becomes one arc, so the
+  /// ring still adds up to the month.
+  List<BudgetRow> get _named {
+    final ordered = [...widget.budget]..sort(
+        (a, b) => (b.perMonth?.value ?? 0).compareTo(a.perMonth?.value ?? 0),
+      );
+    return ordered.take(ChartPalette.slots).toList();
+  }
+
+  List<BudgetRow> get _folded {
+    final named = _named;
+    return [
+      for (final row in widget.budget)
+        if (!named.contains(row)) row,
+    ];
+  }
+
+  /// The colour a category's arc and its legend swatch share.
+  Color _colourFor(BuildContext context, BudgetRow row) {
+    final index = _named.indexOf(row);
+    return index < 0
+        ? ChartPalette.other(context)
+        : ChartPalette.of(context)[index];
+  }
+
+  List<RingSegment> _segments(BuildContext context) {
+    final folded = _folded;
+    return [
+      for (final row in _named)
+        RingSegment(
+          label: row.categoryName,
+          budgeted: row.perMonth?.value ?? 0,
+          spent: row.spentThisMonth.value,
+          isOver: row.isOver,
+          colour: _colourFor(context, row),
+        ),
+      if (folded.isNotEmpty)
+        RingSegment(
+          // One left over is not a group. Calling a single category "Other"
+          // hides a name the legend is showing three lines below.
+          label: folded.length == 1 ? folded.single.categoryName : 'Other',
+          budgeted: folded.fold(0, (sum, r) => sum + (r.perMonth?.value ?? 0)),
+          spent: folded.fold(0, (sum, r) => sum + r.spentThisMonth.value),
+          isOver: folded.any((r) => r.isOver),
+          colour: ChartPalette.other(context),
+        ),
+    ];
+  }
+
+  /// Which segment the user tapped, if any.
   int? _selected;
+
+  /// The category behind the selected arc, or null when the selection is the
+  /// folded tail or nothing at all.
+  BudgetRow? get _selectedRow {
+    final index = _selected;
+    if (index == null || index >= _named.length) return null;
+    return _named[index];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,9 +187,19 @@ class _OverviewState extends State<_Overview> {
       title: 'Budget',
       subtitle: monthLabel(widget.month),
       child: widget.budget.isEmpty
-          ? const EmptyNote(
-              'Nothing is budgeted yet.\n'
-              'Set one with: pacc budget set --category NAME --amount N',
+          ? Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const EmptyNote('Nothing is budgeted yet.'),
+                  FilledButton.tonalIcon(
+                    onPressed: widget.onSetBudget,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Set a budget'),
+                  ),
+                ],
+              ),
             )
           : Column(
               children: [
@@ -133,33 +210,31 @@ class _OverviewState extends State<_Overview> {
                     // legend under it is still on screen on a phone.
                     height: wide ? 280 : 240,
                     child: BudgetRing(
-                      segments: [
-                        for (final row in widget.budget)
-                          RingSegment(
-                            label: row.categoryName,
-                            budgeted: row.perMonth?.value ?? 0,
-                            spent: row.spentThisMonth.value,
-                            isOver: row.isOver,
-                          ),
-                      ],
+                      segments: _segments(context),
                       selected: _selected,
                       onSelect: (index) => setState(() => _selected = index),
                       thickness: wide ? 24 : 20,
                       centre: _Centre(
                         totals: widget.totals,
-                        selected: _selected == null
-                            ? null
-                            : widget.budget[_selected!],
+                        selected: _selectedRow,
+                        folded: _selected != null && _selected! >= _named.length
+                            ? _folded
+                            : const [],
                       ),
                     ),
                   ),
                 ),
                 _Legend(
                   rows: widget.budget,
-                  selected: _selected,
-                  onSelect: (index) => setState(
-                    () => _selected = _selected == index ? null : index,
-                  ),
+                  colourOf: (row) => _colourFor(context, row),
+                  selected: _selectedRow,
+                  onSelect: (row) => setState(() {
+                    final index = _named.indexOf(row);
+                    // A folded category selects the arc it was folded into,
+                    // which is the honest answer to "which one is mine".
+                    final target = index < 0 ? _named.length : index;
+                    _selected = _selected == target ? null : target;
+                  }),
                   wide: wide,
                 ),
                 if (widget.unbudgeted > 0)
@@ -213,13 +288,21 @@ class _OverviewState extends State<_Overview> {
 /// Proportional figures, not tabular: tabular gives every digit the width of a
 /// zero, which makes a large standalone number look loose.
 class _Centre extends StatelessWidget {
-  const _Centre({required this.totals, required this.selected});
+  const _Centre({
+    required this.totals,
+    required this.selected,
+    this.folded = const [],
+  });
 
   final MonthTotals totals;
 
   /// A tapped category, whose own figures replace the total until it is
   /// tapped again.
   final BudgetRow? selected;
+
+  /// The categories the tapped arc stands for, when the tapped arc is the
+  /// folded tail.
+  final List<BudgetRow> folded;
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +318,12 @@ class _Centre extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          row?.categoryName ?? 'Spent',
+          row?.categoryName ??
+              switch (folded.length) {
+                0 => 'Spent',
+                1 => folded.single.categoryName,
+                final n => '$n categories',
+              },
           style: theme.textTheme.labelMedium
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
           textAlign: TextAlign.center,
@@ -276,14 +364,16 @@ class _Centre extends StatelessWidget {
 class _Legend extends StatelessWidget {
   const _Legend({
     required this.rows,
+    required this.colourOf,
     required this.selected,
     required this.onSelect,
     required this.wide,
   });
 
   final List<BudgetRow> rows;
-  final int? selected;
-  final void Function(int index) onSelect;
+  final Color Function(BudgetRow row) colourOf;
+  final BudgetRow? selected;
+  final void Function(BudgetRow row) onSelect;
   final bool wide;
 
   @override
@@ -292,11 +382,12 @@ class _Legend extends StatelessWidget {
 
     return Column(
       children: [
-        for (int i = 0; i < rows.length; i++)
+        for (final row in rows)
           _LegendRow(
-            row: rows[i],
-            selected: selected == i,
-            onTap: () => onSelect(i),
+            row: row,
+            colour: colourOf(row),
+            selected: identical(selected, row),
+            onTap: () => onSelect(row),
             wide: wide,
             theme: theme,
           ),
@@ -308,6 +399,7 @@ class _Legend extends StatelessWidget {
 class _LegendRow extends StatelessWidget {
   const _LegendRow({
     required this.row,
+    required this.colour,
     required this.selected,
     required this.onTap,
     required this.wide,
@@ -315,6 +407,7 @@ class _LegendRow extends StatelessWidget {
   });
 
   final BudgetRow row;
+  final Color colour;
   final bool selected;
   final VoidCallback onTap;
   final bool wide;
@@ -335,13 +428,25 @@ class _LegendRow extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
         child: Row(
           children: [
+            // The swatch is what makes this a legend rather than a list: it is
+            // the same colour the arc is drawn in, including the red an
+            // over-budget category takes.
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: over ? theme.colorScheme.error : colour,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: 10),
             if (over) ...[
               Icon(
                 Icons.error_outline,
                 size: 16,
                 color: theme.colorScheme.error,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 4),
             ],
             Expanded(
               child: Text(

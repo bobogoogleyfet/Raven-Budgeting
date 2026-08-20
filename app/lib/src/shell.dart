@@ -30,11 +30,17 @@ class AppShell extends StatefulWidget {
   final void Function(BuildContext context) onNewExpense;
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  State<AppShell> createState() => AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class AppShellState extends State<AppShell> {
   Destination _selected = Destination.home;
+
+  /// Move to a destination from outside — the overview offering something the
+  /// Budget screen owns, rather than a second copy of it.
+  void show(Destination destination) {
+    setState(() => _selected = destination);
+  }
 
   void _select(int index) {
     setState(() {

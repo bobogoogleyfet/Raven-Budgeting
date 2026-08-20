@@ -85,6 +85,7 @@ class AccountingApp extends StatefulWidget {
 
 class _AccountingAppState extends State<AccountingApp> {
   late bool _configured = widget.configured;
+  final GlobalKey<AppShellState> _shell = GlobalKey<AppShellState>();
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +94,11 @@ class _AccountingAppState extends State<AccountingApp> {
       theme: lightTheme(),
       darkTheme: darkTheme(),
       home: _configured
-          ? AppShell(screenBuilder: _screenFor, onNewExpense: _newExpense)
+          ? AppShell(
+              key: _shell,
+              screenBuilder: _screenFor,
+              onNewExpense: _newExpense,
+            )
           : Scaffold(
               appBar: AppBar(title: const Text('Welcome')),
               body: HomeAreaForm(
@@ -107,13 +112,17 @@ class _AccountingAppState extends State<AccountingApp> {
 
   Widget _screenFor(BuildContext context, Destination destination) {
     return switch (destination) {
-      Destination.home => const HomeScreen(),
+      Destination.home => HomeScreen(onSetBudget: _goToBudget),
       Destination.expenses => const ExpensesScreen(),
       Destination.budget => const BudgetScreen(),
       Destination.inbox => const InboxScreen(),
       Destination.settings => SettingsScreen(databasePath: widget.databasePath),
     };
   }
+
+  /// The overview offers to set a budget; the Budget screen is where that
+  /// lives, so this hands over rather than growing a second copy of it.
+  void _goToBudget() => _shell.currentState?.show(Destination.budget);
 
   /// Entering an expense is a focused task, so it gets a screen of its own
   /// rather than a pane inside the shell — Material 3's full-screen dialog,

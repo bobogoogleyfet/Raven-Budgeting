@@ -1,6 +1,8 @@
 //! The budget, for one month.
 
-use accounting_core::YearMonth;
+use accounting_core::domain::budget_calc::Period;
+use accounting_core::repo::budgets::BudgetLineRecord;
+use accounting_core::{CategoryId, Money, YearMonth};
 use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::service::budgets;
 
@@ -107,4 +109,64 @@ pub fn budget_status(month: String) -> Result<Vec<BudgetRowDto>, String> {
             }
         })
         .collect())
+}
+
+/// What setting a budget did, so the screen can say so out loud.
+pub struct SupersededDto {
+    /// True when a line already starting that month was restated in place
+    /// rather than a new one being opened.
+    pub restated: bool,
+    /// The last month the previous line now applies to, when one was closed to
+    /// make room.
+    pub closed_after: Option<String>,
+}
+
+/// Set a category's budget from `month` onward.
+///
+/// Three cases, all handled by the core in one transaction: nothing in force
+/// opens a new line; a line already starting that month is restated in place;
+/// a line that started earlier is closed the month before and the new one
+/// opened. A budget is a historical record rather than a setting, which is why
+/// last year's figures do not move when this year's changes.
+///
+/// `every_n_months` is read only when `period` is `everyN`. An unknown period
+/// is refused rather than defaulted: a budget silently landing on the wrong
+/// schedule is a number nobody checks again.
+pub fn set_budget(
+    category_id: i64,
+    amount_cents: i64,
+    period: String,
+    every_n_months: Option<u32>,
+    month: String,
+    rollover: bool,
+) -> Result<SupersededDto, String> {
+    let period = match period.as_str() {
+        "monthly" => Period::Monthly,
+        "yearly" => Period::Yearly,
+        "everyN" => Period::EveryNMonths(
+            every_n_months.ok_or_else(|| "every-n needs a number of months".to_string())?,
+        ),
+        other => return Err(format!("{other} is not a budget period")),
+    };
+    let period_start: YearMonth = month.parse().map_err(to_message)?;
+
+    let record = BudgetLineRecord {
+        id: None,
+        category_id: CategoryId::new(category_id),
+        period,
+        period_start,
+        // Still in force: a budget set today runs until something supersedes
+        // it, which is what the next call to this does.
+        period_end: None,
+        amount: Money::from_cents(amount_cents),
+        rollover,
+        notes: None,
+    };
+
+    let db = db::locked()?;
+    let outcome = budgets::set_budget(&db, &record).map_err(to_message)?;
+    Ok(SupersededDto {
+        restated: outcome.restated,
+        closed_after: outcome.closed.map(|(_, last)| last.to_string()),
+    })
 }

@@ -182,9 +182,11 @@ void main() {
     ]);
 
     final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
-    expect(ring.segments.map((s) => s.label), ['Groceries', 'Gas']);
+    // Biggest budget first, so the hues are assigned by size rather than by
+    // the order the core happened to return.
+    expect(ring.segments.map((s) => s.label), ['Gas', 'Groceries']);
     // Sized by the month's share, so a yearly line does not swamp the circle.
-    expect(ring.segments.map((s) => s.budgeted), [20000, 30000]);
+    expect(ring.segments.map((s) => s.budgeted), [30000, 20000]);
   });
 
   testWidgets('an over-budget segment is marked over, not merely full',
@@ -253,11 +255,13 @@ void main() {
     expect(find.textContaining('1 category has no budget'), findsOneWidget);
   });
 
-  testWidgets('nothing budgeted says how to budget something', (tester) async {
+  testWidgets('nothing budgeted offers to set one', (tester) async {
     await pump(tester);
 
     expect(find.textContaining('Nothing is budgeted yet'), findsOneWidget);
-    expect(find.textContaining('pacc budget set'), findsOneWidget);
+    // Where a new user first notices there is no budget is where the offer
+    // belongs.
+    expect(find.text('Set a budget'), findsOneWidget);
   });
 
   testWidgets('shows the three most recent expenses', (tester) async {
@@ -283,5 +287,69 @@ void main() {
     await pump(tester);
 
     expect(find.text('No expenses yet.'), findsOneWidget);
+  });
+
+  testWidgets('every segment gets its own colour, and the legend matches',
+      (tester) async {
+    await pump(tester, budget: [
+      budgeted('Groceries', budget: 60000, spent: 0, remaining: 60000),
+      budgeted('Gas', budget: 30000, spent: 0, remaining: 30000),
+      budgeted('Rent', budget: 145000, spent: 0, remaining: 145000),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    final colours = ring.segments.map((s) => s.colour).toList();
+    expect(colours.toSet(), hasLength(3), reason: 'no two segments share a hue');
+  });
+
+  testWidgets('past seven categories the tail folds into one arc',
+      (tester) async {
+    // A generated eighth hue is indistinguishable from one already in use, so
+    // the tail becomes one arc rather than taking one.
+    await pump(tester, budget: [
+      for (int i = 1; i <= 9; i++)
+        budgeted('Category $i', budget: i * 1000, spent: 0, remaining: i * 1000),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    expect(ring.segments, hasLength(8));
+    expect(ring.segments.last.label, 'Other');
+    expect(ring.segments.last.colour, isNot(ring.segments.first.colour));
+    // The folded arc still carries their money, so the ring adds up.
+    expect(ring.segments.last.budgeted, 1000 + 2000);
+    // And every category is still named in the legend.
+    expect(find.text('Category 1'), findsOneWidget);
+  });
+
+  testWidgets('an over-budget segment is red whatever hue it was given',
+      (tester) async {
+    await pump(tester, budget: [
+      budgeted('Groceries', budget: 60000, spent: 0, remaining: 60000),
+      budgeted(
+        'Household',
+        budget: 12000,
+        spent: 14390,
+        remaining: -2390,
+        overspentBy: 2390,
+      ),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    final household =
+        ring.segments.firstWhere((s) => s.label == 'Household');
+    expect(household.isOver, isTrue);
+  });
+
+  testWidgets('one category over the ceiling keeps its own name', (tester) async {
+    // One left over is not a group, and calling it "Other" would hide a name
+    // the legend is showing three lines below.
+    await pump(tester, budget: [
+      for (int i = 1; i <= 8; i++)
+        budgeted('Category $i', budget: i * 1000, spent: 0, remaining: i * 1000),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    expect(ring.segments, hasLength(8));
+    expect(ring.segments.last.label, 'Category 1');
   });
 }

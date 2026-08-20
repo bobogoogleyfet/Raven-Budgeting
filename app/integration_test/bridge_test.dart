@@ -223,4 +223,84 @@ void main() {
       throwsA(anything),
     );
   });
+
+  test('a budget set from the app shows up in the month it starts', () async {
+    await openDatabase(appDataDir: dataDir.path);
+    // Hobbies rather than Groceries: an earlier test in this file files a
+    // grocery receipt in the same month, and "what is left" would then depend
+    // on the order the tests happened to run in.
+    final hobbies =
+        (await listCategories()).firstWhere((c) => c.name == 'Hobbies');
+
+    final first = await setBudget(
+      categoryId: hobbies.id,
+      amount: fromCore(20000),
+      period: BudgetPeriod.monthly,
+      month: '2026-08',
+    );
+    expect(first.restated, isFalse);
+    expect(first.closedAfter, isNull);
+
+    final rows = await budgetStatus('2026-08');
+    final row = rows.firstWhere((r) => r.categoryName == 'Hobbies');
+    expect(row.isBudgeted, isTrue);
+    expect(row.perMonth?.value, 20000);
+    expect(row.remaining?.value, 20000, reason: 'nothing spent on hobbies');
+
+    // The figure the overview leads with is the core's sum of the same rows.
+    final totals = await monthTotals('2026-08');
+    final expected = rows
+        .where((r) => r.isBudgeted)
+        .fold<int>(0, (sum, r) => sum + (r.perMonth?.value ?? 0));
+    expect(totals.budgeted.value, expected);
+  });
+
+  test('setting the same month again restates rather than stacking', () async {
+    await openDatabase(appDataDir: dataDir.path);
+    final gas = (await listCategories()).firstWhere((c) => c.name == 'Gas');
+
+    await setBudget(
+      categoryId: gas.id,
+      amount: fromCore(18000),
+      period: BudgetPeriod.monthly,
+      month: '2026-09',
+    );
+    final again = await setBudget(
+      categoryId: gas.id,
+      amount: fromCore(19000),
+      period: BudgetPeriod.monthly,
+      month: '2026-09',
+    );
+
+    // The user is correcting a figure they just entered, and rewriting it is
+    // what they asked for.
+    expect(again.restated, isTrue);
+    final rows = await budgetStatus('2026-09');
+    expect(
+      rows.firstWhere((r) => r.categoryName == 'Gas').perMonth?.value,
+      19000,
+    );
+  });
+
+  test('a yearly budget contributes a twelfth of the bill each month',
+      () async {
+    await openDatabase(appDataDir: dataDir.path);
+    final insurance =
+        (await listCategories()).firstWhere((c) => c.name == 'Car Insurance');
+
+    await setBudget(
+      categoryId: insurance.id,
+      amount: fromCore(78000),
+      period: BudgetPeriod.yearly,
+      month: '2026-01',
+    );
+
+    final row = (await budgetStatus('2026-08'))
+        .firstWhere((r) => r.categoryName == 'Car Insurance');
+
+    // $780 a year is $65 a month, and the whole bill stays the cycle's budget.
+    expect(row.perMonth?.value, 6500);
+    expect(row.budgeted?.value, 78000);
+    expect(row.isMultiMonth, isTrue);
+  });
 }

@@ -168,6 +168,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SubtotalRowDto dco_decode_subtotal_row_dto(dynamic raw);
 
   @protected
+  SupersededDto dco_decode_superseded_dto(dynamic raw);
+
+  @protected
   TxnSummaryDto dco_decode_txn_summary_dto(dynamic raw);
 
   @protected
@@ -339,6 +342,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SubtotalRowDto sse_decode_subtotal_row_dto(SseDeserializer deserializer);
+
+  @protected
+  SupersededDto sse_decode_superseded_dto(SseDeserializer deserializer);
 
   @protected
   TxnSummaryDto sse_decode_txn_summary_dto(SseDeserializer deserializer);
@@ -576,6 +582,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     SubtotalRowDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_superseded_dto(SupersededDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_txn_summary_dto(TxnSummaryDto self, SseSerializer serializer);
