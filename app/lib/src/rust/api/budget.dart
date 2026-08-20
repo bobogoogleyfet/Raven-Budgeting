@@ -19,6 +19,33 @@ Future<MonthTotalsDto> monthTotals({required String month}) =>
 Future<List<BudgetRowDto>> budgetStatus({required String month}) =>
     RustLib.instance.api.crateApiBudgetBudgetStatus(month: month);
 
+/// Set a category's budget from `month` onward.
+///
+/// Three cases, all handled by the core in one transaction: nothing in force
+/// opens a new line; a line already starting that month is restated in place;
+/// a line that started earlier is closed the month before and the new one
+/// opened. A budget is a historical record rather than a setting, which is why
+/// last year's figures do not move when this year's changes.
+///
+/// `every_n_months` is read only when `period` is `everyN`. An unknown period
+/// is refused rather than defaulted: a budget silently landing on the wrong
+/// schedule is a number nobody checks again.
+Future<SupersededDto> setBudget({
+  required PlatformInt64 categoryId,
+  required PlatformInt64 amountCents,
+  required String period,
+  int? everyNMonths,
+  required String month,
+  required bool rollover,
+}) => RustLib.instance.api.crateApiBudgetSetBudget(
+  categoryId: categoryId,
+  amountCents: amountCents,
+  period: period,
+  everyNMonths: everyNMonths,
+  month: month,
+  rollover: rollover,
+);
+
 /// One category's budget in the month asked about.
 ///
 /// Mirrors the Tauri shell's `BudgetRowDto` with one field added: `remaining`.
@@ -143,4 +170,28 @@ class MonthTotalsDto {
           runtimeType == other.runtimeType &&
           budgeted == other.budgeted &&
           spent == other.spent;
+}
+
+/// What setting a budget did, so the screen can say so out loud.
+class SupersededDto {
+  /// True when a line already starting that month was restated in place
+  /// rather than a new one being opened.
+  final bool restated;
+
+  /// The last month the previous line now applies to, when one was closed to
+  /// make room.
+  final String? closedAfter;
+
+  const SupersededDto({required this.restated, this.closedAfter});
+
+  @override
+  int get hashCode => restated.hashCode ^ closedAfter.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SupersededDto &&
+          runtimeType == other.runtimeType &&
+          restated == other.restated &&
+          closedAfter == other.closedAfter;
 }

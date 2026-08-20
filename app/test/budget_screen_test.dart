@@ -144,12 +144,13 @@ void main() {
     expect(find.textContaining('1 category has no budget'), findsOneWidget);
   });
 
-  testWidgets('a month with nothing budgeted says how to budget something',
+  testWidgets('a month with nothing budgeted offers to set one',
       (tester) async {
     await pump(tester, rows: [unbudgeted]);
 
     expect(find.textContaining('No budgets set for this month'), findsOneWidget);
-    expect(find.textContaining('pacc budget set'), findsOneWidget);
+    // Setting one is a button now, not a command to go and type somewhere else.
+    expect(find.text('Set a budget'), findsOneWidget);
   });
 
   testWidgets('a phone drops the columns the width cannot hold', (tester) async {

@@ -483,3 +483,51 @@ Future<rust_entry.RateReleaseDto?> rateRelease() => rust_entry.rateRelease();
 /// normal state, and last quarter's rates are estimates a receipt overrules
 /// anyway. The staleness is what gets surfaced, by [rateRelease].
 Future<rust_rates.RefreshDto> refreshRates() => rust_rates.refreshRates();
+
+/// What setting a budget did.
+class Superseded {
+  const Superseded({required this.restated, required this.closedAfter});
+
+  /// True when a line already starting that month was restated in place.
+  final bool restated;
+
+  /// The last month the previous line now applies to, when one was closed to
+  /// make room for this.
+  final String? closedAfter;
+}
+
+/// How often a budgeted amount comes due.
+enum BudgetPeriod {
+  monthly('monthly', 'Every month'),
+  yearly('yearly', 'Once a year');
+
+  const BudgetPeriod(this.wire, this.label);
+
+  final String wire;
+  final String label;
+}
+
+/// Set a category's budget from `month` onward.
+///
+/// The amount is for one **period**, not per month: a yearly budget of $1,200
+/// contributes about $100 a month, and the core does that division.
+Future<Superseded> setBudget({
+  required int categoryId,
+  required Cents amount,
+  required BudgetPeriod period,
+  required String month,
+  bool rollover = false,
+}) async {
+  final result = await rust_budget.setBudget(
+    categoryId: categoryId,
+    amountCents: amount.value,
+    period: period.wire,
+    everyNMonths: null,
+    month: month,
+    rollover: rollover,
+  );
+  return Superseded(
+    restated: result.restated,
+    closedAfter: result.closedAfter,
+  );
+}

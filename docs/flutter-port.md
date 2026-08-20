@@ -138,7 +138,9 @@ so there is never a day without a working expense tracker.
    which opens a dialog with no rows and its own Save disabled.
 
    The first-run gate arrived with phase 5.
-5. **Inbox, Budget, Settings, first run — built 2026-08-20.**
+5. **Inbox, Budget, Settings, first run — built 2026-08-20.** Budgets can also
+   be set from the app rather than only from `pacc budget set`: one dialog,
+   reached from the Budget screen and from the overview's empty state.
 6. **Android.** NDK, `cargo-ndk`, Rust targets, and the first real test of
    bundled SQLite cross-compiling. Deliberately last: nothing before it depends
    on Android, and everything before it de-risks it.
@@ -163,18 +165,28 @@ these arcs encodes two — its length is that category's share of the month's
 budget, and its fill is how much of that category has gone. Over budget fills
 the arc and turns it red, because there is no 110% of an arc.
 
-Colour does one job: state. Every segment is the accent hue until the core says
-the category is over, so identity comes from the legend and from tapping a
-segment, never from hue — which is why the segments do not each get a colour.
-Over is named in words and carries an icon as well as the colour.
+Each segment carries its own hue so the legend beside it can name them, and
+each draws its track in that hue at low opacity with its spending over the top
+— so the arc's *length* is readable before a penny is spent. Over budget takes
+the error colour and fills, whatever hue the category had: red means one thing
+here.
 
-The two data colours are M3's `primary` and `error`, validated rather than
-eyeballed: CVD separation ΔE 17.3 light and 11.1 dark against a target of 8,
-contrast over surface above 3:1 in both modes, fill against track 3.80:1. They
-fail a categorical palette's lightness-band and chroma-floor checks, which is
-the right outcome to accept: this is one accent plus a reserved status colour,
-not a set of series hues, and bending M3's roles to pass a check aimed at a
-different problem would be the wrong trade.
+The palette is seven slots in a fixed order (`widgets/chart_palette.dart`),
+validated rather than picked: worst adjacent CVD separation ΔE 9.1 light and
+8.4 dark against a target of 8, worst normal-vision ΔE 19.6 and 19.3 against a
+floor of 15. Three light slots fall under 3:1 against the surface, which the
+validator flags as needing relief; the legend is that relief, and is why
+identity never rests on colour alone.
+
+Seven and not eight, because the reference palette's eighth slot is a red and
+red is reserved for over budget. Past the seventh, categories fold into one
+grey arc — a generated eighth hue is indistinguishable from an existing one
+under CVD — except when the tail is a single category, which keeps its name.
+
+The ring is drawn, not drawn *on*: arcs painted as paths, so it is
+resolution-independent and stays crisp at any device pixel ratio. Its
+jaggedness was never resolution — it was per-segment tracks turning every gap
+into a notch in the ring's outline.
 
 This settled after one wrong turn worth recording: entering an expense was
 briefly the home surface itself, with no destination selected. That works on a

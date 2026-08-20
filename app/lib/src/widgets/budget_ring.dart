@@ -12,9 +12,15 @@ class RingSegment {
     required this.budgeted,
     required this.spent,
     required this.isOver,
+    required this.colour,
   });
 
   final String label;
+
+  /// This category's hue, or the folded-tail grey. Over-budget overrides it
+  /// with the error colour when the segment is painted: red means one thing
+  /// here, and it is not "category eight".
+  final Color colour;
 
   /// Cents. Used for geometry only — the arc's share of the circle and how far
   /// along it the fill runs. No monetary figure is derived from it.
@@ -69,7 +75,6 @@ class BudgetRing extends StatelessWidget {
           selected: selected,
           thickness: thickness,
           track: theme.colorScheme.outlineVariant,
-          fill: theme.colorScheme.primary,
           over: theme.colorScheme.error,
         );
 
@@ -106,7 +111,6 @@ class _RingPainter extends CustomPainter {
     required this.selected,
     required this.thickness,
     required this.track,
-    required this.fill,
     required this.over,
   });
 
@@ -114,7 +118,6 @@ class _RingPainter extends CustomPainter {
   final int? selected;
   final double thickness;
   final Color track;
-  final Color fill;
   final Color over;
 
   /// Twelve o'clock. A ring that starts at three reads as having been rotated.
@@ -125,9 +128,13 @@ class _RingPainter extends CustomPainter {
         (sum, segment) => sum + math.max(segment.budgeted, 0),
       );
 
-  /// The angular width of a 2px gap at this radius — the surface gap that
-  /// separates fills, rather than a border drawn around them.
-  double _gapFor(double radius) => radius <= 0 ? 0 : 2 / radius;
+  /// The angular width of the gap between segments: three pixels of arc.
+  ///
+  /// Enough to read as a separation and small enough that eight of them do not
+  /// eat the circle. The caps are square, so the gap is exactly what it looks
+  /// like — a round cap would overhang its own arc by half the stroke at each
+  /// end, which is what turns modest gaps into touching blobs.
+  double _gapFor(double radius) => radius <= 0 ? 0 : 3 / radius;
 
   List<({double from, double to})> _arcs(double radius) {
     final total = _total;
@@ -191,21 +198,36 @@ class _RingPainter extends CustomPainter {
       final segment = segments[i];
       final arc = arcs[i];
       final double sweep = arc.to - arc.from;
-      final double width = selected == i ? thickness + 6 : thickness;
+      final Color colour = segment.isOver ? over : segment.colour;
 
-      // The track is the whole segment: what has not been spent is still part
-      // of the budget, and a segment that drew only its fill would make a
-      // small budget look like a small category.
+      // Each segment's own colour, faint: the arc's *length* is the budget, so
+      // it has to be visible before a penny is spent. A single grey track
+      // would hide where one category ends and the next begins, which is the
+      // whole of what the ring is for.
       canvas.drawArc(
         box,
         arc.from,
         sweep,
         false,
         Paint()
-          ..color = track
-          ..strokeWidth = width
+          ..color = colour.withValues(alpha: 0.22)
+          ..strokeWidth = thickness
           ..style = PaintingStyle.stroke,
       );
+
+      if (selected == i) {
+        canvas.drawArc(
+          box,
+          arc.from,
+          sweep,
+          false,
+          Paint()
+            ..color = track
+            ..strokeWidth = thickness + 5
+            ..style = PaintingStyle.stroke
+            ..blendMode = BlendMode.dstOver,
+        );
+      }
 
       final int budgeted = math.max(segment.budgeted, 0);
       // A ratio for geometry, clamped: it becomes an arc length, and is never
@@ -224,8 +246,11 @@ class _RingPainter extends CustomPainter {
         sweep * filled,
         false,
         Paint()
-          ..color = segment.isOver ? over : fill
-          ..strokeWidth = width
+          ..color = colour
+          ..strokeWidth = thickness
+          // Square ends, so a part-spent segment ends on a clean radial edge
+          // in line with its neighbours' edges.
+          ..strokeCap = StrokeCap.butt
           ..style = PaintingStyle.stroke,
       );
     }
@@ -237,6 +262,5 @@ class _RingPainter extends CustomPainter {
       old.selected != selected ||
       old.thickness != thickness ||
       old.track != track ||
-      old.fill != fill ||
       old.over != over;
 }
