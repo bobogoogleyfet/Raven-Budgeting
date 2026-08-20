@@ -419,6 +419,26 @@ fn upsert_group(
         return Ok(id);
     }
 
+    // A group added to the seed later lands in the middle of the list, and on
+    // a database that already exists its slot belongs to somebody else —
+    // Education's 500 was Savings'. Two groups sharing a sort order put their
+    // order in the hands of the tiebreak, so a new group goes after the
+    // existing ones instead. A fresh database still gets 100, 200, 300…
+    let taken: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM category_group WHERE sort_order = ?1)",
+        params![sort_order],
+        |r| r.get(0),
+    )?;
+    let sort_order = if taken {
+        tx.query_row(
+            "SELECT COALESCE(MAX(sort_order), 0) + 100 FROM category_group",
+            [],
+            |r| r.get(0),
+        )?
+    } else {
+        sort_order
+    };
+
     tx.execute(
         "INSERT INTO category_group (uuid, name, is_hidden, sort_order)
          VALUES (?1, ?2, ?3, ?4)",

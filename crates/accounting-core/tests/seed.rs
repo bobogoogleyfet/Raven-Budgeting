@@ -474,3 +474,34 @@ fn a_group_cannot_be_created_twice() {
     assert!(again.is_err(), "a second group of the same name is refused");
     assert_clean(&db);
 }
+
+#[test]
+fn a_group_added_to_the_seed_later_does_not_share_a_slot() {
+    let db = seeded_db();
+
+    // The state a database is in when the app updates: the groups it already
+    // had, and none of the room the new one wanted.
+    db.conn()
+        .execute("DELETE FROM category_group WHERE name = 'Education'", [])
+        .expect("remove it");
+
+    seed_defaults(&db).expect("re-seed");
+
+    let orders: Vec<i64> = {
+        let c = raw(&db);
+        let mut stmt = c
+            .prepare("SELECT sort_order FROM category_group ORDER BY sort_order")
+            .expect("prepare");
+        stmt.query_map([], |r| r.get(0))
+            .expect("query")
+            .collect::<rusqlite::Result<_>>()
+            .expect("rows")
+    };
+    let mut unique = orders.clone();
+    unique.dedup();
+    assert_eq!(
+        orders, unique,
+        "two groups sharing a sort order leaves their order to the tiebreak"
+    );
+    assert_clean(&db);
+}
