@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../dates.dart';
 import '../money.dart';
+import '../widgets/cents_field.dart';
 
 typedef BudgetSetter = Future<Superseded> Function({
   required int categoryId,
@@ -64,7 +65,7 @@ class _SetBudgetDialogState extends State<SetBudgetDialog> {
     if (amount == null) {
       // Not zero: an unparseable amount is a half-typed one, and a $0.00
       // budget is a claim that this category should have nothing.
-      setState(() => _problem = 'Enter an amount, like 250.00.');
+      setState(() => _problem = 'Enter an amount.');
       return;
     }
 
@@ -120,17 +121,11 @@ class _SetBudgetDialogState extends State<SetBudgetDialog> {
               onChanged: (id) => setState(() => _categoryId = id),
             ),
             const SizedBox(height: 16),
-            TextField(
+            CentsField(
               controller: _amount,
               autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              label: 'Amount',
               onSubmitted: (_) => _save(),
-              decoration: const InputDecoration(
-                labelText: 'Amount',
-                prefixText: r'$',
-                hintText: '250.00',
-                border: OutlineInputBorder(),
-              ),
             ),
             const SizedBox(height: 16),
             SegmentedButton<BudgetPeriod>(

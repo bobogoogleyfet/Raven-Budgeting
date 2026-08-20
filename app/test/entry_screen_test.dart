@@ -355,4 +355,31 @@ void main() {
     expect(find.textContaining('not found: location'), findsOneWidget);
     expect(find.widgetWithText(TextField, '7.28'), findsOneWidget);
   });
+
+  testWidgets('an amount fills from the cents up', (tester) async {
+    final fake = Fake();
+    await pump(tester, fake);
+
+    // Typing 50 is fifty cents, not fifty dollars: nobody entering a receipt
+    // types a decimal point.
+    await enterAmount(tester, '50');
+    expect(fake.previews.last.rows.single.subtotal.value, 50);
+
+    await enterAmount(tester, '150');
+    expect(fake.previews.last.rows.single.subtotal.value, 150);
+
+    // And what is on screen is what was read back.
+    expect(find.widgetWithText(TextField, '1.50'), findsOneWidget);
+  });
+
+  testWidgets('the amount field says what it wants, not an example',
+      (tester) async {
+    final fake = Fake();
+    await pump(tester, fake);
+
+    final field = tester.widget<TextField>(
+      find.widgetWithText(TextField, '0.00').first,
+    );
+    expect(field.decoration?.hintText, '0.00');
+  });
 }

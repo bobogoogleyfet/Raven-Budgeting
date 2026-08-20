@@ -13,6 +13,7 @@ import '../api.dart'
         SubtotalDraft;
 import '../dates.dart';
 import '../money.dart';
+import '../widgets/cents_field.dart';
 import '../widgets/combobox.dart';
 import 'review_dialog.dart';
 
@@ -603,17 +604,10 @@ class _CategoryRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           SizedBox(
-            width: 130,
-            child: TextField(
+            width: 140,
+            child: CentsField(
               controller: row.amount,
               onChanged: (_) => onAmount(),
-              textAlign: TextAlign.right,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                hintText: '0.00',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
             ),
           ),
           SizedBox(

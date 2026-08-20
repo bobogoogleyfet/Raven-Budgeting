@@ -60,6 +60,29 @@ Future<void> choose(WidgetTester tester, String name) async {
 }
 
 void main() {
+  testWidgets('the amount field hints at the format, not an amount',
+      (tester) async {
+    await pump(tester);
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    // "250.00" was a number the reader had to decide not to take literally.
+    expect(field.decoration?.hintText, '0.00');
+  });
+
+  testWidgets('a budget fills from the cents up', (tester) async {
+    final sent = await pump(tester);
+    await choose(tester, 'Groceries');
+    await tester.enterText(find.byType(TextField), '25000');
+    await tester.pumpAndSettle();
+
+    // Typed as digits, shown as an amount — and what is shown is what is sent.
+    expect(find.widgetWithText(TextField, '250.00'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save budget'));
+    await tester.pumpAndSettle();
+    expect(sent.single.amount.value, 25000);
+  });
+
   testWidgets('a budget goes as cents, for the month it starts from',
       (tester) async {
     final sent = await pump(tester);

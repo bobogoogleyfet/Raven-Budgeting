@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api.dart';
 import '../money.dart';
+import '../widgets/cents_field.dart';
 import '../widgets/money_text.dart';
 
 /// One line of the receipt as the dialog holds it.
@@ -251,13 +252,7 @@ class _AmountField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      onChanged: onChanged,
-      textAlign: TextAlign.right,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
-    );
+    return CentsField(controller: controller, onChanged: onChanged);
   }
 }
 
