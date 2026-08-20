@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'src/destinations.dart';
 import 'dart:async';
@@ -22,17 +23,19 @@ Future<void> main() async {
   await RustLib.init();
 
   // Desktop resolves the path in Rust, from the same environment variables the
-  // CLI reads. Android and iOS cannot: the per-app directory is the platform's
-  // answer and only Dart can ask for it, so phase 6 passes `path_provider`'s
-  // result to `openDatabase` here. Failing loudly now is better than silently
-  // opening a database somewhere the platform will delete.
-  if (Platform.isAndroid || Platform.isIOS) {
-    throw UnsupportedError(
-      'Mobile needs its data directory passed to openDatabase — phase 6.',
-    );
-  }
+  // CLI reads, so the app and `pacc` share one database.
+  //
+  // Mobile cannot: there is no shared location to share *with*, and the
+  // per-app directory is the platform's answer — obtainable only through the
+  // Java `Context`, which is what `path_provider` wraps. Support rather than
+  // documents: this is a database the app manages, not a file the user is
+  // meant to browse to, and on iOS the documents directory is backed up and
+  // user-visible in ways a SQLite file with a WAL beside it should not be.
+  final String? appData = Platform.isAndroid || Platform.isIOS
+      ? (await getApplicationSupportDirectory()).path
+      : null;
 
-  final String path = await openDatabase();
+  final String path = await openDatabase(appDataDir: appData);
   // First run asks where the user lives before anything else.
   //
   // Detected by the home location still carrying a 0% rate, which is what the

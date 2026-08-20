@@ -4,6 +4,7 @@ import '../api.dart';
 import '../dates.dart';
 import '../money.dart';
 import '../widgets/cents_field.dart';
+import 'new_category_dialog.dart';
 
 typedef BudgetSetter = Future<Superseded> Function({
   required int categoryId,
@@ -28,6 +29,7 @@ class SetBudgetDialog extends StatefulWidget {
     required this.month,
     this.save = setBudget,
     this.initialCategoryId,
+    this.canAddCategory = true,
   });
 
   final List<CategoryDto> categories;
@@ -38,6 +40,10 @@ class SetBudgetDialog extends StatefulWidget {
   final BudgetSetter save;
   final int? initialCategoryId;
 
+  /// Whether the category list can be added to from here. Off in tests that
+  /// are about budgets rather than about categories.
+  final bool canAddCategory;
+
   @override
   State<SetBudgetDialog> createState() => _SetBudgetDialogState();
 }
@@ -45,6 +51,7 @@ class SetBudgetDialog extends StatefulWidget {
 class _SetBudgetDialogState extends State<SetBudgetDialog> {
   final TextEditingController _amount = TextEditingController();
   late int? _categoryId = widget.initialCategoryId;
+  late List<CategoryDto> _categories = widget.categories;
   BudgetPeriod _period = BudgetPeriod.monthly;
   bool _saving = false;
   String? _problem;
@@ -53,6 +60,21 @@ class _SetBudgetDialogState extends State<SetBudgetDialog> {
   void dispose() {
     _amount.dispose();
     super.dispose();
+  }
+
+  /// Add a category, and select it — nobody opens this to make a category and
+  /// then wants to go looking for it.
+  Future<void> _newCategory() async {
+    final created = await showDialog<CategoryDto>(
+      context: context,
+      builder: (context) => const NewCategoryDialog(),
+    );
+    if (created == null || !mounted) return;
+    setState(() {
+      _categories = [..._categories, created];
+      _categoryId = created.id;
+      _problem = null;
+    });
   }
 
   Future<void> _save() async {
@@ -103,22 +125,40 @@ class _SetBudgetDialogState extends State<SetBudgetDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            DropdownButtonFormField<int>(
-              initialValue: _categoryId,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Category',
-                border: OutlineInputBorder(),
-              ),
-              hint: const Text('Choose a category…'),
-              items: [
-                for (final category in widget.categories)
-                  DropdownMenuItem<int>(
-                    value: category.id,
-                    child: Text('${category.groupName} / ${category.name}'),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    initialValue: _categoryId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      border: OutlineInputBorder(),
+                    ),
+                    hint: const Text('Choose a category…'),
+                    items: [
+                      for (final category in _categories)
+                        DropdownMenuItem<int>(
+                          value: category.id,
+                          child:
+                              Text('${category.groupName} / ${category.name}'),
+                        ),
+                    ],
+                    onChanged: (id) => setState(() => _categoryId = id),
                   ),
+                ),
+                if (widget.canAddCategory) ...[
+                  const SizedBox(width: 8),
+                  // Here rather than only in some settings screen: the moment
+                  // you notice a category is missing is the moment you are
+                  // trying to budget for it.
+                  IconButton.filledTonal(
+                    onPressed: _newCategory,
+                    icon: const Icon(Icons.add),
+                    tooltip: 'New category',
+                  ),
+                ],
               ],
-              onChanged: (id) => setState(() => _categoryId = id),
             ),
             const SizedBox(height: 16),
             CentsField(

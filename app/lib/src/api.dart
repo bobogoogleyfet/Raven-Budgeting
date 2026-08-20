@@ -17,7 +17,7 @@ import 'rust/api/rates.dart' as rust_rates;
 import 'rust/api/categories.dart' as rust_categories;
 import 'rust/api/transactions.dart' as rust_txn;
 
-export 'rust/api/categories.dart' show CategoryDto;
+export 'rust/api/categories.dart' show CategoryDto, CategoryGroupDto;
 export 'rust/api/entry.dart'
     show AreaDto, ContextDto, LocationDto, MerchantDto, RateReleaseDto;
 export 'rust/api/rates.dart' show RefreshDto;
@@ -531,3 +531,30 @@ Future<Superseded> setBudget({
     closedAfter: result.closedAfter,
   );
 }
+
+/// The groups a category can belong to, without the hidden System one — the
+/// three categories the app itself depends on are no answer to "where does
+/// this belong".
+Future<List<rust_categories.CategoryGroupDto>> listCategoryGroups() async {
+  final groups = await rust_categories.listCategoryGroups();
+  return [
+    for (final group in groups)
+      if (!group.isHidden) group,
+  ];
+}
+
+/// Add a category.
+///
+/// `taxable` says whether a till adds sales tax to it. There is no sensible
+/// default: a car payment taxed at 7.45% is $537.25 where the statement says
+/// $500.00, and nothing on screen would say why.
+Future<rust_categories.CategoryDto> createCategory({
+  required int groupId,
+  required String name,
+  required bool taxable,
+}) =>
+    rust_categories.createCategory(
+      groupId: groupId,
+      name: name,
+      taxable: taxable,
+    );

@@ -12,6 +12,25 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<List<CategoryDto>> listCategories() =>
     RustLib.instance.api.crateApiCategoriesListCategories();
 
+/// The groups, in the order the seed put them in.
+Future<List<CategoryGroupDto>> listCategoryGroups() =>
+    RustLib.instance.api.crateApiCategoriesListCategoryGroups();
+
+/// Add a category.
+///
+/// `taxable` says whether a till adds sales tax to it. Asked rather than
+/// assumed: the column defaults to taxable, and a car payment taxed at 7.45%
+/// is $537.25 where the statement says $500.00.
+Future<CategoryDto> createCategory({
+  required PlatformInt64 groupId,
+  required String name,
+  required bool taxable,
+}) => RustLib.instance.api.crateApiCategoriesCreateCategory(
+  groupId: groupId,
+  name: name,
+  taxable: taxable,
+);
+
 /// One row of the category list.
 ///
 /// Mirrors the Tauri shell's `CategoryDto` field for field, so the two
@@ -48,4 +67,32 @@ class CategoryDto {
           name == other.name &&
           groupName == other.groupName &&
           isBudgeted == other.isBudgeted;
+}
+
+/// One of the groups a category can belong to.
+class CategoryGroupDto {
+  final PlatformInt64 id;
+  final String name;
+
+  /// The System group holds the three categories the app itself depends on,
+  /// and is no answer to "where does this belong".
+  final bool isHidden;
+
+  const CategoryGroupDto({
+    required this.id,
+    required this.name,
+    required this.isHidden,
+  });
+
+  @override
+  int get hashCode => id.hashCode ^ name.hashCode ^ isHidden.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CategoryGroupDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          isHidden == other.isHidden;
 }
