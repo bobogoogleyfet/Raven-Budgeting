@@ -51,6 +51,7 @@ class BudgetRing extends StatelessWidget {
     this.selected,
     this.onSelect,
     this.thickness = 20,
+    this.pop = 10,
   });
 
   final List<RingSegment> segments;
@@ -61,6 +62,9 @@ class BudgetRing extends StatelessWidget {
   final int? selected;
   final void Function(int? index)? onSelect;
   final double thickness;
+
+  /// How far the selected segment steps out of the ring.
+  final double pop;
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +78,7 @@ class BudgetRing extends StatelessWidget {
           segments: segments,
           selected: selected,
           thickness: thickness,
+          pop: pop,
           track: theme.colorScheme.outlineVariant,
           over: theme.colorScheme.error,
         );
@@ -110,6 +115,7 @@ class _RingPainter extends CustomPainter {
     required this.segments,
     required this.selected,
     required this.thickness,
+    required this.pop,
     required this.track,
     required this.over,
   });
@@ -117,6 +123,7 @@ class _RingPainter extends CustomPainter {
   final List<RingSegment> segments;
   final int? selected;
   final double thickness;
+  final double pop;
   final Color track;
   final Color over;
 
@@ -156,17 +163,21 @@ class _RingPainter extends CustomPainter {
   }
 
   /// Which segment a tap landed on, or null for the hole and the outside.
+  double _radiusFor(Size size) =>
+      math.min(size.width, size.height) / 2 - thickness / 2 - pop;
+
   int? segmentAt(Offset position, Size size) {
     final Offset centre = Offset(size.width / 2, size.height / 2);
-    final double radius =
-        math.min(size.width, size.height) / 2 - thickness / 2;
+    final double radius = _radiusFor(size);
     if (radius <= 0) return null;
 
     final Offset local = position - centre;
     final double distance = local.distance;
     // A generous band: a 20px ring is a small target on a phone, where
-    // Material asks for 48. Anything nearer the middle belongs to the figure.
-    if (distance < radius - thickness * 1.5 || distance > radius + thickness) {
+    // Material asks for 48. It reaches past the ring by the pop distance, so a
+    // segment that has stepped out is still tappable where it now is.
+    if (distance < radius - thickness * 1.5 ||
+        distance > radius + thickness + pop) {
       return null;
     }
 
@@ -184,50 +195,39 @@ class _RingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final double radius =
-        math.min(size.width, size.height) / 2 - thickness / 2;
+    final double radius = _radiusFor(size);
     if (radius <= 0) return;
 
-    final Rect box = Rect.fromCircle(
-      center: Offset(size.width / 2, size.height / 2),
-      radius: radius,
-    );
+    final Offset centre = Offset(size.width / 2, size.height / 2);
+    final Rect box = Rect.fromCircle(center: centre, radius: radius);
+    // The selected segment sits on a wider circle, so it steps out of the ring
+    // rather than merely changing colour. Same angles, so it stays over its own
+    // share — it is the same arc, further out.
+    final Rect popped = Rect.fromCircle(center: centre, radius: radius + pop);
     final arcs = _arcs(radius);
+    final bool anySelected = selected != null;
 
     for (int i = 0; i < arcs.length; i++) {
       final segment = segments[i];
       final arc = arcs[i];
       final double sweep = arc.to - arc.from;
+      final bool isSelected = selected == i;
+      final Rect on = isSelected ? popped : box;
       final Color colour = segment.isOver ? over : segment.colour;
+      // Everything else recedes while one is chosen, so the eye has somewhere
+      // to go. Not hidden: the ring still has to read as a whole month.
+      final double dim = !anySelected || isSelected ? 1 : 0.45;
 
-      // Each segment's own colour, faint: the arc's *length* is the budget, so
-      // it has to be visible before a penny is spent. A single grey track
-      // would hide where one category ends and the next begins, which is the
-      // whole of what the ring is for.
       canvas.drawArc(
-        box,
+        on,
         arc.from,
         sweep,
         false,
         Paint()
-          ..color = colour.withValues(alpha: 0.22)
+          ..color = colour.withValues(alpha: 0.22 * dim)
           ..strokeWidth = thickness
           ..style = PaintingStyle.stroke,
       );
-
-      if (selected == i) {
-        canvas.drawArc(
-          box,
-          arc.from,
-          sweep,
-          false,
-          Paint()
-            ..color = track
-            ..strokeWidth = thickness + 5
-            ..style = PaintingStyle.stroke
-            ..blendMode = BlendMode.dstOver,
-        );
-      }
 
       final int budgeted = math.max(segment.budgeted, 0);
       // A ratio for geometry, clamped: it becomes an arc length, and is never
@@ -241,12 +241,12 @@ class _RingPainter extends CustomPainter {
       if (filled <= 0) continue;
 
       canvas.drawArc(
-        box,
+        on,
         arc.from,
         sweep * filled,
         false,
         Paint()
-          ..color = colour
+          ..color = colour.withValues(alpha: dim)
           ..strokeWidth = thickness
           // Square ends, so a part-spent segment ends on a clean radial edge
           // in line with its neighbours' edges.
@@ -261,6 +261,7 @@ class _RingPainter extends CustomPainter {
       old.segments != segments ||
       old.selected != selected ||
       old.thickness != thickness ||
+      old.pop != pop ||
       old.track != track ||
       old.over != over;
 }

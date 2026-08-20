@@ -137,4 +137,29 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('the selected segment steps out of the ring', (tester) async {
+    // Same angles, further out: it is the same arc, not a different one — so
+    // it still sits over its own share of the month.
+    await pumpRing(tester, [
+      segment('Groceries', 100, 50),
+      segment('Gas', 100, 50),
+    ]);
+    final Rect ring = tester.getRect(find.byType(BudgetRing));
+
+    await tester.tapAt(onRing(ring, 45));
+    await tester.pumpAndSettle();
+
+    // Outside the ring's own band, where the popped segment now is.
+    const double thickness = 20;
+    const double pop = 10;
+    final double outer = ring.shortestSide / 2 - thickness / 2 - pop;
+    final double radians = (45 - 90) * math.pi / 180;
+    final Offset outside = ring.center +
+        Offset(math.cos(radians), math.sin(radians)) * (outer + pop);
+
+    // Still the same segment when tapped where it moved to.
+    await tester.tapAt(outside);
+    await tester.pumpAndSettle();
+  });
 }

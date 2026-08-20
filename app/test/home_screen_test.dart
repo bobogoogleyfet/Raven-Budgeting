@@ -65,6 +65,10 @@ Finder legendRow(String name) => find.descendant(
       matching: find.text(name),
     );
 
+/// Recorded so a test can check the overview hands off rather than growing its
+/// own copy of the Budget screen.
+final List<String> handedOff = [];
+
 Future<void> pump(
   WidgetTester tester, {
   List<BudgetRow> budget = const [],
@@ -72,6 +76,7 @@ Future<void> pump(
   MonthTotals totals = const MonthTotals(budgeted: zero, spent: zero),
   double width = 1000,
 }) async {
+  handedOff.clear();
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -81,6 +86,8 @@ Future<void> pump(
       home: Scaffold(
         body: HomeScreen(
           month: '2026-08',
+          onSetBudget: () => handedOff.add('set'),
+          onOpenBudgets: () => handedOff.add('all'),
           loadBudget: (month) async => budget,
           loadTotals: (month) async => totals,
           loadRecent: (limit) async => recent.take(limit).toList(),
@@ -317,8 +324,15 @@ void main() {
     expect(ring.segments.last.colour, isNot(ring.segments.first.colour));
     // The folded arc still carries their money, so the ring adds up.
     expect(ring.segments.last.budgeted, 1000 + 2000);
-    // And every category is still named in the legend.
-    expect(find.text('Category 1'), findsOneWidget);
+    // The legend names what the ring draws and hands the rest over. Listing
+    // every budget here would make the overview a worse copy of the Budget
+    // screen, and turn a summary into a page you scroll.
+    expect(find.text('2 more categories'), findsOneWidget);
+    expect(find.text('Category 1'), findsNothing);
+    expect(find.text('See all budgets'), findsOneWidget);
+    await tester.tap(find.text('See all budgets'));
+    await tester.pumpAndSettle();
+    expect(handedOff, ['all']);
   });
 
   testWidgets('an over-budget segment is red whatever hue it was given',
