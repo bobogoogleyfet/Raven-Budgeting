@@ -132,6 +132,7 @@ class CentsField extends StatefulWidget {
     this.onSubmitted,
     this.label,
     this.autofocus = false,
+    this.focusNode,
   });
 
   final TextEditingController controller;
@@ -139,6 +140,7 @@ class CentsField extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
   final String? label;
   final bool autofocus;
+  final FocusNode? focusNode;
 
   @override
   State<CentsField> createState() => _CentsFieldState();
@@ -182,6 +184,7 @@ class _CentsFieldState extends State<CentsField> {
   Widget build(BuildContext context) {
     return TextField(
       controller: widget.controller,
+      focusNode: widget.focusNode,
       autofocus: widget.autofocus,
       onChanged: widget.onChanged,
       onSubmitted: widget.onSubmitted,

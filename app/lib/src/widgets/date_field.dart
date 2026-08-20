@@ -25,6 +25,8 @@ class DateField extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.label,
+    this.autofocus = false,
+    this.onSubmitted,
   });
 
   /// `YYYY-MM-DD`, or empty.
@@ -35,6 +37,12 @@ class DateField extends StatefulWidget {
   final ValueChanged<String> onChanged;
 
   final String? label;
+
+  /// Whether the month segment takes focus, selected, when the field appears.
+  final bool autofocus;
+
+  /// Enter moves on: the field is done, the form is not.
+  final VoidCallback? onSubmitted;
 
   @override
   State<DateField> createState() => _DateFieldState();
@@ -128,10 +136,26 @@ class _DateFieldState extends State<DateField> {
   }
 
   /// Backspace in an empty segment steps back, so a mistyped day is one key
-  /// away from being retyped rather than a reach for the mouse.
-  KeyEventResult _backspaceTo(FocusNode? previous, TextEditingController own,
-      FocusNode node, KeyEvent event) {
+  /// away from being retyped rather than a reach for the mouse. Enter moves
+  /// on: to the next segment, or out of the field when there is none.
+  KeyEventResult _onKey(
+    FocusNode? previous,
+    FocusNode? next,
+    TextEditingController own,
+    KeyEvent event,
+  ) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    if (event.logicalKey == LogicalKeyboardKey.enter ||
+        event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+      if (next != null) {
+        next.requestFocus();
+      } else {
+        widget.onSubmitted?.call();
+      }
+      return KeyEventResult.handled;
+    }
+
     if (event.logicalKey != LogicalKeyboardKey.backspace) {
       return KeyEventResult.ignored;
     }
@@ -167,8 +191,8 @@ class _DateFieldState extends State<DateField> {
           width: 46,
           maxLength: 2,
           hint: 'MM',
-          onKey: (node, event) =>
-              _backspaceTo(null, _month, node, event),
+          autofocus: widget.autofocus,
+          onKey: (node, event) => _onKey(null, _dayFocus, _month, event),
           onChanged: (text) => _onSegment(
             text,
             width: 2,
@@ -183,8 +207,7 @@ class _DateFieldState extends State<DateField> {
           width: 46,
           maxLength: 2,
           hint: 'DD',
-          onKey: (node, event) =>
-              _backspaceTo(_monthFocus, _day, node, event),
+          onKey: (node, event) => _onKey(_monthFocus, _yearFocus, _day, event),
           onChanged: (text) => _onSegment(
             text,
             width: 2,
@@ -199,7 +222,7 @@ class _DateFieldState extends State<DateField> {
           width: 68,
           maxLength: 4,
           hint: 'YYYY',
-          onKey: (node, event) => _backspaceTo(_dayFocus, _year, node, event),
+          onKey: (node, event) => _onKey(_dayFocus, null, _year, event),
           onChanged: (text) => _onSegment(text, width: 4, firstDigitCap: 9),
         ),
         IconButton(
@@ -221,6 +244,7 @@ class _Segment extends StatelessWidget {
     required this.hint,
     required this.onChanged,
     required this.onKey,
+    this.autofocus = false,
   });
 
   final TextEditingController controller;
@@ -230,6 +254,7 @@ class _Segment extends StatelessWidget {
   final String hint;
   final ValueChanged<String> onChanged;
   final KeyEventResult Function(FocusNode node, KeyEvent event) onKey;
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
@@ -240,6 +265,7 @@ class _Segment extends StatelessWidget {
         child: TextField(
           controller: controller,
           focusNode: focus,
+          autofocus: autofocus,
           onChanged: onChanged,
           textAlign: TextAlign.center,
           keyboardType: const TextInputType.numberWithOptions(signed: false),

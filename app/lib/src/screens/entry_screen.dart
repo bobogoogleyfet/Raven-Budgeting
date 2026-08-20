@@ -57,10 +57,14 @@ class _RowState {
   int? categoryId;
   final TextEditingController category = TextEditingController();
   final TextEditingController amount = TextEditingController();
+  final FocusNode categoryFocus = FocusNode();
+  final FocusNode amountFocus = FocusNode();
 
   void dispose() {
     category.dispose();
     amount.dispose();
+    categoryFocus.dispose();
+    amountFocus.dispose();
   }
 }
 
@@ -101,6 +105,12 @@ class _EntryScreenState extends State<EntryScreen> {
   final TextEditingController _note = TextEditingController();
   final List<_RowState> _rows = [_RowState()];
 
+  /// Enter moves on: the field is done, the form is not. The chain runs date →
+  /// store → category → amount → the next row, which is the order a receipt is
+  /// read in.
+  final FocusNode _merchantFocus = FocusNode();
+  final FocusNode _noteFocus = FocusNode();
+
   String _date = today();
   List<CategoryDto> _categories = const [];
   List<String> _stores = const [];
@@ -135,6 +145,8 @@ class _EntryScreenState extends State<EntryScreen> {
     _merchant.dispose();
     _place.dispose();
     _note.dispose();
+    _merchantFocus.dispose();
+    _noteFocus.dispose();
     for (final row in _rows) {
       row.dispose();
     }
@@ -368,6 +380,11 @@ class _EntryScreenState extends State<EntryScreen> {
           label: 'Date',
           child: DateField(
             value: _date,
+            // The first thing a receipt needs is its date, and it is already
+            // filled in — so the form opens with it selected, ready to be
+            // typed over or passed straight through with Enter.
+            autofocus: true,
+            onSubmitted: _merchantFocus.requestFocus,
             onChanged: (iso) {
               // Empty while the segments are half-typed. Keeping the last good
               // date would preview a receipt against a day the user is in the
@@ -384,9 +401,11 @@ class _EntryScreenState extends State<EntryScreen> {
             children: [
               Combobox(
                 controller: _merchant,
+                focusNode: _merchantFocus,
                 options: _stores,
                 hint: 'Select a store',
                 emptyLabel: 'No stores yet.',
+                onSubmitted: () => _rows.first.categoryFocus.requestFocus(),
                 onCommit: (name) async {
                   await _loadContext(name.isEmpty ? null : name);
                   _schedulePreview();
@@ -434,6 +453,12 @@ class _EntryScreenState extends State<EntryScreen> {
                     _schedulePreview();
                   },
                   onAmount: _schedulePreview,
+                  // Enter through a row: category to its amount, then on to the
+                  // next row's category, or to the note when this was the last.
+                  onCategoryDone: _rows[i].amountFocus.requestFocus,
+                  onAmountDone: () => i + 1 < _rows.length
+                      ? _rows[i + 1].categoryFocus.requestFocus()
+                      : _noteFocus.requestFocus(),
                   onRemove: _rows.length > 1 ? () => _removeRow(i) : null,
                 ),
               Align(
@@ -488,6 +513,7 @@ class _EntryScreenState extends State<EntryScreen> {
           label: 'Note',
           child: TextField(
             controller: _note,
+            focusNode: _noteFocus,
             decoration: const InputDecoration(
               hintText: 'optional',
               border: OutlineInputBorder(),
@@ -557,6 +583,8 @@ class _CategoryRow extends StatelessWidget {
     required this.ratePpm,
     required this.onCategory,
     required this.onAmount,
+    required this.onCategoryDone,
+    required this.onAmountDone,
     required this.onRemove,
   });
 
@@ -565,6 +593,8 @@ class _CategoryRow extends StatelessWidget {
   final int? ratePpm;
   final void Function(int? id) onCategory;
   final VoidCallback onAmount;
+  final VoidCallback onCategoryDone;
+  final VoidCallback onAmountDone;
   final VoidCallback? onRemove;
 
   @override
@@ -582,9 +612,11 @@ class _CategoryRow extends StatelessWidget {
               children: [
                 Combobox(
                   controller: row.category,
+                  focusNode: row.categoryFocus,
                   options: [for (final c in options) c.name],
                   hint: 'Select a category',
                   emptyLabel: 'No categories yet.',
+                  onSubmitted: onCategoryDone,
                   onCommit: (name) {
                     final match = options
                         .where((c) => c.name.toLowerCase() == name.toLowerCase())
@@ -612,7 +644,9 @@ class _CategoryRow extends StatelessWidget {
             width: 140,
             child: CentsField(
               controller: row.amount,
+              focusNode: row.amountFocus,
               onChanged: (_) => onAmount(),
+              onSubmitted: (_) => onAmountDone(),
             ),
           ),
           SizedBox(

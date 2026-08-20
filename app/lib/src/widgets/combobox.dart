@@ -53,6 +53,7 @@ class Combobox extends StatefulWidget {
     this.onSubmitted,
     this.openOnFocus = true,
     this.strict = false,
+    this.focusNode,
   });
 
   final TextEditingController controller;
@@ -87,12 +88,17 @@ class Combobox extends StatefulWidget {
   /// it does not.
   final bool strict;
 
+  /// Supplied when something else needs to hand focus to this field — the form
+  /// walking from one field to the next as Enter is pressed.
+  final FocusNode? focusNode;
+
   @override
   State<Combobox> createState() => _ComboboxState();
 }
 
 class _ComboboxState extends State<Combobox> {
-  final FocusNode _focus = FocusNode();
+  late final FocusNode _focus = widget.focusNode ?? FocusNode();
+  late final bool _ownsFocus = widget.focusNode == null;
   final LayerLink _link = LayerLink();
   OverlayEntry? _overlay;
 
@@ -126,7 +132,7 @@ class _ComboboxState extends State<Combobox> {
     _close();
     _focus.removeListener(_onFocusChange);
     widget.controller.removeListener(_onTextChange);
-    _focus.dispose();
+    if (_ownsFocus) _focus.dispose();
     super.dispose();
   }
 

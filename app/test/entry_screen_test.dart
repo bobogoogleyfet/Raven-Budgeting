@@ -4,6 +4,7 @@ import 'package:app/src/screens/entry_screen.dart';
 import 'package:app/src/rust/api/entry.dart'
     show AreaDto, CategoryRateDto, ContextDto, LocationDto, MerchantDto;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 CategoryDto category(int id, String name) =>
@@ -381,5 +382,47 @@ void main() {
       find.widgetWithText(TextField, '0.00').first,
     );
     expect(field.decoration?.hintText, '0.00');
+  });
+
+  testWidgets('the form opens with the date ready to type over', (tester) async {
+    final fake = Fake();
+    await pump(tester, fake);
+
+    // The first thing a receipt needs is its date, and it is already filled
+    // in — so it opens selected, to be typed over or passed through.
+    final month = tester.widget<TextField>(find.byType(TextField).first);
+    expect(month.focusNode?.hasFocus, isTrue);
+    expect(month.controller?.selection.start, 0);
+    expect(month.controller?.selection.end, month.controller?.text.length);
+  });
+
+  testWidgets('Enter walks the date and then the form', (tester) async {
+    final fake = Fake();
+    await pump(tester, fake);
+
+    Future<void> enter() async {
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+    }
+
+    // Month, day, year, and then out of the date and on to the store.
+    await enter();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(1)).focusNode?.hasFocus,
+      isTrue,
+      reason: 'day',
+    );
+    await enter();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(2)).focusNode?.hasFocus,
+      isTrue,
+      reason: 'year',
+    );
+    await enter();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(3)).focusNode?.hasFocus,
+      isTrue,
+      reason: 'the store field is next',
+    );
   });
 }
