@@ -122,9 +122,25 @@ so there is never a day without a working expense tracker.
    written once. One addition to what the TypeScript does — the list says when
    it is showing only the most recent 200, because a list that silently stops
    is one you trust wrongly.
-4. **Entry form.** The hardest screen: repeating category rows, three
-   autocompletes, the review dialog with its editable tax. Every behaviour rule
-   in the inventory applies here.
+4. **Entry form — built 2026-08-20.** The hardest screen: repeating category
+   rows, the pickers, the review dialog with its editable tax. Every behaviour
+   rule in the inventory applies here.
+
+   Two corrections to the plan, found by reading the original rather than
+   trusting this document. `taxEdited` lives in the review dialog, not the
+   form. And there is no shape decision to port: the add screen calls
+   `preview_subtotals` / `save_subtotals` unconditionally, while
+   `preview_transaction` / `save_transaction` have no caller in the UI at all —
+   they are the total-first path `pacc add` uses.
+
+   One deliberate deviation: Save stays disabled until a preview says the
+   receipt can be saved. The TypeScript leaves it enabled on an untouched form,
+   which opens a dialog with no rows and its own Save disabled.
+
+   Not yet ported: the first-run gate. The TypeScript diverts to a setup screen
+   when home has a 0% rate, and without it a receipt silently records no tax.
+   The Flutter app shows the core's own warning instead, and the gate belongs
+   with the rest of phase 5.
 5. **Inbox, Budget, Settings, first run.**
 6. **Android.** NDK, `cargo-ndk`, Rust targets, and the first real test of
    bundled SQLite cross-compiling. Deliberately last: nothing before it depends
@@ -184,6 +200,10 @@ because they look like implementation detail and are not:
   rows today and different rows tomorrow.
 - **`today()` from local getters, never `toISOString()`.** At 8pm in Utah that
   files a receipt into tomorrow, and at a month boundary into the wrong budget.
+- **The rows are keyed by identity.** The "never re-render a row the user is
+  in" rule is three in-place mutations in the TypeScript, avoiding a rebuild
+  that would take the caret with it. In Flutter it is a key on the row widget,
+  which is the same rule expressed in the framework's own terms.
 - **A total is arithmetic, so the core owns it.** `service::budgets::
   month_totals` sums the month's contributions and spending, rather than a
   frontend adding the rows up. Both figures are the month's, not the cycle's: a
