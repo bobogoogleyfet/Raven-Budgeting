@@ -6,8 +6,9 @@
 
 import 'dart:io';
 
-import 'package:app/src/rust/api/categories.dart';
+import 'package:app/src/api.dart';
 import 'package:app/src/rust/api/db.dart';
+import 'package:app/src/rust/api/transactions.dart' as rust_txn;
 import 'package:app/src/rust/frb_generated.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -63,5 +64,57 @@ void main() {
       categories.map((c) => c.groupName).toSet(),
       containsAll(<String>['Bills', 'Frequent', 'Savings', 'System']),
     );
+  });
+
+  test('a month with no budget lines still lists its categories', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    // Every budgeted category comes back even with no line in force: the
+    // screen's most useful job is offering to budget something that is not
+    // budgeted yet, and a row that is missing cannot make that offer.
+    final rows = await budgetStatus('2026-08');
+
+    expect(rows, isNotEmpty);
+    expect(rows.every((r) => !r.isBudgeted), isTrue);
+    expect(rows.every((r) => !r.isOver), isTrue);
+    expect(rows.every((r) => r.funding == 'none'), isTrue);
+    // System categories are not budgetable and must not appear.
+    expect(rows.map((r) => r.groupName), isNot(contains('System')));
+  });
+
+  test('a malformed month is refused, not guessed at', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    expect(() => budgetStatus('August'), throwsA(anything));
+    expect(() => budgetStatus('2026-13'), throwsA(anything));
+  });
+
+  test('an empty database has no expenses and no filter values', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    expect(await listTransactions(const TxnQuery(limit: 200)), isEmpty);
+
+    final values = await filterValues();
+    expect(values.merchants, isEmpty);
+    expect(values.categories, isEmpty);
+    expect(values.anyWithoutMerchant, isFalse);
+  });
+
+  test('an unknown sort order is refused rather than silently defaulted',
+      () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    // A typo that quietly reorders a list is a bug nobody reports, because the
+    // list still looks plausible.
+    await expectLater(
+      rust_txn.listTransactions(limit: 10, sort: 'dateDescending'),
+      throwsA(anything),
+    );
+  });
+
+  test('deleting an expense that is not there says so', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    expect(() => deleteTransaction(9999), throwsA(anything));
   });
 }

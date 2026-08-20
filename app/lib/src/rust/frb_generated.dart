@@ -3,8 +3,10 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/budget.dart';
 import 'api/categories.dart';
 import 'api/db.dart';
+import 'api/transactions.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -70,7 +72,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 441348595;
+  int get rustContentHash => 917756690;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -82,9 +84,27 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  Future<List<BudgetRowDto>> crateApiBudgetBudgetStatus({
+    required String month,
+  });
+
+  Future<void> crateApiTransactionsDeleteTransaction({
+    required PlatformInt64 id,
+  });
+
+  Future<FilterValuesDto> crateApiTransactionsFilterValues();
+
   Future<void> crateApiInitInitApp();
 
   Future<List<CategoryDto>> crateApiCategoriesListCategories();
+
+  Future<List<TxnSummaryDto>> crateApiTransactionsListTransactions({
+    required int limit,
+    Int64List? categoryIds,
+    Int64List? merchantIds,
+    bool? includeNoMerchant,
+    String? sort,
+  });
 
   Future<String> crateApiDbOpenDatabase({String? appDataDir});
 }
@@ -98,6 +118,93 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  Future<List<BudgetRowDto>> crateApiBudgetBudgetStatus({
+    required String month,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(month, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 1,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_budget_row_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiBudgetBudgetStatusConstMeta,
+        argValues: [month],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiBudgetBudgetStatusConstMeta =>
+      const TaskConstMeta(debugName: "budget_status", argNames: ["month"]);
+
+  @override
+  Future<void> crateApiTransactionsDeleteTransaction({
+    required PlatformInt64 id,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(id, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTransactionsDeleteTransactionConstMeta,
+        argValues: [id],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTransactionsDeleteTransactionConstMeta =>
+      const TaskConstMeta(debugName: "delete_transaction", argNames: ["id"]);
+
+  @override
+  Future<FilterValuesDto> crateApiTransactionsFilterValues() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_filter_values_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTransactionsFilterValuesConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTransactionsFilterValuesConstMeta =>
+      const TaskConstMeta(debugName: "filter_values", argNames: []);
+
+  @override
   Future<void> crateApiInitInitApp() {
     return handler.executeNormal(
       NormalTask(
@@ -106,7 +213,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 4,
             port: port_,
           );
         },
@@ -133,7 +240,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 5,
             port: port_,
           );
         },
@@ -152,6 +259,53 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "list_categories", argNames: []);
 
   @override
+  Future<List<TxnSummaryDto>> crateApiTransactionsListTransactions({
+    required int limit,
+    Int64List? categoryIds,
+    Int64List? merchantIds,
+    bool? includeNoMerchant,
+    String? sort,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(limit, serializer);
+          sse_encode_opt_list_prim_i_64_strict(categoryIds, serializer);
+          sse_encode_opt_list_prim_i_64_strict(merchantIds, serializer);
+          sse_encode_opt_box_autoadd_bool(includeNoMerchant, serializer);
+          sse_encode_opt_String(sort, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_txn_summary_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTransactionsListTransactionsConstMeta,
+        argValues: [limit, categoryIds, merchantIds, includeNoMerchant, sort],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTransactionsListTransactionsConstMeta =>
+      const TaskConstMeta(
+        debugName: "list_transactions",
+        argNames: [
+          "limit",
+          "categoryIds",
+          "merchantIds",
+          "includeNoMerchant",
+          "sort",
+        ],
+      );
+
+  @override
   Future<String> crateApiDbOpenDatabase({String? appDataDir}) {
     return handler.executeNormal(
       NormalTask(
@@ -161,7 +315,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 7,
             port: port_,
           );
         },
@@ -192,6 +346,47 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool dco_decode_box_autoadd_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
+  PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_i_64(raw);
+  }
+
+  @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  BudgetRowDto dco_decode_budget_row_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 13)
+      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    return BudgetRowDto(
+      categoryId: dco_decode_i_64(arr[0]),
+      categoryName: dco_decode_String(arr[1]),
+      groupName: dco_decode_String(arr[2]),
+      budgeted: dco_decode_opt_box_autoadd_i_64(arr[3]),
+      perMonth: dco_decode_opt_box_autoadd_i_64(arr[4]),
+      funded: dco_decode_opt_box_autoadd_i_64(arr[5]),
+      spentCycle: dco_decode_opt_box_autoadd_i_64(arr[6]),
+      remaining: dco_decode_opt_box_autoadd_i_64(arr[7]),
+      overspentBy: dco_decode_opt_box_autoadd_i_64(arr[8]),
+      spentThisMonth: dco_decode_i_64(arr[9]),
+      funding: dco_decode_String(arr[10]),
+      fundingBy: dco_decode_i_64(arr[11]),
+      monthsRemaining: dco_decode_opt_box_autoadd_u_32(arr[12]),
+    );
+  }
+
+  @protected
   CategoryDto dco_decode_category_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -206,9 +401,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FilterValueDto dco_decode_filter_value_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return FilterValueDto(
+      id: dco_decode_i_64(arr[0]),
+      name: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  FilterValuesDto dco_decode_filter_values_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return FilterValuesDto(
+      merchants: dco_decode_list_filter_value_dto(arr[0]),
+      categories: dco_decode_list_filter_value_dto(arr[1]),
+      anyWithoutMerchant: dco_decode_bool(arr[2]),
+    );
+  }
+
+  @protected
   PlatformInt64 dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64(raw);
+  }
+
+  @protected
+  List<String> dco_decode_list_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
+  List<BudgetRowDto> dco_decode_list_budget_row_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_budget_row_dto).toList();
   }
 
   @protected
@@ -218,15 +450,80 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<FilterValueDto> dco_decode_list_filter_value_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_filter_value_dto).toList();
+  }
+
+  @protected
+  Int64List dco_decode_list_prim_i_64_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeInt64List(raw);
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
   }
 
   @protected
+  List<TxnSummaryDto> dco_decode_list_txn_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_txn_summary_dto).toList();
+  }
+
+  @protected
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  bool? dco_decode_opt_box_autoadd_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_bool(raw);
+  }
+
+  @protected
+  PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
+  }
+
+  @protected
+  Int64List? dco_decode_opt_list_prim_i_64_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_prim_i_64_strict(raw);
+  }
+
+  @protected
+  TxnSummaryDto dco_decode_txn_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return TxnSummaryDto(
+      id: dco_decode_i_64(arr[0]),
+      txnDate: dco_decode_String(arr[1]),
+      merchantName: dco_decode_opt_String(arr[2]),
+      total: dco_decode_i_64(arr[3]),
+      taxIsEstimated: dco_decode_bool(arr[4]),
+      needsReview: dco_decode_bool(arr[5]),
+      categories: dco_decode_list_String(arr[6]),
+    );
+  }
+
+  @protected
+  int dco_decode_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
   }
 
   @protected
@@ -255,6 +552,57 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool sse_decode_box_autoadd_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_bool(deserializer));
+  }
+
+  @protected
+  PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  BudgetRowDto sse_decode_budget_row_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_categoryId = sse_decode_i_64(deserializer);
+    var var_categoryName = sse_decode_String(deserializer);
+    var var_groupName = sse_decode_String(deserializer);
+    var var_budgeted = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_perMonth = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_funded = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_spentCycle = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_remaining = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_overspentBy = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_spentThisMonth = sse_decode_i_64(deserializer);
+    var var_funding = sse_decode_String(deserializer);
+    var var_fundingBy = sse_decode_i_64(deserializer);
+    var var_monthsRemaining = sse_decode_opt_box_autoadd_u_32(deserializer);
+    return BudgetRowDto(
+      categoryId: var_categoryId,
+      categoryName: var_categoryName,
+      groupName: var_groupName,
+      budgeted: var_budgeted,
+      perMonth: var_perMonth,
+      funded: var_funded,
+      spentCycle: var_spentCycle,
+      remaining: var_remaining,
+      overspentBy: var_overspentBy,
+      spentThisMonth: var_spentThisMonth,
+      funding: var_funding,
+      fundingBy: var_fundingBy,
+      monthsRemaining: var_monthsRemaining,
+    );
+  }
+
+  @protected
   CategoryDto sse_decode_category_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_id = sse_decode_i_64(deserializer);
@@ -270,9 +618,56 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FilterValueDto sse_decode_filter_value_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_i_64(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    return FilterValueDto(id: var_id, name: var_name);
+  }
+
+  @protected
+  FilterValuesDto sse_decode_filter_values_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_merchants = sse_decode_list_filter_value_dto(deserializer);
+    var var_categories = sse_decode_list_filter_value_dto(deserializer);
+    var var_anyWithoutMerchant = sse_decode_bool(deserializer);
+    return FilterValuesDto(
+      merchants: var_merchants,
+      categories: var_categories,
+      anyWithoutMerchant: var_anyWithoutMerchant,
+    );
+  }
+
+  @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <String>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<BudgetRowDto> sse_decode_list_budget_row_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <BudgetRowDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_budget_row_dto(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -288,10 +683,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<FilterValueDto> sse_decode_list_filter_value_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <FilterValueDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_filter_value_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getInt64List(len_);
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  List<TxnSummaryDto> sse_decode_list_txn_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TxnSummaryDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_txn_summary_dto(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -303,6 +733,79 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
+  }
+
+  @protected
+  bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_bool(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_i_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  Int64List? sse_decode_opt_list_prim_i_64_strict(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_prim_i_64_strict(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  TxnSummaryDto sse_decode_txn_summary_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_i_64(deserializer);
+    var var_txnDate = sse_decode_String(deserializer);
+    var var_merchantName = sse_decode_opt_String(deserializer);
+    var var_total = sse_decode_i_64(deserializer);
+    var var_taxIsEstimated = sse_decode_bool(deserializer);
+    var var_needsReview = sse_decode_bool(deserializer);
+    var var_categories = sse_decode_list_String(deserializer);
+    return TxnSummaryDto(
+      id: var_id,
+      txnDate: var_txnDate,
+      merchantName: var_merchantName,
+      total: var_total,
+      taxIsEstimated: var_taxIsEstimated,
+      needsReview: var_needsReview,
+      categories: var_categories,
+    );
+  }
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint32();
   }
 
   @protected
@@ -335,6 +838,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_i_64(
+    PlatformInt64 self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self, serializer);
+  }
+
+  @protected
+  void sse_encode_budget_row_dto(BudgetRowDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self.categoryId, serializer);
+    sse_encode_String(self.categoryName, serializer);
+    sse_encode_String(self.groupName, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.budgeted, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.perMonth, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.funded, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.spentCycle, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.remaining, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.overspentBy, serializer);
+    sse_encode_i_64(self.spentThisMonth, serializer);
+    sse_encode_String(self.funding, serializer);
+    sse_encode_i_64(self.fundingBy, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.monthsRemaining, serializer);
+  }
+
+  @protected
   void sse_encode_category_dto(CategoryDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self.id, serializer);
@@ -344,9 +886,51 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_filter_value_dto(
+    FilterValueDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self.id, serializer);
+    sse_encode_String(self.name, serializer);
+  }
+
+  @protected
+  void sse_encode_filter_values_dto(
+    FilterValuesDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_filter_value_dto(self.merchants, serializer);
+    sse_encode_list_filter_value_dto(self.categories, serializer);
+    sse_encode_bool(self.anyWithoutMerchant, serializer);
+  }
+
+  @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_budget_row_dto(
+    List<BudgetRowDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_budget_row_dto(item, serializer);
+    }
   }
 
   @protected
@@ -362,6 +946,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_filter_value_dto(
+    List<FilterValueDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_filter_value_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_prim_i_64_strict(
+    Int64List self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putInt64List(self);
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -372,6 +978,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_txn_summary_dto(
+    List<TxnSummaryDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_txn_summary_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -379,6 +997,73 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (self != null) {
       sse_encode_String(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_bool(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_64(
+    PlatformInt64? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_i_64(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_32(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_list_prim_i_64_strict(
+    Int64List? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_prim_i_64_strict(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_txn_summary_dto(
+    TxnSummaryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self.id, serializer);
+    sse_encode_String(self.txnDate, serializer);
+    sse_encode_opt_String(self.merchantName, serializer);
+    sse_encode_i_64(self.total, serializer);
+    sse_encode_bool(self.taxIsEstimated, serializer);
+    sse_encode_bool(self.needsReview, serializer);
+    sse_encode_list_String(self.categories, serializer);
+  }
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint32(self);
   }
 
   @protected
