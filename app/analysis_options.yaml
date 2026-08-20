@@ -18,6 +18,11 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # Vendored, and a separate Dart package with its own dependencies. Its
+    # `.dart_tool/` is gitignored, so analysing it resolves nothing from a
+    # clean clone and reports ~139 errors in code that is not ours — the
+    # scaffolder's own exclude list misses this one.
+    - rust_builder/**
 
 linter:
   # The lint rules applied to this project can be customized in the
