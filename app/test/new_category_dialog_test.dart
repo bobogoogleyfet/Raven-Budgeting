@@ -13,6 +13,11 @@ class Made {
 
 Future<List<Made>> pump(WidgetTester tester, {Object? error}) async {
   final made = <Made>[];
+  final groups = <CategoryGroupDto>[
+    CategoryGroupDto(id: 1, name: 'Bills', isHidden: false),
+    CategoryGroupDto(id: 3, name: 'Occasional', isHidden: false),
+    CategoryGroupDto(id: 5, name: 'Education', isHidden: false),
+  ];
   tester.view.physicalSize = const Size(900, 1100);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -21,10 +26,11 @@ Future<List<Made>> pump(WidgetTester tester, {Object? error}) async {
     MaterialApp(
       home: Scaffold(
         body: NewCategoryDialog(
-          loadGroups: () async => [
-            CategoryGroupDto(id: 1, name: 'Bills', isHidden: false),
-            CategoryGroupDto(id: 3, name: 'Non-Monthly', isHidden: false),
-          ],
+          loadGroups: () async => groups,
+          // Returned, not appended: the dialog is what adds it to the list it
+          // is showing, and doing both would offer the group twice.
+          createGroup: (name) async =>
+              CategoryGroupDto(id: 9, name: name, isHidden: false),
           create: ({
             required int groupId,
             required String name,
@@ -35,7 +41,7 @@ Future<List<Made>> pump(WidgetTester tester, {Object? error}) async {
             return CategoryDto(
               id: 99,
               name: name,
-              groupName: groupId == 1 ? 'Bills' : 'Non-Monthly',
+              groupName: groupId == 1 ? 'Bills' : 'Occasional',
               isBudgeted: true,
             );
           },
@@ -86,11 +92,40 @@ void main() {
   testWidgets('a group says what it is for, not just when it happens',
       (tester) async {
     await pump(tester);
-    await chooseGroup(tester, 'Non-Monthly');
+    await chooseGroup(tester, 'Occasional');
 
-    // "Non-Monthly" describes a schedule; the purpose is what someone is
+    // The old name described a schedule; the purpose is what someone is
     // choosing between.
     expect(find.textContaining('Money set aside each month'), findsOneWidget);
+  });
+
+  testWidgets('Education is offered, and says why it is empty', (tester) async {
+    await pump(tester);
+    await chooseGroup(tester, 'Education');
+
+    expect(
+      find.textContaining('a different set of costs for everyone'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a group can be made when none of them fit', (tester) async {
+    final made = await pump(tester);
+
+    await tester.tap(find.byTooltip('New group'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'Sabbatical');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add group'));
+    await tester.pumpAndSettle();
+
+    // Made and selected: nobody makes a group and then wants to go looking
+    // for it.
+    await tester.enterText(find.byType(TextField).first, 'Course Fees');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add category'));
+    await tester.pumpAndSettle();
+
+    expect(made.single.groupId, 9);
+    expect(made.single.name, 'Course Fees');
   });
 
   testWidgets('a nameless category is refused', (tester) async {

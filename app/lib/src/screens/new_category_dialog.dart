@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 
 typedef GroupLoader = Future<List<CategoryGroupDto>> Function();
+typedef GroupCreator = Future<CategoryGroupDto> Function(String name);
 typedef CategoryCreator = Future<CategoryDto> Function({
   required int groupId,
   required String name,
@@ -19,10 +20,12 @@ const Map<String, String> _groupBlurbs = {
   'Bills': 'Paid on a schedule, and the amount is what you pay — rent, '
       'insurance, a car payment.',
   'Frequent': 'Day-to-day shopping, where a till adds sales tax.',
-  'Non-Monthly': 'Money set aside each month for something that comes round '
-      'less often — repairs, travel, gifts. You still record what goes out '
-      'when it does.',
+  'Occasional': 'Money set aside each month for something that comes round now '
+      'and then — repairs, travel, gifts. You still record what goes out when '
+      'it does.',
   'Quality of Life': 'What the money is for, once the necessities are covered.',
+  'Education': 'Tuition, lessons, books. Ships empty, because education is a '
+      'different set of costs for everyone.',
   'Savings': 'Money put aside rather than spent.',
 };
 
@@ -32,10 +35,12 @@ class NewCategoryDialog extends StatefulWidget {
     super.key,
     this.loadGroups = listCategoryGroups,
     this.create = createCategory,
+    this.createGroup = createCategoryGroup,
   });
 
   final GroupLoader loadGroups;
   final CategoryCreator create;
+  final GroupCreator createGroup;
 
   @override
   State<NewCategoryDialog> createState() => _NewCategoryDialogState();
@@ -74,6 +79,27 @@ class _NewCategoryDialogState extends State<NewCategoryDialog> {
       if (mounted) setState(() => _groups = groups);
     } catch (error) {
       if (mounted) setState(() => _problem = 'Could not load the groups: $error');
+    }
+  }
+
+  /// Make a group, and select it.
+  Future<void> _newGroup() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => const _NameAGroup(),
+    );
+    if (name == null || name.trim().isEmpty || !mounted) return;
+
+    try {
+      final created = await widget.createGroup(name.trim());
+      if (!mounted) return;
+      setState(() {
+        _groups = [..._groups, created];
+        _groupId = created.id;
+        _problem = null;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _problem = '$error');
     }
   }
 
@@ -136,22 +162,37 @@ class _NewCategoryDialogState extends State<NewCategoryDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                initialValue: _groupId,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Where it belongs',
-                  border: OutlineInputBorder(),
-                ),
-                hint: const Text('Choose a group…'),
-                items: [
-                  for (final group in _groups)
-                    DropdownMenuItem<int>(
-                      value: group.id,
-                      child: Text(group.name),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: _groupId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Where it belongs',
+                        border: OutlineInputBorder(),
+                      ),
+                      hint: const Text('Choose a group…'),
+                      items: [
+                        for (final group in _groups)
+                          DropdownMenuItem<int>(
+                            value: group.id,
+                            child: Text(group.name),
+                          ),
+                      ],
+                      onChanged: (id) => setState(() => _groupId = id),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  // The seeded groups are one person's idea of how spending
+                  // divides up. Somebody whose life has a shape the list does
+                  // not should not have to accept the nearest fit.
+                  IconButton.filledTonal(
+                    onPressed: _newGroup,
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    tooltip: 'New group',
+                  ),
                 ],
-                onChanged: (id) => setState(() => _groupId = id),
               ),
               if (blurb != null)
                 Padding(
@@ -214,4 +255,50 @@ class _NewCategoryDialogState extends State<NewCategoryDialog> {
 
   String _nameOfGroup(int id) =>
       _groups.firstWhere((g) => g.id == id).name;
+}
+
+/// Asking for one string.
+class _NameAGroup extends StatefulWidget {
+  const _NameAGroup();
+
+  @override
+  State<_NameAGroup> createState() => _NameAGroupState();
+}
+
+class _NameAGroupState extends State<_NameAGroup> {
+  final TextEditingController _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New group'),
+      content: TextField(
+        controller: _name,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        onSubmitted: (value) => Navigator.of(context).pop(value),
+        decoration: const InputDecoration(
+          labelText: 'Name',
+          hintText: 'Education',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_name.text),
+          child: const Text('Add group'),
+        ),
+      ],
+    );
+  }
 }

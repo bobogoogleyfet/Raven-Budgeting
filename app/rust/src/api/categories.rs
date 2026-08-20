@@ -86,3 +86,18 @@ pub fn create_category(
         is_budgeted: created.is_budgeted,
     })
 }
+
+/// Add a group for categories to go in.
+///
+/// Wanted because the seeded six are one person's idea of how spending divides
+/// up. Education ships as an empty group for the same reason: the shape is
+/// useful, the contents are personal.
+pub fn create_category_group(name: String) -> Result<CategoryGroupDto, String> {
+    let db = db::locked()?;
+    let created = categories::create_group(&db, &name).map_err(to_message)?;
+    Ok(CategoryGroupDto {
+        id: created.id.get(),
+        name: created.name,
+        is_hidden: created.is_hidden,
+    })
+}
