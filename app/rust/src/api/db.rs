@@ -1,7 +1,7 @@
 //! The open database, and the path it lives at.
 //!
 //! Path resolution lives here, exactly as it lives in `accounting-cli` and in
-//! the Tauri shell. `accounting-core` is handed a path and never discovers one
+//! the CLI. `accounting-core` is handed a path and never discovers one
 //! — boundary rule 1, which exists because path-discovery crates return
 //! meaningless results on Android. The rules below are copied from those two
 //! frontends deliberately: all three must land on the same `pacc.db`, and a
@@ -18,7 +18,7 @@ use crate::error::to_message;
 /// The handle, opened once and kept for the life of the process.
 ///
 /// `rusqlite::Connection` is `Send` but not `Sync`, so the mutex is required
-/// rather than defensive — the same shape the Tauri shell's `AppState` has.
+/// rather than defensive: one process, one database, opened once.
 /// SQLite serialises at the file level anyway, and the core is synchronous.
 struct Handle {
     db: Mutex<Db>,
@@ -79,7 +79,7 @@ pub(crate) fn locked() -> Result<MutexGuard<'static, Db>, String> {
 
 /// `$PACC_DB`, else `$XDG_DATA_HOME`, else `~/.local/share` — the CLI's rules,
 /// in the CLI's order. On mobile the platform directory wins outright, which
-/// is how the Tauri shell resolves it there too.
+/// is how the CLI resolves it there too.
 fn database_path(app_data_dir: Option<String>) -> Result<PathBuf, String> {
     if let Some(dir) = app_data_dir.filter(|d| !d.is_empty()) {
         return Ok(PathBuf::from(dir).join("pacc.db"));
@@ -89,9 +89,10 @@ fn database_path(app_data_dir: Option<String>) -> Result<PathBuf, String> {
     }
     let base = match non_empty_env("XDG_DATA_HOME") {
         Some(v) => PathBuf::from(v),
-        None => PathBuf::from(non_empty_env("HOME").ok_or_else(|| {
-            "neither $PACC_DB, $XDG_DATA_HOME nor $HOME is set".to_string()
-        })?)
+        None => PathBuf::from(
+            non_empty_env("HOME")
+                .ok_or_else(|| "neither $PACC_DB, $XDG_DATA_HOME nor $HOME is set".to_string())?,
+        )
         .join(".local")
         .join("share"),
     };

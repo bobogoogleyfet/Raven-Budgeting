@@ -101,7 +101,7 @@ class FilterValuesDto {
           anyWithoutMerchant == other.anyWithoutMerchant;
 }
 
-/// One row of the expense list. Mirrors the Tauri shell's `TxnSummaryDto`.
+/// One row of the expense list.
 class TxnSummaryDto {
   final PlatformInt64 id;
 

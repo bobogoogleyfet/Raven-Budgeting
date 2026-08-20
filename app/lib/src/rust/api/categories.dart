@@ -41,7 +41,7 @@ Future<CategoryGroupDto> createCategoryGroup({required String name}) =>
 
 /// One row of the category list.
 ///
-/// Mirrors the Tauri shell's `CategoryDto` field for field, so the two
+/// Flattens the core's `Category` to what a picker needs, so the two
 /// frontends render the same thing. The core's `Category` is not exposed
 /// directly: its ids are `#[serde(transparent)]` newtypes, and serde is not in
 /// play at an FFI boundary, so each would surface in Dart as a wrapper class.

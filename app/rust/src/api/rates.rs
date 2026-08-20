@@ -122,7 +122,7 @@ pub fn refresh_rates() -> Result<RefreshDto, String> {
 
 /// Fetch a URL into memory.
 ///
-/// Deliberately duplicated from the CLI and the Tauri shell rather than
+/// Deliberately duplicated from the CLI rather than
 /// shared. The core does no networking — rule 1 — and an HTTP client is the
 /// piece most likely to differ per platform, since an Android build may have
 /// to go through the system stack for proxying and battery reasons. Every

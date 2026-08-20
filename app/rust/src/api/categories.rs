@@ -7,7 +7,7 @@ use crate::error::to_message;
 
 /// One row of the category list.
 ///
-/// Mirrors the Tauri shell's `CategoryDto` field for field, so the two
+/// Flattens the core's `Category` to what a picker needs, so the two
 /// frontends render the same thing. The core's `Category` is not exposed
 /// directly: its ids are `#[serde(transparent)]` newtypes, and serde is not in
 /// play at an FFI boundary, so each would surface in Dart as a wrapper class.
@@ -66,11 +66,7 @@ pub fn list_category_groups() -> Result<Vec<CategoryGroupDto>, String> {
 /// `taxable` says whether a till adds sales tax to it. Asked rather than
 /// assumed: the column defaults to taxable, and a car payment taxed at 7.45%
 /// is $537.25 where the statement says $500.00.
-pub fn create_category(
-    group_id: i64,
-    name: String,
-    taxable: bool,
-) -> Result<CategoryDto, String> {
+pub fn create_category(group_id: i64, name: String, taxable: bool) -> Result<CategoryDto, String> {
     let db = db::locked()?;
     let created = categories::create_with_tax(
         &db,

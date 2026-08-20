@@ -1,17 +1,18 @@
 //! The budget, for one month.
 
+use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::domain::budget_calc::Period;
 use accounting_core::repo::budgets::BudgetLineRecord;
-use accounting_core::{CategoryId, Money, YearMonth};
-use accounting_core::domain::budget_calc::OnTrack;
 use accounting_core::service::budgets;
+use accounting_core::{CategoryId, Money, YearMonth};
 
 use crate::api::db;
 use crate::error::to_message;
 
 /// One category's budget in the month asked about.
 ///
-/// Mirrors the Tauri shell's `BudgetRowDto` with one field added: `remaining`.
+/// Carries `remaining` alongside the budgeted and actual figures, so the screen
+/// never subtracts two money values of its own.
 /// The home screen answers "how much is left?", and that number is
 /// `SpendStatus::remaining` in the core. Subtracting `spent_cycle` from
 /// `budgeted` in Dart would be the frontend computing money, which is the one

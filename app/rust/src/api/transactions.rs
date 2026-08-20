@@ -6,7 +6,7 @@ use accounting_core::{CategoryId, MerchantId, TxnId};
 use crate::api::db;
 use crate::error::to_message;
 
-/// One row of the expense list. Mirrors the Tauri shell's `TxnSummaryDto`.
+/// One row of the expense list.
 pub struct TxnSummaryDto {
     pub id: i64,
     /// `YYYY-MM-DD`, as the core formats it. Not reparsed on the way through:

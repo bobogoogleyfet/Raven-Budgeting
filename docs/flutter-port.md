@@ -2,7 +2,7 @@
 
 ## Why
 
-The app is meant to reach Android and iOS. The current desktop frontend is
+The app is meant to reach Android and iOS. The desktop frontend was
 TypeScript in a Tauri webview, which does not go there — Tauri's mobile story
 is young, and a webview UI on a phone is a webview UI on a phone. Flutter
 renders natively on all five targets from one codebase, and Material Design 3
@@ -76,7 +76,6 @@ acceptable to a UI.
 ```
 crates/accounting-core/     unchanged — the product
 crates/accounting-cli/      unchanged — pacc
-crates/accounting-tauri/    kept until Flutter reaches parity, then deleted
 app/                        the Flutter application
   rust/                     the bridge crate: crate-type cdylib+staticlib
     src/api/                the only Rust the codegen reads
@@ -86,15 +85,16 @@ app/                        the Flutter application
   integration_test/         tests that call the real core
 ```
 
-The bridge crate is a *third* frontend beside the CLI and Tauri, not a
-replacement layer under them. It re-exposes the same surface the Tauri shell
-does — 19 commands — and holds no logic, for the same reason that shell holds
-none: logic there would have to be written again for every platform.
+The bridge crate was built as a *third* frontend beside the CLI and Tauri, not
+a replacement layer under them. It re-exposed the same surface the Tauri shell
+did — 19 commands — and holds no logic, for the same reason that shell held
+none: logic there would have to be written again for every platform. With Tauri
+retired it is one of two frontends over the core, on the same terms.
 
 ## Phases
 
-Each phase ends with something runnable. The Tauri app stays usable throughout,
-so there is never a day without a working expense tracker.
+Each phase ends with something runnable. The Tauri app stayed usable throughout,
+so there was never a day without a working expense tracker.
 
 1. **Foundation — built 2026-08-20.** `app/` scaffolded, bridge crate wired to
    `accounting-core`, database path resolution (the CLI and Tauri already share
@@ -144,8 +144,8 @@ so there is never a day without a working expense tracker.
 6. **Android.** NDK, `cargo-ndk`, Rust targets, and the first real test of
    bundled SQLite cross-compiling. Deliberately last: nothing before it depends
    on Android, and everything before it de-risks it.
-7. **Retire Tauri.** Delete `crates/accounting-tauri` and `ui/`, and the
-   stale-bundle build guard with them.
+7. **Retire Tauri — done 2026-08-20.** `crates/accounting-tauri` and `ui/`
+   deleted, and the stale-bundle build guard with them.
 
 ## Navigation
 

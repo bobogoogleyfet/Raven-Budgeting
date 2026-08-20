@@ -3,12 +3,6 @@ resolver = "3"
 members = [
     "crates/accounting-core",
     "crates/accounting-cli",
-    # Requires the webkit2gtk-4.1 / javascriptcoregtk-4.1 / libsoup-3.0
-    # development headers, because that is what `tauri`'s build script links
-    # against. Without them this member does not merely fail to build — it
-    # stops `cargo test --workspace` from resolving at all, taking the core's
-    # tests down with it. The README has the apt line.
-    "crates/accounting-tauri",
     # The Flutter frontend's bridge crate. A `cdylib`, so `cargo build` alone
     # proves nothing about the app — cargokit builds it again from Flutter's
     # own build, and only `flutter build linux` links it against the bundle.
@@ -48,8 +42,8 @@ rust_xlsxwriter = { version = "0.97.1", default-features = false, features = ["c
 csv = "1.4"
 
 # Reading the Utah Tax Commission's quarterly rate workbook. Both are already
-# in the tree (rust_xlsxwriter and tauri pull them), so this adds a direct
-# edge, not a build.
+# in the tree (rust_xlsxwriter pulls them), so this adds a direct edge, not a
+# build.
 #
 # `default-features = false` is load-bearing: zip's defaults turn on bzip2,
 # zstd, lzma and xz, every one of which compiles C and breaks the Android and

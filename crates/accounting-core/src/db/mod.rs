@@ -5,10 +5,11 @@
 //! [`Db::open`] takes the path it is given and nothing else. There is no
 //! `dirs`, no `directories`, no `$HOME` lookup anywhere in this crate. The
 //! caller decides: the CLI resolves `--db` (defaulting to an XDG path), and
-//! Tauri passes `app.path().app_data_dir()`. Path-discovery crates return
-//! meaningless answers on Android — the app's real data directory is only
-//! obtainable through the Java `Context` — so a core that discovers its own
-//! path is a core that has to be rewritten for the second platform.
+//! the Flutter app passes what Dart's `path_provider` reports. Path-discovery
+//! crates return meaningless answers on Android — the app's real data
+//! directory is only obtainable through the Java `Context` — so a core that
+//! discovers its own path is a core that has to be rewritten for the second
+//! platform.
 //!
 //! # Connection setup order is load-bearing
 //!

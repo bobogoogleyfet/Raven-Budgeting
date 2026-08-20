@@ -2,15 +2,16 @@
 //!
 //! # Boundary rules
 //!
-//! This crate is the product. Everything else (CLI, Tauri desktop, a future
-//! Android UI) is a rendering layer over it. Four rules keep it that way, and
-//! each one maps to a concrete mobile failure mode:
+//! This crate is the product. Everything else (the CLI, the Flutter app's
+//! bridge crate — desktop today, Android next) is a rendering layer over it.
+//! Four rules keep it that way, and each one maps to a concrete mobile failure
+//! mode:
 //!
-//! 1. **No UI, no path discovery.** This crate never names `tauri`, `tokio`,
-//!    `dirs`, or `directories`. [`db::Db::open`] takes a path it is *given* —
-//!    the caller supplies it (from `app.path().app_data_dir()` on Tauri, or a
-//!    flag on the CLI). Path-discovery crates return meaningless results on
-//!    Android.
+//! 1. **No UI, no path discovery.** This crate never names
+//!    `flutter_rust_bridge`, `tokio`, `dirs`, or `directories`.
+//!    [`db::Db::open`] takes a path it is *given* — the caller supplies it
+//!    (from Dart's `path_provider` across the bridge, or a flag on the CLI).
+//!    Path-discovery crates return meaningless results on Android.
 //! 2. **Fully synchronous.** SQLite is a local file; there is nothing to await.
 //!    Async would drag in `tokio`/`mio` for no benefit.
 //! 3. **Never reads the clock.** Every date-dependent function takes
