@@ -6,6 +6,7 @@
 import 'api/budget.dart';
 import 'api/categories.dart';
 import 'api/db.dart';
+import 'api/entry.dart';
 import 'api/transactions.dart';
 
 import 'dart:async';
@@ -28,6 +29,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  AreaDto dco_decode_area_dto(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -37,6 +41,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
+  LocationDto dco_decode_box_autoadd_location_dto(dynamic raw);
+
+  @protected
+  SubtotalDraftDto dco_decode_box_autoadd_subtotal_draft_dto(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
@@ -44,6 +54,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CategoryDto dco_decode_category_dto(dynamic raw);
+
+  @protected
+  CategoryRateDto dco_decode_category_rate_dto(dynamic raw);
+
+  @protected
+  ContextDto dco_decode_context_dto(dynamic raw);
 
   @protected
   FilterValueDto dco_decode_filter_value_dto(dynamic raw);
@@ -58,13 +74,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<AreaDto> dco_decode_list_area_dto(dynamic raw);
+
+  @protected
   List<BudgetRowDto> dco_decode_list_budget_row_dto(dynamic raw);
 
   @protected
   List<CategoryDto> dco_decode_list_category_dto(dynamic raw);
 
   @protected
+  List<CategoryRateDto> dco_decode_list_category_rate_dto(dynamic raw);
+
+  @protected
   List<FilterValueDto> dco_decode_list_filter_value_dto(dynamic raw);
+
+  @protected
+  List<LocationDto> dco_decode_list_location_dto(dynamic raw);
+
+  @protected
+  List<MerchantDto> dco_decode_list_merchant_dto(dynamic raw);
 
   @protected
   Int64List dco_decode_list_prim_i_64_strict(dynamic raw);
@@ -73,7 +101,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<SplitRowDto> dco_decode_list_split_row_dto(dynamic raw);
+
+  @protected
+  List<SubtotalRowDto> dco_decode_list_subtotal_row_dto(dynamic raw);
+
+  @protected
   List<TxnSummaryDto> dco_decode_list_txn_summary_dto(dynamic raw);
+
+  @protected
+  LocationDto dco_decode_location_dto(dynamic raw);
+
+  @protected
+  MerchantDto dco_decode_merchant_dto(dynamic raw);
 
   @protected
   MonthTotalsDto dco_decode_month_totals_dto(dynamic raw);
@@ -88,10 +128,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
+  LocationDto? dco_decode_opt_box_autoadd_location_dto(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
 
   @protected
   Int64List? dco_decode_opt_list_prim_i_64_strict(dynamic raw);
+
+  @protected
+  PreviewDto dco_decode_preview_dto(dynamic raw);
+
+  @protected
+  SplitRowDto dco_decode_split_row_dto(dynamic raw);
+
+  @protected
+  SubtotalDraftDto dco_decode_subtotal_draft_dto(dynamic raw);
+
+  @protected
+  SubtotalRowDto dco_decode_subtotal_row_dto(dynamic raw);
 
   @protected
   TxnSummaryDto dco_decode_txn_summary_dto(dynamic raw);
@@ -109,6 +164,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  AreaDto sse_decode_area_dto(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
@@ -118,6 +176,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  LocationDto sse_decode_box_autoadd_location_dto(SseDeserializer deserializer);
+
+  @protected
+  SubtotalDraftDto sse_decode_box_autoadd_subtotal_draft_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
@@ -125,6 +191,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CategoryDto sse_decode_category_dto(SseDeserializer deserializer);
+
+  @protected
+  CategoryRateDto sse_decode_category_rate_dto(SseDeserializer deserializer);
+
+  @protected
+  ContextDto sse_decode_context_dto(SseDeserializer deserializer);
 
   @protected
   FilterValueDto sse_decode_filter_value_dto(SseDeserializer deserializer);
@@ -139,6 +211,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<AreaDto> sse_decode_list_area_dto(SseDeserializer deserializer);
+
+  @protected
   List<BudgetRowDto> sse_decode_list_budget_row_dto(
     SseDeserializer deserializer,
   );
@@ -147,9 +222,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<CategoryDto> sse_decode_list_category_dto(SseDeserializer deserializer);
 
   @protected
+  List<CategoryRateDto> sse_decode_list_category_rate_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<FilterValueDto> sse_decode_list_filter_value_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<LocationDto> sse_decode_list_location_dto(SseDeserializer deserializer);
+
+  @protected
+  List<MerchantDto> sse_decode_list_merchant_dto(SseDeserializer deserializer);
 
   @protected
   Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
@@ -158,9 +244,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<SplitRowDto> sse_decode_list_split_row_dto(SseDeserializer deserializer);
+
+  @protected
+  List<SubtotalRowDto> sse_decode_list_subtotal_row_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<TxnSummaryDto> sse_decode_list_txn_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  LocationDto sse_decode_location_dto(SseDeserializer deserializer);
+
+  @protected
+  MerchantDto sse_decode_merchant_dto(SseDeserializer deserializer);
 
   @protected
   MonthTotalsDto sse_decode_month_totals_dto(SseDeserializer deserializer);
@@ -175,10 +275,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  LocationDto? sse_decode_opt_box_autoadd_location_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
   Int64List? sse_decode_opt_list_prim_i_64_strict(SseDeserializer deserializer);
+
+  @protected
+  PreviewDto sse_decode_preview_dto(SseDeserializer deserializer);
+
+  @protected
+  SplitRowDto sse_decode_split_row_dto(SseDeserializer deserializer);
+
+  @protected
+  SubtotalDraftDto sse_decode_subtotal_draft_dto(SseDeserializer deserializer);
+
+  @protected
+  SubtotalRowDto sse_decode_subtotal_row_dto(SseDeserializer deserializer);
 
   @protected
   TxnSummaryDto sse_decode_txn_summary_dto(SseDeserializer deserializer);
@@ -199,6 +316,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_area_dto(AreaDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
@@ -211,6 +331,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_location_dto(
+    LocationDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_subtotal_draft_dto(
+    SubtotalDraftDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
@@ -218,6 +350,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_category_dto(CategoryDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_category_rate_dto(
+    CategoryRateDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_context_dto(ContextDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_filter_value_dto(
@@ -238,6 +379,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_area_dto(List<AreaDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_budget_row_dto(
     List<BudgetRowDto> self,
     SseSerializer serializer,
@@ -250,8 +394,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_category_rate_dto(
+    List<CategoryRateDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_filter_value_dto(
     List<FilterValueDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_location_dto(
+    List<LocationDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_merchant_dto(
+    List<MerchantDto> self,
     SseSerializer serializer,
   );
 
@@ -268,10 +430,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_split_row_dto(
+    List<SplitRowDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_subtotal_row_dto(
+    List<SubtotalRowDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_txn_summary_dto(
     List<TxnSummaryDto> self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_location_dto(LocationDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_merchant_dto(MerchantDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_month_totals_dto(
@@ -292,11 +472,35 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_location_dto(
+    LocationDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_list_prim_i_64_strict(
     Int64List? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_preview_dto(PreviewDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_split_row_dto(SplitRowDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subtotal_draft_dto(
+    SubtotalDraftDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_subtotal_row_dto(
+    SubtotalRowDto self,
     SseSerializer serializer,
   );
 

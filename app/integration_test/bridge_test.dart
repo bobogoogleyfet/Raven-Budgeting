@@ -7,6 +7,7 @@
 import 'dart:io';
 
 import 'package:app/src/api.dart';
+import 'package:app/src/money.dart';
 import 'package:app/src/rust/api/db.dart';
 import 'package:app/src/rust/api/transactions.dart' as rust_txn;
 import 'package:app/src/rust/frb_generated.dart';
@@ -116,5 +117,110 @@ void main() {
     await openDatabase(appDataDir: dataDir.path);
 
     expect(() => deleteTransaction(9999), throwsA(anything));
+  });
+
+  test('a grocery subtotal is taxed at the reduced rate, end to end', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    // The location has to be real before a draft can name it: the core refuses
+    // one it does not know rather than falling back to no location, which
+    // would switch the rate to 0% and produce a plausible, wrong number.
+    final provo = await ensureLocation('Provo');
+    expect(provo.taxRatePpm, greaterThan(0), reason: 'published rate');
+
+    final groceries =
+        (await listCategories()).firstWhere((c) => c.name == 'Groceries');
+
+    final draft = SubtotalDraft(
+      txnDate: '2026-08-20',
+      merchant: "Macey's",
+      location: 'Provo',
+      rows: [DraftRow(categoryId: groceries.id, subtotal: fromCore(728))],
+    );
+
+    final preview = await previewSubtotals(draft);
+
+    // $7.28 of groceries owes $0.22 and not $0.53: Utah's reduced rate on
+    // unprepared food, worked out by the core and never by the frontend.
+    expect(preview.subtotal.value, 728);
+    expect(preview.tax.value, 22);
+    expect(preview.total.value, 750);
+    expect(preview.appliedRatePpm, 30000);
+    // Nobody read this figure off a receipt, so it is flagged as an estimate.
+    expect(preview.taxIsEstimated, isTrue);
+    expect(preview.blockers, isEmpty);
+
+    final id = await saveSubtotals(draft);
+    expect(id, greaterThan(0));
+
+    // What was previewed is what was written.
+    final saved = (await listTransactions(const TxnQuery(limit: 10)))
+        .firstWhere((t) => t.id == id);
+    expect(saved.total.value, 750);
+    expect(saved.merchantName, "Macey's");
+    expect(saved.categories, ['Groceries']);
+    expect(saved.taxIsEstimated, isTrue);
+  });
+
+  test('a corrected tax is the users, and stops being an estimate', () async {
+    await openDatabase(appDataDir: dataDir.path);
+    await ensureLocation('Provo');
+    final groceries =
+        (await listCategories()).firstWhere((c) => c.name == 'Groceries');
+
+    // A receipt is evidence and a published rate is an estimate, so a figure
+    // read off the paper wins.
+    final preview = await previewSubtotals(SubtotalDraft(
+      txnDate: '2026-08-20',
+      location: 'Provo',
+      rows: [
+        DraftRow(
+          categoryId: groceries.id,
+          subtotal: fromCore(728),
+          tax: fromCore(25),
+        ),
+      ],
+    ));
+
+    expect(preview.tax.value, 25);
+    expect(preview.total.value, 753);
+    expect(preview.taxIsEstimated, isFalse);
+  });
+
+  test('a row with no category blocks the save rather than guessing', () async {
+    await openDatabase(appDataDir: dataDir.path);
+    await ensureLocation('Provo');
+
+    final preview = await previewSubtotals(SubtotalDraft(
+      txnDate: '2026-08-20',
+      location: 'Provo',
+      rows: [DraftRow(categoryId: null, subtotal: fromCore(500))],
+    ));
+
+    expect(preview.blockers, isNotEmpty);
+    expect(preview.canSave, isFalse);
+    expect(() => saveSubtotals(SubtotalDraft(
+          txnDate: '2026-08-20',
+          location: 'Provo',
+          rows: [DraftRow(categoryId: null, subtotal: fromCore(500))],
+        )), throwsA(anything));
+  });
+
+  test('naming a location that does not exist is refused, not guessed at',
+      () async {
+    await openDatabase(appDataDir: dataDir.path);
+    final groceries =
+        (await listCategories()).firstWhere((c) => c.name == 'Groceries');
+
+    // Falling back to "no location" would switch the rate to 0% and record a
+    // plausible, wrong number — the worst kind of bug this app can have.
+    expect(
+      () => previewSubtotals(SubtotalDraft(
+        txnDate: '2026-08-20',
+        location: 'Nowhere At All',
+        rows: [DraftRow(categoryId: groceries.id, subtotal: fromCore(728))],
+      )),
+      throwsA(anything),
+    );
   });
 }

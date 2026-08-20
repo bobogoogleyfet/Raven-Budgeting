@@ -12,10 +12,13 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 
 import 'money.dart';
 import 'rust/api/budget.dart' as rust_budget;
+import 'rust/api/entry.dart' as rust_entry;
 import 'rust/api/categories.dart' as rust_categories;
 import 'rust/api/transactions.dart' as rust_txn;
 
 export 'rust/api/categories.dart' show CategoryDto;
+export 'rust/api/entry.dart'
+    show AreaDto, ContextDto, LocationDto, MerchantDto;
 
 /// One row of the expense list.
 class TxnSummary {
@@ -248,3 +251,170 @@ Future<List<BudgetRow>> budgetStatus(String month) async {
       )
       .toList();
 }
+
+/// One category's line on the receipt being entered.
+class DraftRow {
+  const DraftRow({
+    required this.categoryId,
+    required this.subtotal,
+    this.tax,
+    this.note,
+  });
+
+  final int? categoryId;
+  final Cents subtotal;
+
+  /// The tax the user read off the paper. `null` — the normal case — leaves it
+  /// to the rate, and is what keeps `taxIsEstimated` meaning something.
+  final Cents? tax;
+
+  final String? note;
+}
+
+/// A receipt as it is being typed.
+class SubtotalDraft {
+  const SubtotalDraft({
+    required this.txnDate,
+    required this.rows,
+    this.merchant,
+    this.location,
+    this.notes,
+  });
+
+  /// `YYYY-MM-DD`, from the local clock. The core is not allowed to read it.
+  final String txnDate;
+  final List<DraftRow> rows;
+  final String? merchant;
+
+  /// Null uses the merchant's remembered location, else home.
+  final String? location;
+  final String? notes;
+
+  rust_entry.SubtotalDraftDto _dto() => rust_entry.SubtotalDraftDto(
+        id: null,
+        txnDate: txnDate,
+        merchant: merchant,
+        location: location,
+        rows: [
+          for (final row in rows)
+            rust_entry.SubtotalRowDto(
+              categoryId: row.categoryId,
+              subtotal: row.subtotal.value,
+              tax: row.tax?.value,
+              note: row.note,
+            ),
+        ],
+        notes: notes,
+        needsReview: false,
+        rememberDefaults: true,
+      );
+}
+
+/// One row of a preview: what would be stored against that category.
+class PreviewRow {
+  const PreviewRow({
+    required this.categoryId,
+    required this.categoryName,
+    required this.subtotal,
+    required this.tax,
+    required this.amount,
+  });
+
+  final int? categoryId;
+  final String? categoryName;
+  final Cents subtotal;
+  final Cents tax;
+  final Cents amount;
+}
+
+/// What would be written, and why it might not be.
+class Preview {
+  const Preview({
+    required this.subtotal,
+    required this.tax,
+    required this.total,
+    required this.taxIsEstimated,
+    required this.taxRatePpm,
+    required this.appliedRatePpm,
+    required this.rows,
+    required this.warnings,
+    required this.blockers,
+  });
+
+  final Cents subtotal;
+  final Cents tax;
+  final Cents total;
+  final bool taxIsEstimated;
+
+  /// The location's general rate. Not necessarily what this receipt was taxed
+  /// at, and never the number to label a tax figure with.
+  final int taxRatePpm;
+
+  /// The rate every taxed row actually used, when they all used one. Null when
+  /// the receipt straddles two — groceries at 3% and shampoo at 7.45% in the
+  /// same run — because then no single figure is right for all of it.
+  final int? appliedRatePpm;
+
+  final List<PreviewRow> rows;
+
+  /// Worth showing; saving is still allowed.
+  final List<String> warnings;
+
+  /// Saving is impossible until these are empty.
+  final List<String> blockers;
+
+  bool get canSave => blockers.isEmpty;
+}
+
+Preview _preview(rust_entry.PreviewDto dto) => Preview(
+      subtotal: fromCore(dto.subtotal),
+      tax: fromCore(dto.tax),
+      total: fromCore(dto.total),
+      taxIsEstimated: dto.taxIsEstimated,
+      taxRatePpm: dto.taxRatePpm,
+      appliedRatePpm: dto.appliedRatePpm,
+      rows: [
+        for (final row in dto.rows)
+          PreviewRow(
+            categoryId: row.categoryId,
+            categoryName: row.categoryName,
+            subtotal: fromCore(row.subtotal),
+            tax: fromCore(row.tax),
+            amount: fromCore(row.amount),
+          ),
+      ],
+      warnings: dto.warnings,
+      blockers: dto.blockers,
+    );
+
+/// Reconcile a receipt without writing anything.
+///
+/// Safe to call on every keystroke, and the only way the app learns what a
+/// receipt's numbers are. Saving runs the same code first, so the figures on
+/// screen are what will be stored.
+Future<Preview> previewSubtotals(SubtotalDraft draft) async =>
+    _preview(await rust_entry.previewSubtotals(draft: draft._dto()));
+
+/// Write the receipt, returning its id.
+Future<int> saveSubtotals(SubtotalDraft draft) =>
+    rust_entry.saveSubtotals(draft: draft._dto());
+
+/// What the app already knows about a store.
+Future<rust_entry.ContextDto> entryContext(String? merchant) =>
+    rust_entry.entryContext(merchant: merchant);
+
+/// Make a location real so a draft can name it. The core refuses a location it
+/// does not know, and falling back to "no location" would switch the rate to
+/// 0% and put a plausible, wrong number on screen.
+Future<rust_entry.LocationDto> ensureLocation(String name) =>
+    rust_entry.ensureLocation(name: name);
+
+/// The home location, or null when the app has not been told where that is.
+Future<rust_entry.LocationDto?> homeLocation() => rust_entry.homeLocation();
+
+Future<List<rust_entry.MerchantDto>> listMerchants() => rust_entry.listMerchants();
+
+Future<List<rust_entry.LocationDto>> listLocations() => rust_entry.listLocations();
+
+/// Every jurisdiction the state publishes.
+Future<List<rust_entry.AreaDto>> listAreas() => rust_entry.listAreas();
