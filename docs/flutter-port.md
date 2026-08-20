@@ -9,6 +9,12 @@ renders natively on all five targets from one codebase, and Material Design 3
 gives the interface a specification to follow rather than a stylesheet someone
 has to keep inventing.
 
+Material 3 is followed to the letter, not approximately: components and tokens
+as specified, `ColorScheme.fromSeed` for the palette, and spacing, shape,
+elevation and type taken from the token set rather than picked by eye. Where
+the spec and a habit carried over from the TypeScript UI disagree, the spec
+wins and the behaviour rule being preserved gets written down.
+
 The core does not change. `accounting-core` is 14,258 lines of domain, storage
 and export with four boundary rules — no UI, no path discovery, fully
 synchronous, all money math inside — written precisely so that a second
@@ -28,6 +34,10 @@ Not researched — built and run, on this machine, 2026-08-14.
 
 Versions: Flutter 3.47.0 (upgraded from 3.24.5), Dart 3.10, `flutter_rust_bridge`
 2.12.0, codegen `flutter_rust_bridge_codegen 2.12.0`.
+
+Rechecked 2026-08-20: Flutter is still 3.47.0 and frb 2.12.0 is still the
+latest stable (2.13.0 is in beta), but Dart is **3.13.0**, not 3.10 — newer,
+and inside frb's `>=3.4.0 <4.0.0` constraint, so nothing had to move.
 
 ### Type mapping, observed rather than assumed
 
@@ -86,10 +96,14 @@ none: logic there would have to be written again for every platform.
 Each phase ends with something runnable. The Tauri app stays usable throughout,
 so there is never a day without a working expense tracker.
 
-1. **Foundation.** `app/` scaffolded, bridge crate wired to `accounting-core`,
-   database path resolution (the CLI and Tauri already share `pacc.db`; Flutter
-   must too), M3 theme, adaptive navigation shell. Ends with an app that opens
-   the real database and lists categories.
+1. **Foundation — built 2026-08-20.** `app/` scaffolded, bridge crate wired to
+   `accounting-core`, database path resolution (the CLI and Tauri already share
+   `pacc.db`; Flutter must too), M3 theme, adaptive navigation shell. Ends with
+   an app that opens the real database and lists categories.
+
+   Run against the real `~/.local/share/personal-accounting/pacc.db`: it opens
+   the same file the CLI and Tauri do, and lists the 24 seeded categories under
+   their group headings.
 2. **Money and dates.** Port `money.ts` and the date logic to Dart with their
    tests — 12 money tests and 8 date tests, including the round-trip of every
    cent from 0 to 20,000. Nothing else is built on floats, so this comes first.
@@ -105,6 +119,21 @@ so there is never a day without a working expense tracker.
    on Android, and everything before it de-risks it.
 7. **Retire Tauri.** Delete `crates/accounting-tauri` and `ui/`, and the
    stale-bundle build guard with them.
+
+## Navigation
+
+Entering an expense is what the app opens to, and it is **not** a destination:
+a tab for the screen you are already standing in can never be used. The
+navigation carries four — Expenses, Inbox, Budget, Settings — and the primary
+action returns to the form, from the rail's leading slot where there is one and
+a floating button over the content where there is not.
+
+On a compact window the form takes the screen and the navigation bar goes with
+it. `NavigationBar` asserts a valid selected index and has no unselected state,
+while `NavigationRail` and `NavigationDrawer` both accept `null` — but the
+constraint and the spec agree here, because entering an expense on a phone is a
+focused task and M3 gives a focused task the whole screen. Leaving the form
+without saving lands on Expenses.
 
 ## What must survive the port
 
@@ -152,6 +181,10 @@ discover later.
   Cargo's defaults.
 - **Do not reflexively `flutter clean`.** The Rust target directory lives
   inside the trees it deletes, so a clean means a cold rebuild of SQLite.
+- **Name the Rust crate with underscores.** The scaffolder copies
+  `--rust-crate-name` verbatim into `rust_builder/pubspec.yaml`, where a
+  hyphen is not a legal Dart package name. It fails several steps later as
+  `Not a valid package name: "null"`, having already created the project.
 - **Pin all four packages to one version** — the Dart package, the Rust crate,
   the codegen and the macros. Minor versions may change the handler ABI, and
   the symptom is a content-hash mismatch at runtime.
