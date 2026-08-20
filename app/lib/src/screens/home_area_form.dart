@@ -230,8 +230,13 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
           controller: _area,
           options: [for (final area in _areas) area.name],
           label: 'Home area',
-          hint: widget.firstRun ? 'Start typing your city…' : 'Select a location',
-          emptyLabel: 'No areas loaded.',
+          hint: 'Start typing your city…',
+          emptyLabel: 'Start typing to find your city.',
+          // The same search the entry form uses. Not strict, though: this one
+          // has the hand-typed rate underneath it, which is the honest form of
+          // "outside Utah is not supported yet" — the app still works, it just
+          // cannot fill the number in.
+          openOnFocus: false,
           onCommit: (name) => setState(() => _committed = name),
         ),
         const SizedBox(height: 12),

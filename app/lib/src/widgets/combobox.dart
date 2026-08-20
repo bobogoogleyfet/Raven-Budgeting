@@ -51,6 +51,8 @@ class Combobox extends StatefulWidget {
     this.hint,
     this.emptyLabel = 'Nothing here yet.',
     this.onSubmitted,
+    this.openOnFocus = true,
+    this.strict = false,
   });
 
   final TextEditingController controller;
@@ -67,6 +69,23 @@ class Combobox extends StatefulWidget {
 
   /// Enter on a committed value, for moving on through the form.
   final VoidCallback? onSubmitted;
+
+  /// Whether the list appears as soon as the field is focused.
+  ///
+  /// False for a list of four hundred jurisdictions, where opening on focus
+  /// drops a wall of names nobody asked for over the form. Typing is the
+  /// search, the way a map's search box works.
+  final bool openOnFocus;
+
+  /// Whether only a name from the list can be committed.
+  ///
+  /// A store's name is the user's to invent — the shop they are standing in is
+  /// more authoritative than the list. A *place* is not: the tax rate comes
+  /// from a published jurisdiction, and a name that matches none of them would
+  /// be created at 0% and quietly record no tax on every receipt filed against
+  /// it. So a strict field keeps the last name it knew rather than taking one
+  /// it does not.
+  final bool strict;
 
   @override
   State<Combobox> createState() => _ComboboxState();
@@ -86,6 +105,10 @@ class _ComboboxState extends State<Combobox> {
   /// Which row the arrow keys are on. -1 means "none", so Enter takes what was
   /// typed rather than whatever happened to be at the top.
   int _active = -1;
+
+  /// The last value this field actually committed, for a strict field to fall
+  /// back to when the text is left as something it cannot accept.
+  String _settled = '';
 
   List<String> get _all => [..._added, ...widget.options];
 
@@ -109,17 +132,35 @@ class _ComboboxState extends State<Combobox> {
 
   void _onFocusChange() {
     if (_focus.hasFocus) {
-      _open();
-    } else {
-      _close();
-      // Leaving the field settles the value, whether or not a letter changed.
-      widget.onCommit(widget.controller.text.trim());
+      if (widget.openOnFocus) _open();
+      return;
     }
+
+    _close();
+    final String typed = widget.controller.text.trim();
+    if (widget.strict && typed.isNotEmpty && !isKnown(_all, typed)) {
+      // Half a name, or a name the published list does not have. Putting back
+      // the last one it knew is the only honest answer: the alternative is a
+      // location invented at 0%, which records no tax and says nothing.
+      widget.controller.text = _settled;
+      return;
+    }
+    // Leaving the field settles the value, whether or not a letter changed.
+    _settled = typed;
+    widget.onCommit(typed);
   }
 
   void _onTextChange() {
     _active = -1;
-    if (_focus.hasFocus) _open();
+    if (_focus.hasFocus) {
+      // A strict field is a search box: nothing to show until there is
+      // something to search for.
+      if (widget.openOnFocus || widget.controller.text.trim().isNotEmpty) {
+        _open();
+      } else {
+        _close();
+      }
+    }
     _overlay?.markNeedsBuild();
   }
 
@@ -152,6 +193,7 @@ class _ComboboxState extends State<Combobox> {
   }
 
   void _commit(String value) {
+    _settled = value;
     widget.controller.text = value;
     widget.controller.selection =
         TextSelection.collapsed(offset: value.length);
@@ -166,6 +208,10 @@ class _ComboboxState extends State<Combobox> {
         : widget.controller.text.trim();
     if (value.isEmpty) {
       _close();
+      return;
+    }
+    if (widget.strict && !isKnown(_all, value)) {
+      // Nothing to take. The list is the authority here.
       return;
     }
     if (!isKnown(_all, value)) _added.insert(0, value);
@@ -220,7 +266,9 @@ class _ComboboxState extends State<Combobox> {
                     child: Text(
                       typed.isEmpty
                           ? widget.emptyLabel
-                          : 'Press Enter to add “$typed”',
+                          : widget.strict
+                              ? 'No Utah jurisdiction matches “$typed”.'
+                              : 'Press Enter to add “$typed”',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),

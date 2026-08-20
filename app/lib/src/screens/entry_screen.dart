@@ -455,8 +455,17 @@ class _EntryScreenState extends State<EntryScreen> {
           child: Combobox(
             controller: _place,
             options: _places,
-            hint: 'Select a location',
-            emptyLabel: 'No locations yet.',
+            hint: 'Start typing a city…',
+            emptyLabel: 'Start typing to find a city.',
+            // A search rather than a list to browse: there are four hundred
+            // jurisdictions, and dropping them over the form on focus helps
+            // nobody.
+            openOnFocus: false,
+            // Only a published jurisdiction, or somewhere already shopped. A
+            // name the state does not publish would be created at 0% and
+            // record no tax on every receipt filed against it — which is the
+            // worst thing this app can do quietly.
+            strict: true,
             onCommit: (name) async {
               if (name.isEmpty) {
                 _schedulePreview();
