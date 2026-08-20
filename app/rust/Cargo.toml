@@ -1,0 +1,30 @@
+[package]
+name = "accounting_bridge"
+version = "0.1.0"
+description = "flutter_rust_bridge shim. Renders accounting-core to Dart; contains no business logic."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Underscored, not hyphenated: the scaffolder copies this name into
+# `rust_builder/pubspec.yaml`, and a hyphen is not a legal Dart package name.
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+accounting-core.workspace = true
+chrono.workspace = true
+# All four flutter_rust_bridge artifacts — this crate, the macros, the Dart
+# package and the codegen binary — must stay on one version. A minor version
+# may change the handler ABI, and the symptom is a content-hash mismatch at
+# runtime rather than a compile error.
+flutter_rust_bridge = "=2.12.0"
+log = "0.4"
+# `setup_default_user_utils()` routes logs through `setup_log_to_console`,
+# which has arms for Android, iOS/macOS and wasm and ends in
+# `// TODO add more platforms`. On Linux and Windows it is a no-op, so without
+# this every `log::` call from Rust vanishes on the platform we develop on.
+env_logger = "0.11"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
