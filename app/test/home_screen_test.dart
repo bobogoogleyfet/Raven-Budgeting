@@ -1,6 +1,7 @@
 import 'package:app/src/api.dart';
 import 'package:app/src/money.dart';
 import 'package:app/src/screens/home_screen.dart';
+import 'package:app/src/widgets/budget_ring.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -57,10 +58,18 @@ TxnSummary expense(String? merchant, int total, {String date = '2026-08-19'}) =>
       categories: const ['Groceries'],
     );
 
+/// The legend row for a category. Scoped, because once a category is selected
+/// its name is also in the middle of the ring.
+Finder legendRow(String name) => find.descendant(
+      of: find.byType(InkWell),
+      matching: find.text(name),
+    );
+
 Future<void> pump(
   WidgetTester tester, {
   List<BudgetRow> budget = const [],
   List<TxnSummary> recent = const [],
+  MonthTotals totals = const MonthTotals(budgeted: zero, spent: zero),
   double width = 1000,
 }) async {
   tester.view.physicalSize = Size(width, 900);
@@ -73,6 +82,7 @@ Future<void> pump(
         body: HomeScreen(
           month: '2026-08',
           loadBudget: (month) async => budget,
+          loadTotals: (month) async => totals,
           loadRecent: (limit) async => recent.take(limit).toList(),
         ),
       ),
@@ -143,29 +153,94 @@ void main() {
       ),
     ]);
 
-    expect(find.textContaining('12 months left in cycle'), findsOneWidget);
+    expect(find.textContaining('12 mo cycle'), findsOneWidget);
   });
 
-  testWidgets('a phone shows the figure without the working', (tester) async {
+  testWidgets('the middle leads with spent out of everything budgeted',
+      (tester) async {
+    // $200 of groceries and $300 of gas is $500 budgeted, whatever the ring
+    // looks like.
     await pump(
       tester,
-      width: 420,
       budget: [
-        budgeted('Groceries', budget: 60000, spent: 49537, remaining: 10463),
+        budgeted('Groceries', budget: 20000, spent: 7550, remaining: 12450),
+        budgeted('Gas', budget: 30000, spent: 4200, remaining: 25800),
       ],
+      totals: MonthTotals(budgeted: fromCore(50000), spent: fromCore(11750)),
     );
 
-    expect(find.text(r'$104.63'), findsOneWidget);
-    // The detail line is what the extra width buys.
-    expect(find.textContaining('of '), findsNothing);
+    expect(find.text(r'$117.50'), findsOneWidget);
+    expect(find.text(r'of $500.00'), findsOneWidget);
+    expect(find.text('Spent'), findsOneWidget);
   });
 
-  testWidgets('a wider window shows the working', (tester) async {
+  testWidgets('the ring has one segment per budgeted category', (tester) async {
     await pump(tester, budget: [
-      budgeted('Groceries', budget: 60000, spent: 49537, remaining: 10463),
+      budgeted('Groceries', budget: 20000, spent: 7550, remaining: 12450),
+      budgeted('Gas', budget: 30000, spent: 4200, remaining: 25800),
+      unbudgeted,
     ]);
 
-    expect(find.textContaining(r'$495.37 of $600.00'), findsOneWidget);
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    expect(ring.segments.map((s) => s.label), ['Groceries', 'Gas']);
+    // Sized by the month's share, so a yearly line does not swamp the circle.
+    expect(ring.segments.map((s) => s.budgeted), [20000, 30000]);
+  });
+
+  testWidgets('an over-budget segment is marked over, not merely full',
+      (tester) async {
+    await pump(tester, budget: [
+      budgeted(
+        'Household',
+        budget: 12000,
+        spent: 14390,
+        remaining: -2390,
+        overspentBy: 2390,
+      ),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    expect(ring.segments.single.isOver, isTrue);
+  });
+
+  testWidgets('behind on funding does not mark a segment over', (tester) async {
+    await pump(tester, budget: [
+      budgeted(
+        'Groceries',
+        budget: 60000,
+        spent: 49537,
+        remaining: 10463,
+        funding: 'behind',
+        fundingBy: 49537,
+      ),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    expect(ring.segments.single.isOver, isFalse);
+  });
+
+  testWidgets('tapping a legend row moves the middle to that category',
+      (tester) async {
+    await pump(
+      tester,
+      budget: [
+        budgeted('Groceries', budget: 20000, spent: 7550, remaining: 12450),
+        budgeted('Gas', budget: 30000, spent: 4200, remaining: 25800),
+      ],
+      totals: MonthTotals(budgeted: fromCore(50000), spent: fromCore(11750)),
+    );
+
+    await tester.tap(legendRow('Gas'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(r'$42.00'), findsOneWidget);
+    expect(find.text(r'of $300.00'), findsOneWidget);
+    // The total is no longer the headline while a category is selected.
+    expect(find.text(r'of $500.00'), findsNothing);
+
+    await tester.tap(legendRow('Gas'));
+    await tester.pumpAndSettle();
+    expect(find.text(r'of $500.00'), findsOneWidget);
   });
 
   testWidgets('unbudgeted categories are counted, not listed', (tester) async {

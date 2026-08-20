@@ -96,6 +96,18 @@ class BudgetRow {
   bool get isMultiMonth => (monthsRemaining ?? 1) > 1;
 }
 
+/// What is budgeted this month, and what has been spent against it.
+///
+/// Summed by the core. A frontend that added the rows up itself would be doing
+/// money arithmetic, and would drift from every other frontend that did the
+/// same.
+class MonthTotals {
+  const MonthTotals({required this.budgeted, required this.spent});
+
+  final Cents budgeted;
+  final Cents spent;
+}
+
 /// One value a filterable column actually holds.
 class FilterValue {
   const FilterValue({required this.id, required this.name});
@@ -202,6 +214,15 @@ Future<FilterValues> filterValues() async {
 /// Delete a receipt. Throws if it is already gone, which is worth surfacing
 /// rather than swallowing: two windows open on one database is normal.
 Future<void> deleteTransaction(int id) => rust_txn.deleteTransaction(id: id);
+
+/// The month's totals, for the figure the overview leads with.
+Future<MonthTotals> monthTotals(String month) async {
+  final totals = await rust_budget.monthTotals(month: month);
+  return MonthTotals(
+    budgeted: fromCore(totals.budgeted),
+    spent: fromCore(totals.spent),
+  );
+}
 
 /// Every budgeted category, for a month given as `YYYY-MM`.
 Future<List<BudgetRow>> budgetStatus(String month) async {

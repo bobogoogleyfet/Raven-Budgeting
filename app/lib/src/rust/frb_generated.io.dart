@@ -76,6 +76,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TxnSummaryDto> dco_decode_list_txn_summary_dto(dynamic raw);
 
   @protected
+  MonthTotalsDto dco_decode_month_totals_dto(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -158,6 +161,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TxnSummaryDto> sse_decode_list_txn_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  MonthTotalsDto sse_decode_month_totals_dto(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -264,6 +270,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_txn_summary_dto(
     List<TxnSummaryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_month_totals_dto(
+    MonthTotalsDto self,
     SseSerializer serializer,
   );
 

@@ -51,6 +51,26 @@ pub struct BudgetRowDto {
     pub months_remaining: Option<u32>,
 }
 
+/// What is budgeted this month, and what has been spent against it.
+///
+/// Summed by the core, not here and not in Dart: adding money is arithmetic,
+/// and a total computed per frontend is a total that drifts per frontend.
+pub struct MonthTotalsDto {
+    pub budgeted: i64,
+    pub spent: i64,
+}
+
+/// The month's totals, for the figure the overview leads with.
+pub fn month_totals(month: String) -> Result<MonthTotalsDto, String> {
+    let as_of: YearMonth = month.parse().map_err(to_message)?;
+    let db = db::locked()?;
+    let totals = budgets::month_totals(&db, as_of).map_err(to_message)?;
+    Ok(MonthTotalsDto {
+        budgeted: totals.budgeted.cents(),
+        spent: totals.spent.cents(),
+    })
+}
+
 /// Every budgeted category, for the month given as `YYYY-MM`.
 ///
 /// Includes categories with no budget line — the screen's most useful job is
