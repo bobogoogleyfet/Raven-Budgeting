@@ -197,7 +197,7 @@ static SEED_GROUPS: &[SeedGroup] = &[
         // The group that makes the whole yearly-expense feature work. All
         // rollover: a $900 car repair in one month is not a $900 overspend, it
         // is nine months of $100 finally being spent.
-        name: "Non-Monthly",
+        name: "Occasional",
         hidden: false,
         categories: &[
             // Utah taxes repair labour as well as parts, unlike most states.
@@ -222,6 +222,15 @@ static SEED_GROUPS: &[SeedGroup] = &[
             SeedCategory::user("Hobbies"),
             SeedCategory::user("Fitness"),
         ],
+    },
+    SeedGroup {
+        // Seeded empty, on purpose. Education costs are somebody's tuition,
+        // somebody else's music lessons and somebody else's textbooks, and
+        // guessing wrong here fills a list with categories nobody will file
+        // against. The group is what makes them easy to add.
+        name: "Education",
+        hidden: false,
+        categories: &[],
     },
     SeedGroup {
         name: "Savings",
@@ -254,6 +263,18 @@ static SEED_GROUPS: &[SeedGroup] = &[
 /// their history split across the two. Applied only when the old name is still
 /// present and the new one is not, so a user who already renamed the category
 /// themselves is left alone.
+/// Group renames, for the same reason as [`SEED_RENAMES`] and with the same
+/// caution.
+///
+/// Groups are matched by name too, so renaming one here without this would
+/// leave the old group in place with every category still inside it, and add
+/// an empty one beside it.
+///
+/// "Non-Monthly" said when the spending happens; what someone is choosing
+/// between is what the group is *for*. It is money set aside for things that
+/// come round now and then, and "Occasional" says that without a negation.
+const SEED_GROUP_RENAMES: &[(&str, &str)] = &[("Non-Monthly", "Occasional")];
+
 const SEED_RENAMES: &[(&str, &str)] = &[
     ("Rent/Mortgage", "Rent"),
     ("Insurance (Auto)", "Car Insurance"),
@@ -347,6 +368,9 @@ pub fn seed_defaults(db: &Db) -> Result<()> {
     db.with_tx(|tx| {
         // Before the upserts, or they would insert the new names alongside the
         // old ones instead of finding them.
+        for (old, new) in SEED_GROUP_RENAMES {
+            rename_group(tx, old, new)?;
+        }
         for (old, new) in SEED_RENAMES {
             rename_category(tx, old, new)?;
         }
@@ -486,6 +510,26 @@ fn upsert_home_location(tx: &Transaction<'_>) -> Result<()> {
 /// and adjustment already pointing at it follows automatically — they hold its
 /// id, not its name. A no-op unless the old name is present and the new one is
 /// free.
+/// Rename a group, unless the new name is already in use.
+///
+/// Same rule as [`rename_category`]: a user who has already made a group of
+/// that name is left alone rather than having two merged behind their back.
+fn rename_group(tx: &Transaction<'_>, old: &str, new: &str) -> Result<()> {
+    let taken: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM category_group WHERE name = ?1)",
+        params![new],
+        |r| r.get(0),
+    )?;
+    if taken {
+        return Ok(());
+    }
+    tx.execute(
+        "UPDATE category_group SET name = ?2 WHERE name = ?1",
+        params![old, new],
+    )?;
+    Ok(())
+}
+
 fn rename_category(tx: &Transaction<'_>, old: &str, new: &str) -> Result<()> {
     let taken: bool = tx.query_row(
         "SELECT EXISTS (SELECT 1 FROM category WHERE name = ?1)",
@@ -555,7 +599,9 @@ mod tests {
     #[test]
     fn seeds_the_expected_shape() {
         let db = seeded();
-        assert_eq!(count(&db, "SELECT count(*) FROM category_group"), 6);
+        // Seven: the six the app started with, plus Education, which seeds as
+        // a group with nothing in it.
+        assert_eq!(count(&db, "SELECT count(*) FROM category_group"), 7);
         assert_eq!(count(&db, "SELECT count(*) FROM category"), 24);
         assert_eq!(
             count(
@@ -609,7 +655,7 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();
-        assert_eq!(orders, [100, 200, 300, 400, 500, 600]);
+        assert_eq!(orders, [100, 200, 300, 400, 500, 600, 700]);
         assert!(orders.windows(2).all(|w| w[1] - w[0] >= 100));
     }
 
@@ -620,7 +666,7 @@ mod tests {
         seed_defaults(&db).unwrap();
         seed_defaults(&db).unwrap();
         assert_eq!(count(&db, "SELECT count(*) FROM category"), before);
-        assert_eq!(count(&db, "SELECT count(*) FROM category_group"), 6);
+        assert_eq!(count(&db, "SELECT count(*) FROM category_group"), 7);
         assert_eq!(count(&db, "SELECT count(*) FROM location"), 1);
     }
 

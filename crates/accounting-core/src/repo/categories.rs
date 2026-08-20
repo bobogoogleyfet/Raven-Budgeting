@@ -21,7 +21,7 @@ use crate::repo::not_found;
 ///
 /// `group_name` is carried rather than looked up on demand because every
 /// display of a category is `Group/Name` — a category name alone is ambiguous
-/// by design ("Insurance" under Bills and under Non-Monthly are different
+/// by design ("Insurance" under Bills and under Occasional are different
 /// envelopes), so a struct that omits the group cannot be rendered correctly.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Category {
@@ -265,6 +265,48 @@ pub fn uncategorized(db: &Db) -> Result<Category> {
 }
 
 /// Add a category to a group, sorted after everything already in it.
+/// Create a group for categories to go in.
+///
+/// Sparse sort order, like the seed's: a new group lands after the ones
+/// already there rather than in the middle of them.
+pub fn create_group(db: &Db, name: &str) -> Result<CategoryGroup> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CoreError::Invalid("group name is empty".to_string()));
+    }
+
+    let id = db.with_tx(|tx| {
+        // Matched including archived rows, for the reason the seed matches
+        // that way: resurrecting a group the user archived would be as rude as
+        // duplicating it.
+        let taken: bool = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM category_group WHERE name = ?1)",
+            params![name],
+            |r| r.get(0),
+        )?;
+        if taken {
+            return Err(CoreError::Invalid(format!("there is already a group called {name}")));
+        }
+
+        let sort_order: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(sort_order), 0) + 100 FROM category_group",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO category_group (uuid, name, is_hidden, sort_order) \
+             VALUES (?1, ?2, 0, ?3)",
+            params![new_uuid(), name, sort_order],
+        )?;
+        Ok(CategoryGroupId::new(tx.last_insert_rowid()))
+    })?;
+
+    list_groups(db)?
+        .into_iter()
+        .find(|g| g.id == id)
+        .ok_or_else(|| CoreError::NotFound(format!("category group {id}")))
+}
+
 pub fn create(db: &Db, group_id: CategoryGroupId, name: &str) -> Result<Category> {
     // Taxable, like the column's own default: most things a person adds are
     // bought in a shop.
@@ -451,7 +493,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("`car`"), "{msg}");
         assert!(msg.contains("Bills/Car Insurance"), "{msg}");
-        assert!(msg.contains("Non-Monthly/Car Repair"), "{msg}");
+        assert!(msg.contains("Occasional/Car Repair"), "{msg}");
         assert!(matches!(err, CoreError::Invalid(_)));
     }
 
@@ -467,7 +509,7 @@ mod tests {
     fn a_duplicated_bare_name_is_ambiguous_not_a_coin_flip() {
         let db = seeded();
         let groups = list_groups(&db).unwrap();
-        let non_monthly = groups.iter().find(|g| g.name == "Non-Monthly").unwrap();
+        let non_monthly = groups.iter().find(|g| g.name == "Occasional").unwrap();
         create(&db, non_monthly.id, "Groceries").unwrap();
 
         assert_eq!(find_by_name(&db, "Groceries").unwrap(), None);
@@ -475,8 +517,8 @@ mod tests {
         assert!(err.to_string().contains("Frequent/Groceries"), "{err}");
         // …and qualifying it disambiguates.
         assert_eq!(
-            resolve(&db, "Non-Monthly/Groceries").unwrap().group_name,
-            "Non-Monthly"
+            resolve(&db, "Occasional/Groceries").unwrap().group_name,
+            "Occasional"
         );
     }
 

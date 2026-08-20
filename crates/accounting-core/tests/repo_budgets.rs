@@ -152,7 +152,7 @@ fn every_period_variant_comes_back_out_exactly_as_it_went_in() {
 #[test]
 fn a_stored_line_carries_the_names_needed_to_display_it() {
     // A category name alone is ambiguous by design ("Insurance" under Bills and
-    // under Non-Monthly are different envelopes), so a budget row that cannot
+    // under Occasional are different envelopes), so a budget row that cannot
     // be rendered as `Group/Name` cannot be rendered correctly at all.
     let db = seeded_db();
     let travel = cat(&db, "Travel");
@@ -160,7 +160,7 @@ fn a_stored_line_carries_the_names_needed_to_display_it() {
 
     let stored = budgets::get(&db, id).expect("get");
     assert_eq!(stored.category_name, "Travel");
-    assert_eq!(stored.group_name, "Non-Monthly");
+    assert_eq!(stored.group_name, "Occasional");
     assert_clean(&db);
 }
 

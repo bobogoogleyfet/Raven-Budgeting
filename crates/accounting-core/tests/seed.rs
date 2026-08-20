@@ -4,7 +4,10 @@
 mod common;
 
 use accounting_core::db::seed::seed_defaults;
-use common::{TRIGGER, assert_constraint, assert_err_mentions, count, empty_db, raw, seeded_db};
+use common::{
+    TRIGGER, assert_clean, assert_constraint, assert_err_mentions, count, empty_db, raw,
+    seeded_db,
+};
 
 /// The three categories the code itself references by name. They must exist,
 /// and must be impossible to remove — an "Uncategorized" that can be deleted
@@ -36,7 +39,7 @@ fn seeding_creates_the_default_groups_and_categories() {
     let groups = count(c, "SELECT COUNT(*) FROM category_group");
     assert!(
         groups >= 2,
-        "expected at least a Monthly and a Non-Monthly group, found {groups}"
+        "expected at least a Bills and an Occasional group, found {groups}"
     );
 
     let categories = count(c, "SELECT COUNT(*) FROM category");
@@ -61,17 +64,21 @@ fn seeding_creates_the_default_groups_and_categories() {
 }
 
 #[test]
-fn seeding_creates_a_non_monthly_group_for_sinking_funds() {
-    // Yearly items (insurance, registration) live here. Without a non-monthly
-    // group with rollover, a $1200/yr line wrecks whichever month it lands in.
+fn seeding_creates_an_occasional_group_for_sinking_funds() {
+    // Yearly items (insurance, registration) live here. Without a group for
+    // money set aside, a $1200/yr line wrecks whichever month it lands in.
+    //
+    // Called "Occasional" rather than "Non-Monthly": the old name said when
+    // the spending happens, and what a person is choosing between is what the
+    // group is for.
     let db = seeded_db();
     let c = raw(&db);
     assert!(
         count(
             c,
-            "SELECT COUNT(*) FROM category_group WHERE LOWER(REPLACE(name, '-', '')) LIKE '%nonmonthly%'",
+            "SELECT COUNT(*) FROM category_group WHERE name = 'Occasional'",
         ) >= 1,
-        "expected a Non-Monthly category group"
+        "expected an Occasional category group"
     );
 }
 
@@ -372,4 +379,98 @@ fn system_categories_are_excluded_from_budgeting() {
         ),
         0,
     );
+}
+
+// ---------------------------------------------------------------------------
+// Renaming a group, and the group that starts empty
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_renamed_group_keeps_its_categories_instead_of_gaining_a_twin() {
+    let db = seeded_db();
+
+    // A database seeded before the rename, put back the way it was.
+    db.conn()
+        .execute(
+            "UPDATE category_group SET name = 'Non-Monthly' WHERE name = 'Occasional'",
+            [],
+        )
+        .expect("rename back");
+    let before = accounting_core::repo::categories::list(&db)
+        .expect("list")
+        .into_iter()
+        .filter(|c| c.group_name == "Non-Monthly")
+        .count();
+    assert!(before > 0, "the old name has the categories");
+
+    seed_defaults(&db).expect("re-seed");
+
+    let groups = accounting_core::repo::categories::list_groups(&db).expect("groups");
+    assert!(
+        !groups.iter().any(|g| g.name == "Non-Monthly"),
+        "the old group is gone rather than left beside the new one"
+    );
+    let after = accounting_core::repo::categories::list(&db)
+        .expect("list")
+        .into_iter()
+        .filter(|c| c.group_name == "Occasional")
+        .count();
+    assert_eq!(after, before, "and it kept every category");
+    assert_clean(&db);
+}
+
+#[test]
+fn education_is_a_group_with_nothing_in_it_yet() {
+    let db = seeded_db();
+
+    let groups = accounting_core::repo::categories::list_groups(&db).expect("groups");
+    assert!(groups.iter().any(|g| g.name == "Education"));
+
+    // Empty on purpose: education is somebody's tuition and somebody else's
+    // textbooks, and a guess fills the list with categories nobody files
+    // against.
+    let inside = accounting_core::repo::categories::list(&db)
+        .expect("list")
+        .into_iter()
+        .filter(|c| c.group_name == "Education")
+        .count();
+    assert_eq!(inside, 0);
+    assert_clean(&db);
+}
+
+#[test]
+fn a_group_the_user_made_is_not_duplicated_by_a_later_rename() {
+    let db = seeded_db();
+
+    // Somebody who already made their own "Occasional" keeps it, and the seed
+    // leaves the old group alone rather than merging two behind their back.
+    db.conn()
+        .execute(
+            "UPDATE category_group SET name = 'Non-Monthly' WHERE name = 'Occasional'",
+            [],
+        )
+        .expect("rename back");
+    accounting_core::repo::categories::create_group(&db, "Occasional").expect("their own");
+
+    seed_defaults(&db).expect("re-seed");
+
+    let groups = accounting_core::repo::categories::list_groups(&db).expect("groups");
+    assert_eq!(
+        groups.iter().filter(|g| g.name == "Occasional").count(),
+        1,
+        "theirs, untouched"
+    );
+    assert!(groups.iter().any(|g| g.name == "Non-Monthly"));
+    assert_clean(&db);
+}
+
+#[test]
+fn a_group_cannot_be_created_twice() {
+    let db = seeded_db();
+
+    accounting_core::repo::categories::create_group(&db, "Sabbatical").expect("first");
+    let again = accounting_core::repo::categories::create_group(&db, "Sabbatical");
+
+    assert!(again.is_err(), "a second group of the same name is refused");
+    assert_clean(&db);
 }

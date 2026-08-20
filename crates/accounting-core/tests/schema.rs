@@ -401,6 +401,20 @@ fn seeded_sort_orders_leave_room_to_reorder_without_rewriting_every_row() {
         .collect();
 
     for g in groups {
+        // A group with nothing in it is legitimate: Education seeds that way,
+        // and a group the user makes starts that way until they put something
+        // in it. There are no gaps to check in one.
+        let populated: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM category WHERE group_id = ?1 AND archived_at IS NULL",
+                [g],
+                |r| r.get(0),
+            )
+            .expect("count categories");
+        if populated == 0 {
+            continue;
+        }
+
         let sql = format!(
             "SELECT sort_order FROM category WHERE group_id = {g} \
              AND archived_at IS NULL ORDER BY sort_order"
