@@ -502,3 +502,26 @@ fn const_constructors_are_usable_in_const_context() {
     assert_eq!(C, 500);
     assert_eq!(Money::ZERO.cents(), 0);
 }
+
+#[test]
+fn a_total_of_typed_parts_is_exact_and_refuses_to_overflow() {
+    // The case this exists for: three items rung up under one category.
+    let parts = [
+        Money::from_cents(138),
+        Money::from_cents(184),
+        Money::from_cents(299),
+    ];
+    assert_eq!(Money::checked_total(&parts), Some(Money::from_cents(621)));
+
+    assert_eq!(Money::checked_total(&[]), Some(Money::ZERO));
+    assert_eq!(
+        Money::checked_total(&[Money::from_cents(-500), Money::from_cents(200)]),
+        Some(Money::from_cents(-300))
+    );
+
+    // A receipt that quietly becomes i64::MAX is worse than one that refuses.
+    assert_eq!(
+        Money::checked_total(&[Money::from_cents(i64::MAX), Money::from_cents(1)]),
+        None
+    );
+}

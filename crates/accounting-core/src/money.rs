@@ -148,6 +148,25 @@ impl Money {
 
     /// Addition, `None` on overflow.
     #[must_use]
+    /// Add up amounts a person entered as separate figures.
+    ///
+    /// Three items rung up under one category are one subtotal, and someone
+    /// copying a receipt should be able to type them as they read them rather
+    /// than adding them up first. The adding happens here for the reason all
+    /// the other adding does: a frontend that does it has to do it again for
+    /// every platform, and the copies drift.
+    ///
+    /// Overflow is `None` rather than a saturated total, because a receipt
+    /// that quietly becomes `i64::MAX` is worse than one that refuses.
+    #[must_use]
+    pub fn checked_total(parts: &[Money]) -> Option<Money> {
+        let mut total = Money::ZERO;
+        for part in parts {
+            total = total.checked_add(*part)?;
+        }
+        Some(total)
+    }
+
     pub const fn checked_add(self, rhs: Money) -> Option<Money> {
         match self.0.checked_add(rhs.0) {
             Some(v) => Some(Money(v)),
