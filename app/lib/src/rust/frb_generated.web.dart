@@ -10,6 +10,7 @@ import 'api/budget.dart';
 import 'api/categories.dart';
 import 'api/db.dart';
 import 'api/entry.dart';
+import 'api/rates.dart';
 import 'api/transactions.dart';
 
 import 'dart:async';
@@ -152,6 +153,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RateReleaseDto dco_decode_rate_release_dto(dynamic raw);
+
+  @protected
+  RefreshDto dco_decode_refresh_dto(dynamic raw);
 
   @protected
   SplitDraftDto dco_decode_split_draft_dto(dynamic raw);
@@ -322,6 +326,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RateReleaseDto sse_decode_rate_release_dto(SseDeserializer deserializer);
+
+  @protected
+  RefreshDto sse_decode_refresh_dto(SseDeserializer deserializer);
 
   @protected
   SplitDraftDto sse_decode_split_draft_dto(SseDeserializer deserializer);
@@ -550,6 +557,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     RateReleaseDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_refresh_dto(RefreshDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_split_draft_dto(SplitDraftDto self, SseSerializer serializer);

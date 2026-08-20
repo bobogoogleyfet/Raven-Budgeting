@@ -7,6 +7,7 @@ import 'api/budget.dart';
 import 'api/categories.dart';
 import 'api/db.dart';
 import 'api/entry.dart';
+import 'api/rates.dart';
 import 'api/transactions.dart';
 
 import 'dart:async';
@@ -73,7 +74,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 125757943;
+  int get rustContentHash => 300733089;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -135,6 +136,8 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<RateReleaseDto?> crateApiEntryRateRelease();
+
+  Future<RefreshDto> crateApiRatesRefreshRates();
 
   Future<PlatformInt64> crateApiEntrySaveSubtotals({
     required SubtotalDraftDto draft,
@@ -681,6 +684,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "rate_release", argNames: []);
 
   @override
+  Future<RefreshDto> crateApiRatesRefreshRates() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 19,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_refresh_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRatesRefreshRatesConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRatesRefreshRatesConstMeta =>
+      const TaskConstMeta(debugName: "refresh_rates", argNames: []);
+
+  @override
   Future<PlatformInt64> crateApiEntrySaveSubtotals({
     required SubtotalDraftDto draft,
   }) {
@@ -692,7 +722,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -728,7 +758,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -1105,6 +1135,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       quarter: dco_decode_String(arr[0]),
       effectiveOn: dco_decode_String(arr[1]),
       current: dco_decode_bool(arr[2]),
+    );
+  }
+
+  @protected
+  RefreshDto dco_decode_refresh_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return RefreshDto(
+      attempted: dco_decode_bool(arr[0]),
+      installed: dco_decode_bool(arr[1]),
+      areas: dco_decode_u_32(arr[2]),
+      locationsUpdated: dco_decode_u_32(arr[3]),
+      problem: dco_decode_opt_String(arr[4]),
     );
   }
 
@@ -1713,6 +1758,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RefreshDto sse_decode_refresh_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_attempted = sse_decode_bool(deserializer);
+    var var_installed = sse_decode_bool(deserializer);
+    var var_areas = sse_decode_u_32(deserializer);
+    var var_locationsUpdated = sse_decode_u_32(deserializer);
+    var var_problem = sse_decode_opt_String(deserializer);
+    return RefreshDto(
+      attempted: var_attempted,
+      installed: var_installed,
+      areas: var_areas,
+      locationsUpdated: var_locationsUpdated,
+      problem: var_problem,
+    );
+  }
+
+  @protected
   SplitDraftDto sse_decode_split_draft_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_categoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
@@ -2262,6 +2324,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.quarter, serializer);
     sse_encode_String(self.effectiveOn, serializer);
     sse_encode_bool(self.current, serializer);
+  }
+
+  @protected
+  void sse_encode_refresh_dto(RefreshDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.attempted, serializer);
+    sse_encode_bool(self.installed, serializer);
+    sse_encode_u_32(self.areas, serializer);
+    sse_encode_u_32(self.locationsUpdated, serializer);
+    sse_encode_opt_String(self.problem, serializer);
   }
 
   @protected

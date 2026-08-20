@@ -7,6 +7,7 @@ import '../widgets/combobox.dart';
 
 typedef AreaLoader = Future<List<AreaDto>> Function();
 typedef ReleaseLoader = Future<RateReleaseDto?> Function();
+typedef RateRefresher = Future<RefreshDto> Function();
 typedef HomeSetter = Future<void> Function({
   required String name,
   required String? areaCode,
@@ -44,6 +45,7 @@ class HomeAreaForm extends StatefulWidget {
     this.firstRun = false,
     this.loadAreas = listAreas,
     this.loadRelease = rateRelease,
+    this.refresh = refreshRates,
     this.save = setHomeLocation,
   });
 
@@ -56,6 +58,7 @@ class HomeAreaForm extends StatefulWidget {
 
   final AreaLoader loadAreas;
   final ReleaseLoader loadRelease;
+  final RateRefresher refresh;
   final HomeSetter save;
 
   @override
@@ -68,6 +71,8 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
 
   List<AreaDto> _areas = const [];
   String _provenance = '';
+  String? _refreshNote;
+  bool _refreshing = false;
   String? _feedback;
   bool _saving = false;
 
@@ -86,6 +91,40 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
     _area.dispose();
     _rate.dispose();
     super.dispose();
+  }
+
+  /// Ask for a newer rate table now, rather than waiting for the next launch.
+  ///
+  /// The app already tries once a day in the background. This is for the case
+  /// the provenance line makes visible: the quarter has turned, this machine
+  /// has been offline, and the user is looking straight at the stale figure.
+  Future<void> _checkNow() async {
+    setState(() {
+      _refreshing = true;
+      _refreshNote = null;
+    });
+    try {
+      final result = await widget.refresh();
+      final release = await widget.loadRelease();
+      if (!mounted) return;
+      setState(() {
+        _provenance = releaseLine(
+          quarter: release?.quarter,
+          current: release?.current ?? false,
+        );
+        _refreshNote = switch (result) {
+          RefreshDto(installed: true, :final areas) =>
+            'Installed ${release?.quarter ?? 'the new table'} — $areas jurisdictions.',
+          RefreshDto(attempted: false) => 'Already up to date.',
+          RefreshDto(problem: final String problem) => 'Could not fetch it: $problem',
+          _ => 'Could not fetch it.',
+        };
+      });
+    } catch (error) {
+      if (mounted) setState(() => _refreshNote = 'Could not fetch it: $error');
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
   }
 
   Future<void> _load() async {
@@ -252,14 +291,33 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
             ),
           ],
         ),
-        if (_provenance.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          Text(
-            _provenance,
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            if (_provenance.isNotEmpty)
+              Flexible(
+                child: Text(
+                  _provenance,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            const SizedBox(width: 12),
+            TextButton(
+              onPressed: _refreshing ? null : () => _checkNow(),
+              child: Text(_refreshing ? 'Checking…' : 'Check for new rates'),
+            ),
+          ],
+        ),
+        if (_refreshNote != null)
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              _refreshNote!,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
           ),
-        ],
         if (widget.firstRun) ...[
           const SizedBox(height: 12),
           Text(

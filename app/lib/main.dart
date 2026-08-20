@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'src/destinations.dart';
-import 'src/api.dart' show homeLocation;
+import 'dart:async';
+
+import 'src/api.dart' show homeLocation, refreshRates;
 import 'src/rust/api/db.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/screens/budget_screen.dart';
@@ -46,6 +48,20 @@ Future<void> main() async {
   } catch (_) {
     configured = false;
   }
+
+  // Rates change on the first day of a quarter, so this does something four
+  // times a year and nothing on the other 361 days. Deliberately not awaited:
+  // the app must open instantly on all of them, including the ones where the
+  // network is a captive portal that will hold a connection open for thirty
+  // seconds before failing. Nothing on screen is waiting for the result, and a
+  // failure is not an error — being offline is a laptop's normal state.
+  unawaited(() async {
+    try {
+      await refreshRates();
+    } catch (_) {
+      // Being offline is a laptop's normal state, not a fault.
+    }
+  }());
 
   runApp(AccountingApp(databasePath: path, configured: configured));
 }
@@ -114,3 +130,4 @@ class _AccountingAppState extends State<AccountingApp> {
     );
   }
 }
+

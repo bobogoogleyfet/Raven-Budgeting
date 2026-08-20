@@ -13,6 +13,10 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 accounting-core.workspace = true
+# Downloading the quarterly rate workbook. A *frontend* dependency: the core
+# does no networking, because an HTTP client is exactly the sort of thing that
+# differs between a desktop binary and an Android service.
+ureq.workspace = true
 chrono.workspace = true
 # All four flutter_rust_bridge artifacts — this crate, the macros, the Dart
 # package and the codegen binary — must stay on one version. A minor version

@@ -16,8 +16,12 @@ Future<List<Saved>> pump(
   WidgetTester tester, {
   bool firstRun = false,
   RateReleaseDto? release,
+  RateReleaseDto? afterRefresh,
+  RefreshDto? refreshResult,
+  Object? refreshError,
   Object? saveError,
 }) async {
+  var refreshed = false;
   final saved = <Saved>[];
   tester.view.physicalSize = const Size(900, 1000);
   tester.view.devicePixelRatio = 1;
@@ -44,7 +48,19 @@ Future<List<Saved>> pump(
               foodRatePpm: 30000,
             ),
           ],
-          loadRelease: () async => release,
+          loadRelease: () async => refreshed ? (afterRefresh ?? release) : release,
+          refresh: () async {
+            refreshed = true;
+            if (refreshError != null) throw refreshError;
+            return refreshResult ??
+                RefreshDto(
+                  attempted: false,
+                  installed: false,
+                  areas: 0,
+                  locationsUpdated: 0,
+                  problem: null,
+                );
+          },
           save: ({
             required String name,
             required String? areaCode,
@@ -174,5 +190,81 @@ void main() {
 
     expect(saved, isEmpty);
     expect(find.textContaining('reduced food rate'), findsOneWidget);
+  });
+
+  testWidgets('checking for new rates installs one and renames the quarter',
+      (tester) async {
+    await pump(
+      tester,
+      release: RateReleaseDto(
+        quarter: '2026Q2',
+        effectiveOn: '2026-04-01',
+        current: false,
+      ),
+      afterRefresh: RateReleaseDto(
+        quarter: '2026Q3',
+        effectiveOn: '2026-07-01',
+        current: true,
+      ),
+      refreshResult: RefreshDto(
+        attempted: true,
+        installed: true,
+        areas: 389,
+        locationsUpdated: 2,
+        problem: null,
+      ),
+    );
+
+    expect(find.textContaining('superseded'), findsOneWidget);
+
+    await tester.tap(find.text('Check for new rates'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('389 jurisdictions'), findsOneWidget);
+    expect(find.textContaining("2026Q3 publication."), findsOneWidget);
+    expect(find.textContaining('superseded'), findsNothing);
+  });
+
+  testWidgets('being offline says so without calling itself broken',
+      (tester) async {
+    await pump(
+      tester,
+      release: RateReleaseDto(
+        quarter: '2026Q2',
+        effectiveOn: '2026-04-01',
+        current: false,
+      ),
+      refreshResult: RefreshDto(
+        attempted: true,
+        installed: false,
+        areas: 0,
+        locationsUpdated: 0,
+        problem: 'dns error: failed to lookup address',
+      ),
+    );
+
+    await tester.tap(find.text('Check for new rates'));
+    await tester.pumpAndSettle();
+
+    // The rates already installed are still the state's figures, and the app
+    // still works on them.
+    expect(find.textContaining('Could not fetch it'), findsOneWidget);
+    expect(find.textContaining('superseded'), findsOneWidget);
+  });
+
+  testWidgets('a table that is already current says so', (tester) async {
+    await pump(
+      tester,
+      release: RateReleaseDto(
+        quarter: '2026Q3',
+        effectiveOn: '2026-07-01',
+        current: true,
+      ),
+    );
+
+    await tester.tap(find.text('Check for new rates'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Already up to date.'), findsOneWidget);
   });
 }
