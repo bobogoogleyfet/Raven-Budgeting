@@ -73,7 +73,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -929842350;
+  int get rustContentHash => 125757943;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -87,6 +87,11 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 abstract class RustLibApi extends BaseApi {
   Future<List<BudgetRowDto>> crateApiBudgetBudgetStatus({
     required String month,
+  });
+
+  Future<void> crateApiEntryCategorize({
+    required PlatformInt64 id,
+    required List<SplitDraftDto> splits,
   });
 
   Future<void> crateApiTransactionsDeleteTransaction({
@@ -121,14 +126,25 @@ abstract class RustLibApi extends BaseApi {
 
   Future<MonthTotalsDto> crateApiBudgetMonthTotals({required String month});
 
+  Future<List<TxnSummaryDto>> crateApiEntryNeedsCategorizing();
+
   Future<String> crateApiDbOpenDatabase({String? appDataDir});
 
   Future<PreviewDto> crateApiEntryPreviewSubtotals({
     required SubtotalDraftDto draft,
   });
 
+  Future<RateReleaseDto?> crateApiEntryRateRelease();
+
   Future<PlatformInt64> crateApiEntrySaveSubtotals({
     required SubtotalDraftDto draft,
+  });
+
+  Future<void> crateApiEntrySetHomeLocation({
+    required String name,
+    String? areaCode,
+    required int taxRatePpm,
+    int? foodRatePpm,
   });
 }
 
@@ -171,6 +187,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "budget_status", argNames: ["month"]);
 
   @override
+  Future<void> crateApiEntryCategorize({
+    required PlatformInt64 id,
+    required List<SplitDraftDto> splits,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(id, serializer);
+          sse_encode_list_split_draft_dto(splits, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiEntryCategorizeConstMeta,
+        argValues: [id, splits],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEntryCategorizeConstMeta =>
+      const TaskConstMeta(debugName: "categorize", argNames: ["id", "splits"]);
+
+  @override
   Future<void> crateApiTransactionsDeleteTransaction({
     required PlatformInt64 id,
   }) {
@@ -182,7 +230,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 3,
             port: port_,
           );
         },
@@ -210,7 +258,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 4,
             port: port_,
           );
         },
@@ -238,7 +286,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 5,
             port: port_,
           );
         },
@@ -265,7 +313,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 6,
             port: port_,
           );
         },
@@ -292,7 +340,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 7,
             port: port_,
           );
         },
@@ -319,7 +367,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 8,
             port: port_,
           );
         },
@@ -346,7 +394,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 9,
             port: port_,
           );
         },
@@ -373,7 +421,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -400,7 +448,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -427,7 +475,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -465,7 +513,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },
@@ -502,7 +550,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -521,6 +569,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "month_totals", argNames: ["month"]);
 
   @override
+  Future<List<TxnSummaryDto>> crateApiEntryNeedsCategorizing() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_txn_summary_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiEntryNeedsCategorizingConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEntryNeedsCategorizingConstMeta =>
+      const TaskConstMeta(debugName: "needs_categorizing", argNames: []);
+
+  @override
   Future<String> crateApiDbOpenDatabase({String? appDataDir}) {
     return handler.executeNormal(
       NormalTask(
@@ -530,7 +605,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 16,
             port: port_,
           );
         },
@@ -560,7 +635,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 17,
             port: port_,
           );
         },
@@ -579,6 +654,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "preview_subtotals", argNames: ["draft"]);
 
   @override
+  Future<RateReleaseDto?> crateApiEntryRateRelease() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 18,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_box_autoadd_rate_release_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiEntryRateReleaseConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEntryRateReleaseConstMeta =>
+      const TaskConstMeta(debugName: "rate_release", argNames: []);
+
+  @override
   Future<PlatformInt64> crateApiEntrySaveSubtotals({
     required SubtotalDraftDto draft,
   }) {
@@ -590,7 +692,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 19,
             port: port_,
           );
         },
@@ -607,6 +709,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiEntrySaveSubtotalsConstMeta =>
       const TaskConstMeta(debugName: "save_subtotals", argNames: ["draft"]);
+
+  @override
+  Future<void> crateApiEntrySetHomeLocation({
+    required String name,
+    String? areaCode,
+    required int taxRatePpm,
+    int? foodRatePpm,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(name, serializer);
+          sse_encode_opt_String(areaCode, serializer);
+          sse_encode_u_32(taxRatePpm, serializer);
+          sse_encode_opt_box_autoadd_u_32(foodRatePpm, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 20,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiEntrySetHomeLocationConstMeta,
+        argValues: [name, areaCode, taxRatePpm, foodRatePpm],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEntrySetHomeLocationConstMeta =>
+      const TaskConstMeta(
+        debugName: "set_home_location",
+        argNames: ["name", "areaCode", "taxRatePpm", "foodRatePpm"],
+      );
 
   @protected
   String dco_decode_String(dynamic raw) {
@@ -650,6 +791,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   LocationDto dco_decode_box_autoadd_location_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_location_dto(raw);
+  }
+
+  @protected
+  RateReleaseDto dco_decode_box_autoadd_rate_release_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_rate_release_dto(raw);
   }
 
   @protected
@@ -823,6 +970,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SplitDraftDto> dco_decode_list_split_draft_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_split_draft_dto).toList();
+  }
+
+  @protected
   List<SplitRowDto> dco_decode_list_split_row_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_split_row_dto).toList();
@@ -904,6 +1057,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RateReleaseDto? dco_decode_opt_box_autoadd_rate_release_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_rate_release_dto(raw);
+  }
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
@@ -933,6 +1092,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       rows: dco_decode_list_split_row_dto(arr[8]),
       warnings: dco_decode_list_String(arr[9]),
       blockers: dco_decode_list_String(arr[10]),
+    );
+  }
+
+  @protected
+  RateReleaseDto dco_decode_rate_release_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return RateReleaseDto(
+      quarter: dco_decode_String(arr[0]),
+      effectiveOn: dco_decode_String(arr[1]),
+      current: dco_decode_bool(arr[2]),
+    );
+  }
+
+  @protected
+  SplitDraftDto dco_decode_split_draft_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return SplitDraftDto(
+      categoryId: dco_decode_opt_box_autoadd_i_64(arr[0]),
+      cents: dco_decode_opt_box_autoadd_i_64(arr[1]),
+      note: dco_decode_opt_String(arr[2]),
     );
   }
 
@@ -1064,6 +1249,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_location_dto(deserializer));
+  }
+
+  @protected
+  RateReleaseDto sse_decode_box_autoadd_rate_release_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_rate_release_dto(deserializer));
   }
 
   @protected
@@ -1303,6 +1496,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SplitDraftDto> sse_decode_list_split_draft_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SplitDraftDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_split_draft_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<SplitRowDto> sse_decode_list_split_row_dto(
     SseDeserializer deserializer,
   ) {
@@ -1427,6 +1634,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RateReleaseDto? sse_decode_opt_box_autoadd_rate_release_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_rate_release_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1476,6 +1696,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       rows: var_rows,
       warnings: var_warnings,
       blockers: var_blockers,
+    );
+  }
+
+  @protected
+  RateReleaseDto sse_decode_rate_release_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_quarter = sse_decode_String(deserializer);
+    var var_effectiveOn = sse_decode_String(deserializer);
+    var var_current = sse_decode_bool(deserializer);
+    return RateReleaseDto(
+      quarter: var_quarter,
+      effectiveOn: var_effectiveOn,
+      current: var_current,
+    );
+  }
+
+  @protected
+  SplitDraftDto sse_decode_split_draft_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_categoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_cents = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_note = sse_decode_opt_String(deserializer);
+    return SplitDraftDto(
+      categoryId: var_categoryId,
+      cents: var_cents,
+      note: var_note,
     );
   }
 
@@ -1621,6 +1867,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_location_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_rate_release_dto(
+    RateReleaseDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_rate_release_dto(self, serializer);
   }
 
   @protected
@@ -1826,6 +2081,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_split_draft_dto(
+    List<SplitDraftDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_split_draft_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_split_row_dto(
     List<SplitRowDto> self,
     SseSerializer serializer,
@@ -1935,6 +2202,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_rate_release_dto(
+    RateReleaseDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_rate_release_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1971,6 +2251,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_split_row_dto(self.rows, serializer);
     sse_encode_list_String(self.warnings, serializer);
     sse_encode_list_String(self.blockers, serializer);
+  }
+
+  @protected
+  void sse_encode_rate_release_dto(
+    RateReleaseDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.quarter, serializer);
+    sse_encode_String(self.effectiveOn, serializer);
+    sse_encode_bool(self.current, serializer);
+  }
+
+  @protected
+  void sse_encode_split_draft_dto(
+    SplitDraftDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_i_64(self.categoryId, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.cents, serializer);
+    sse_encode_opt_String(self.note, serializer);
   }
 
   @protected

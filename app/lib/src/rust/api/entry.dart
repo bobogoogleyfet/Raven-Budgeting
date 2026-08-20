@@ -7,6 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+import 'transactions.dart';
+
 // These functions are ignored because they are not marked as `pub`: `to_draft`, `to_preview_dto`
 
 /// Reconcile a subtotal-entered receipt without writing anything.
@@ -61,6 +63,56 @@ Future<List<LocationDto>> listLocations() =>
 /// always wins.
 Future<List<AreaDto>> listAreas() =>
     RustLib.instance.api.crateApiEntryListAreas();
+
+/// The needs-categorizing queue, newest first.
+///
+/// `pacc quick-add 42.18` records a total in the checkout line and files it
+/// under Uncategorized so the decision can happen later. This is later.
+Future<List<TxnSummaryDto>> needsCategorizing() =>
+    RustLib.instance.api.crateApiEntryNeedsCategorizing();
+
+/// Assign categories to a quick-added receipt and clear its review flag.
+///
+/// The amounts are already on disk and are not re-entered; this only decides
+/// which envelopes they came out of. Re-previewing instead would derive tax
+/// from a rate and silently rewrite a total that was recorded as tax-free.
+Future<void> categorize({
+  required PlatformInt64 id,
+  required List<SplitDraftDto> splits,
+}) => RustLib.instance.api.crateApiEntryCategorize(id: id, splits: splits);
+
+/// Name the place the user lives and set its sales-tax rates.
+///
+/// Asked once, on first run, because every later receipt without an explicit
+/// location inherits these rates — and a receipt silently recording $0.00 of
+/// tax is wrong in a way nothing else surfaces.
+///
+/// `area_code` names the published jurisdiction the figures came from, when
+/// they came from one. It is what makes the quarterly refresh reach this
+/// location. A hand-typed rate sends `None`, and then nothing revises it but
+/// the person who typed it — which is why a hand-typed rate must also send a
+/// `None` food rate rather than the last area's.
+Future<void> setHomeLocation({
+  required String name,
+  String? areaCode,
+  required int taxRatePpm,
+  int? foodRatePpm,
+}) => RustLib.instance.api.crateApiEntrySetHomeLocation(
+  name: name,
+  areaCode: areaCode,
+  taxRatePpm: taxRatePpm,
+  foodRatePpm: foodRatePpm,
+);
+
+/// Which publication is installed, for the line under the picker.
+///
+/// Shown rather than hidden for the same reason the rate itself is: a table
+/// that quietly stopped updating looks exactly like one that is current, and
+/// the quarter is the only thing on screen that can tell them apart.
+///
+/// The clock is read here, which is this layer's business and not the core's.
+Future<RateReleaseDto?> rateRelease() =>
+    RustLib.instance.api.crateApiEntryRateRelease();
 
 class AreaDto {
   /// The publisher's jurisdiction code, so a location made from this area
@@ -288,6 +340,64 @@ class PreviewDto {
           rows == other.rows &&
           warnings == other.warnings &&
           blockers == other.blockers;
+}
+
+/// Which rate publication is installed.
+class RateReleaseDto {
+  final String quarter;
+  final String effectiveOn;
+
+  /// False once the quarter has turned and no refresh has succeeded since.
+  final bool current;
+
+  const RateReleaseDto({
+    required this.quarter,
+    required this.effectiveOn,
+    required this.current,
+  });
+
+  @override
+  int get hashCode =>
+      quarter.hashCode ^ effectiveOn.hashCode ^ current.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RateReleaseDto &&
+          runtimeType == other.runtimeType &&
+          quarter == other.quarter &&
+          effectiveOn == other.effectiveOn &&
+          current == other.current;
+}
+
+/// One split of a receipt being categorized.
+///
+/// Deliberately not the core's `SplitAmount` enum. That would cross the bridge
+/// as a `freezed` sealed class — three packages and a codegen step — to model
+/// a choice this app makes in one place and one way. A null `cents` is the
+/// remainder, which is the only shape the inbox sends; a percentage split can
+/// join it here the day a screen offers one.
+class SplitDraftDto {
+  final PlatformInt64? categoryId;
+
+  /// An exact amount in cents, or null for "whatever the others did not
+  /// claim".
+  final PlatformInt64? cents;
+  final String? note;
+
+  const SplitDraftDto({this.categoryId, this.cents, this.note});
+
+  @override
+  int get hashCode => categoryId.hashCode ^ cents.hashCode ^ note.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SplitDraftDto &&
+          runtimeType == other.runtimeType &&
+          categoryId == other.categoryId &&
+          cents == other.cents &&
+          note == other.note;
 }
 
 class SplitRowDto {
