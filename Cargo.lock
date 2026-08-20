@@ -58,6 +58,7 @@ dependencies = [
  "env_logger",
  "flutter_rust_bridge",
  "log",
+ "ureq",
 ]
 
 [[package]]

@@ -60,6 +60,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CategoryDto dco_decode_category_dto(dynamic raw);
 
   @protected
+  CategoryGroupDto dco_decode_category_group_dto(dynamic raw);
+
+  @protected
   CategoryRateDto dco_decode_category_rate_dto(dynamic raw);
 
   @protected
@@ -85,6 +88,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<CategoryDto> dco_decode_list_category_dto(dynamic raw);
+
+  @protected
+  List<CategoryGroupDto> dco_decode_list_category_group_dto(dynamic raw);
 
   @protected
   List<CategoryRateDto> dco_decode_list_category_rate_dto(dynamic raw);
@@ -220,6 +226,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CategoryDto sse_decode_category_dto(SseDeserializer deserializer);
 
   @protected
+  CategoryGroupDto sse_decode_category_group_dto(SseDeserializer deserializer);
+
+  @protected
   CategoryRateDto sse_decode_category_rate_dto(SseDeserializer deserializer);
 
   @protected
@@ -247,6 +256,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<CategoryDto> sse_decode_list_category_dto(SseDeserializer deserializer);
+
+  @protected
+  List<CategoryGroupDto> sse_decode_list_category_group_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<CategoryRateDto> sse_decode_list_category_rate_dto(
@@ -407,6 +421,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_category_dto(CategoryDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_category_group_dto(
+    CategoryGroupDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_category_rate_dto(
     CategoryRateDto self,
     SseSerializer serializer,
@@ -445,6 +465,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_category_dto(
     List<CategoryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_category_group_dto(
+    List<CategoryGroupDto> self,
     SseSerializer serializer,
   );
 
