@@ -137,11 +137,8 @@ so there is never a day without a working expense tracker.
    receipt can be saved. The TypeScript leaves it enabled on an untouched form,
    which opens a dialog with no rows and its own Save disabled.
 
-   Not yet ported: the first-run gate. The TypeScript diverts to a setup screen
-   when home has a 0% rate, and without it a receipt silently records no tax.
-   The Flutter app shows the core's own warning instead, and the gate belongs
-   with the rest of phase 5.
-5. **Inbox, Budget, Settings, first run.**
+   The first-run gate arrived with phase 5.
+5. **Inbox, Budget, Settings, first run — built 2026-08-20.**
 6. **Android.** NDK, `cargo-ndk`, Rust targets, and the first real test of
    bundled SQLite cross-compiling. Deliberately last: nothing before it depends
    on Android, and everything before it de-risks it.
@@ -184,6 +181,29 @@ briefly the home surface itself, with no destination selected. That works on a
 rail and a drawer, which both accept a null selection, and does not work on a
 `NavigationBar`, which asserts a valid index. Making the form a task and Home a
 place removed the special case rather than papering over it.
+
+## Known traps carried over deliberately
+
+Two behaviours were copied rather than fixed, because changing them is a
+product decision and not a port decision. Both are recorded here so the next
+person knows they were seen.
+
+- **A genuinely 0% area is asked forever.** The gate is "no home, or a home
+  whose rate is 0", which is what the seed installs. Someone in a place with no
+  sales tax types 0, and is asked again on every launch. Fixing it means
+  recording "this was answered" separately from the rate.
+- **The area picker matches the published name exactly, and the core does
+  not.** Type "Provo, UT" and the picker says it is not in Utah's list, so the
+  rate gets typed by hand and the location stops following the quarterly
+  publication — silently, and forever. `tax_areas::match_key` strips a `, UT`
+  suffix; the picker does not.
+
+One more the port has not closed: nothing in the Flutter app downloads a new
+rate table. The bridge installs what is bundled and adopts published areas, but
+there is no equivalent of the Tauri shell's background refresh, so the
+provenance line will read "superseded" from the first day of the next quarter
+and stay there. That is the state the message exists to make visible, which is
+some comfort, but it is not the same as fetching the file.
 
 ## What must survive the port
 
