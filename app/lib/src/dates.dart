@@ -56,3 +56,19 @@ String? toIso(String month, String day, String year) {
   if (match == null) return (month: '', day: '', year: '');
   return (month: match.group(2)!, day: match.group(3)!, year: match.group(1)!);
 }
+
+const List<String> _monthNames = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/// `"2026-08"` → `"August 2026"`. Falls back to the input when it is not a
+/// month, because a screen that says `2026-13` is more use than one that says
+/// nothing.
+String monthLabel(String yearMonth) {
+  final RegExpMatch? match = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(yearMonth);
+  if (match == null) return yearMonth;
+  final int month = int.parse(match.group(2)!);
+  if (month < 1 || month > 12) return yearMonth;
+  return '${_monthNames[month - 1]} ${match.group(1)}';
+}

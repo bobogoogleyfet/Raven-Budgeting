@@ -6,6 +6,7 @@ import 'src/destinations.dart';
 import 'src/rust/api/db.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/screens/categories_screen.dart';
+import 'src/screens/home_screen.dart';
 import 'src/screens/placeholder_screen.dart';
 import 'src/shell.dart';
 import 'src/theme.dart';
@@ -38,20 +39,13 @@ class AccountingApp extends StatelessWidget {
       title: 'Personal Accounting',
       theme: lightTheme(),
       darkTheme: darkTheme(),
-      home: AppShell(
-        homeTitle: 'New expense',
-        homeBuilder: (context) => const CategoriesScreen(),
-        screenBuilder: _screenFor,
-      ),
+      home: AppShell(screenBuilder: _screenFor, onNewExpense: _newExpense),
     );
   }
 
-  /// The entry form is phase 4. Until then the home surface shows the
-  /// categories that form will be built out of, which is what makes phase 1
-  /// worth running: the rows come from the real database through the real
-  /// bridge.
   Widget _screenFor(BuildContext context, Destination destination) {
     return switch (destination) {
+      Destination.home => const HomeScreen(),
       Destination.expenses =>
         PlaceholderScreen(destination: destination, phase: 'phase 3'),
       Destination.inbox ||
@@ -63,5 +57,23 @@ class AccountingApp extends StatelessWidget {
           databasePath: databasePath,
         ),
     };
+  }
+
+  /// Entering an expense is a focused task, so it gets a screen of its own
+  /// rather than a pane inside the shell — Material 3's full-screen dialog,
+  /// which is also what makes it work identically on a phone.
+  ///
+  /// The form itself is phase 4. Until then this shows the categories it will
+  /// be built out of, which at least proves the bridge end to end.
+  void _newExpense(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: const Text('New expense')),
+          body: const CategoriesScreen(),
+        ),
+      ),
+    );
   }
 }
