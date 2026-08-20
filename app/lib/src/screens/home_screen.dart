@@ -22,6 +22,7 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     this.onSetBudget,
+    this.onOpenBudgets,
     this.loadBudget = budgetStatus,
     this.loadTotals = monthTotals,
     this.loadRecent = _recent,
@@ -30,6 +31,9 @@ class HomeScreen extends StatefulWidget {
 
   /// Offered where a new user first notices there is no budget.
   final VoidCallback? onSetBudget;
+
+  /// Where the full list of budgets lives.
+  final VoidCallback? onOpenBudgets;
 
   final BudgetLoader loadBudget;
   final TotalsLoader loadTotals;
@@ -86,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
           totals: totals,
           recent: recent,
           onSetBudget: widget.onSetBudget,
+          onOpenBudgets: widget.onOpenBudgets,
         );
       },
     );
@@ -100,9 +105,14 @@ class _Overview extends StatefulWidget {
     required this.totals,
     required this.recent,
     required this.onSetBudget,
+    required this.onOpenBudgets,
   });
 
+  /// Set a budget, from the state where there are none.
   final VoidCallback? onSetBudget;
+
+  /// Go to the screen that lists every budget there is.
+  final VoidCallback? onOpenBudgets;
 
   final String month;
   final List<BudgetRow> budget;
@@ -225,17 +235,16 @@ class _OverviewState extends State<_Overview> {
                   ),
                 ),
                 _Legend(
-                  rows: widget.budget,
+                  rows: _named,
+                  folded: _folded,
                   colourOf: (row) => _colourFor(context, row),
-                  selected: _selectedRow,
-                  onSelect: (row) => setState(() {
-                    final index = _named.indexOf(row);
-                    // A folded category selects the arc it was folded into,
-                    // which is the honest answer to "which one is mine".
-                    final target = index < 0 ? _named.length : index;
-                    _selected = _selected == target ? null : target;
-                  }),
-                  wide: wide,
+                  otherColour: ChartPalette.other(context),
+                  selected: _selected,
+                  onSelect: (index) => setState(
+                    () => _selected = _selected == index ? null : index,
+                  ),
+                  onSeeAll: widget.onOpenBudgets,
+                  columns: wide ? 2 : 1,
                 ),
                 if (widget.unbudgeted > 0)
                   EmptyNote(
@@ -361,71 +370,166 @@ class _Centre extends StatelessWidget {
 /// The ring is one colour, so this is where identity lives. Over budget is
 /// named in words and carries an icon as well as the colour — a state told by
 /// hue alone is a state some readers are not told at all.
+/// Which arc is which.
+///
+/// It names what the ring draws and nothing else. Every budgeted category
+/// listed here would make the overview a worse copy of the Budget screen —
+/// which lists them all, in groups, with the figures behind them — and would
+/// turn a summary into a page you scroll. So the tail is one row that says how
+/// many it stands for, and the way to see them all is to go where they are.
 class _Legend extends StatelessWidget {
   const _Legend({
     required this.rows,
+    required this.folded,
     required this.colourOf,
+    required this.otherColour,
     required this.selected,
     required this.onSelect,
-    required this.wide,
+    required this.onSeeAll,
+    required this.columns,
   });
 
   final List<BudgetRow> rows;
+  final List<BudgetRow> folded;
   final Color Function(BudgetRow row) colourOf;
-  final BudgetRow? selected;
-  final void Function(BudgetRow row) onSelect;
-  final bool wide;
+  final Color otherColour;
+  final int? selected;
+  final void Function(int index) onSelect;
+  final VoidCallback? onSeeAll;
+
+  /// Two columns where there is width for them: a legend of seven rows is
+  /// taller than the ring it explains, and the pair read as one block.
+  final int columns;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final entries = <Widget>[
+      for (int i = 0; i < rows.length; i++)
+        _LegendRow(
+          label: rows[i].categoryName,
+          amount: rows[i].isOver ? rows[i].overspentBy! : rows[i].remaining!,
+          over: rows[i].isOver,
+          note: _noteFor(rows[i]),
+          colour: colourOf(rows[i]),
+          selected: selected == i,
+          onTap: () => onSelect(i),
+          theme: theme,
+        ),
+      if (folded.isNotEmpty)
+        _LegendRow(
+          label: folded.length == 1
+              ? folded.single.categoryName
+              : '${folded.length} more categories',
+          // One category still has a figure worth showing. Several do not: a
+          // sum of what is left across them is a number nobody asked for, and
+          // they are all on the Budget screen.
+          amount: folded.length == 1
+              ? (folded.single.isOver
+                  ? folded.single.overspentBy
+                  : folded.single.remaining)
+              : null,
+          over: folded.any((r) => r.isOver),
+          note: null,
+          colour: otherColour,
+          selected: selected == rows.length,
+          onTap: () => onSelect(rows.length),
+          theme: theme,
+        ),
+    ];
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final row in rows)
-          _LegendRow(
-            row: row,
-            colour: colourOf(row),
-            selected: identical(selected, row),
-            onTap: () => onSelect(row),
-            wide: wide,
-            theme: theme,
+        if (columns == 1)
+          ...entries
+        else
+          for (int i = 0; i < entries.length; i += 2)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: entries[i]),
+                Expanded(
+                  child: i + 1 < entries.length
+                      ? entries[i + 1]
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+        if (onSeeAll != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+              child: TextButton(
+                onPressed: onSeeAll,
+                child: const Text('See all budgets'),
+              ),
+            ),
           ),
       ],
     );
+  }
+
+  /// The small print a wider window has room for.
+  String? _noteFor(BudgetRow row) {
+    if (columns < 2) return null;
+    final parts = [
+      if (row.isMultiMonth) '${row.monthsRemaining} mo cycle',
+      // Funding is a different question from over-budget and keeps different
+      // words and no colour: an envelope spent exactly to plan is behind on
+      // funding and perfectly fine on spending.
+      if (row.funding == 'behind') 'behind ${formatMoney(row.fundingBy)}',
+      if (row.funding == 'ahead') 'ahead ${formatMoney(row.fundingBy)}',
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 }
 
 class _LegendRow extends StatelessWidget {
   const _LegendRow({
-    required this.row,
+    required this.label,
+    required this.amount,
+    required this.over,
+    required this.note,
     required this.colour,
     required this.selected,
     required this.onTap,
-    required this.wide,
     required this.theme,
   });
 
-  final BudgetRow row;
+  final String label;
+
+  /// Null on the folded row: a sum of what is left across several categories
+  /// is a number nobody asked for, and the ones it hides are on the Budget
+  /// screen.
+  final Cents? amount;
+
+  final bool over;
+  final String? note;
   final Color colour;
   final bool selected;
   final VoidCallback onTap;
-  final bool wide;
   final ThemeData theme;
 
   @override
   Widget build(BuildContext context) {
-    final bool over = row.isOver;
     final Color amountColour =
         over ? theme.colorScheme.error : theme.colorScheme.onSurface;
 
     return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        color: selected
-            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
-            : null,
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.45)
+              : null,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
         child: Row(
           children: [
             // The swatch is what makes this a legend rather than a list: it is
@@ -441,58 +545,44 @@ class _LegendRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             if (over) ...[
-              Icon(
-                Icons.error_outline,
-                size: 16,
-                color: theme.colorScheme.error,
-              ),
+              Icon(Icons.error_outline, size: 16, color: theme.colorScheme.error),
               const SizedBox(width: 4),
             ],
             Expanded(
-              child: Text(
-                row.categoryName,
-                style: theme.textTheme.bodyLarge,
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.bodyLarge,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (note != null)
+                    Text(
+                      note!,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
               ),
             ),
-            if (wide) ...[
-              // Funding is a different question from over-budget and keeps
-              // different words and no colour: an envelope spent exactly to
-              // plan is behind on funding and perfectly fine on spending, and
-              // flagging that would train the reader to ignore the screen.
-              Text(
-                [
-                  if (row.isMultiMonth) '${row.monthsRemaining} mo cycle',
-                  if (row.funding == 'behind')
-                    'behind ${formatMoney(row.fundingBy)}',
-                  if (row.funding == 'ahead')
-                    'ahead ${formatMoney(row.fundingBy)}',
-                ].join(' · '),
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(width: 12),
-            ],
-            // Fixed widths so the amounts line up down the column: a trailing
-            // word of a different length otherwise pushes the number about.
-            SizedBox(
-              width: 104,
-              // "Left" and "over" are one fact from either side, so only one
-              // is ever on screen.
-              child: MoneyText(
-                over ? row.overspentBy! : row.remaining!,
+            if (amount != null) ...[
+              const SizedBox(width: 8),
+              MoneyText(
+                amount!,
                 textAlign: TextAlign.right,
                 style: theme.textTheme.titleMedium?.copyWith(color: amountColour),
               ),
-            ),
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 30,
-              child: Text(
-                over ? 'over' : 'left',
-                style: theme.textTheme.labelMedium?.copyWith(color: amountColour),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 30,
+                child: Text(
+                  over ? 'over' : 'left',
+                  style: theme.textTheme.labelMedium?.copyWith(color: amountColour),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

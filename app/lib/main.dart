@@ -112,7 +112,8 @@ class _AccountingAppState extends State<AccountingApp> {
 
   Widget _screenFor(BuildContext context, Destination destination) {
     return switch (destination) {
-      Destination.home => HomeScreen(onSetBudget: _goToBudget),
+      Destination.home =>
+        HomeScreen(onSetBudget: _goToBudget, onOpenBudgets: _goToBudget),
       Destination.expenses => const ExpensesScreen(),
       Destination.budget => const BudgetScreen(),
       Destination.inbox => const InboxScreen(),
