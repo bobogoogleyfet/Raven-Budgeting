@@ -136,18 +136,30 @@ String formatRatePpm(int ppm) {
   return fraction.isEmpty ? '$whole%' : '$whole.$fraction%';
 }
 
-/// What a place charges, in one line: `"7.45% · groceries 3%"`.
+/// What a place charges, in one line:
+/// `"7.45% · groceries 3% · dining 8.45%"`.
 ///
 /// Names groceries explicitly rather than saying "food": the reduced rate is
-/// on *unprepared* food, and a restaurant meal is taxed in full. A summary
-/// that implied otherwise would have someone expecting the lower figure on a
-/// receipt that will never show it.
-String rateSummary(int taxRatePpm, int? foodRatePpm) {
+/// on *unprepared* food only. Prepared food goes the other way — a Utah county
+/// may add a restaurant tax of up to 1% on top of the combined rate — so the
+/// two are named separately and neither is called "food".
+///
+/// Each extra rate is dropped when it does not differ from the general one.
+/// Equal rates are not a rule, and printing the same number three times reads
+/// as a distinction that does not exist.
+String rateSummary(int taxRatePpm, int? foodRatePpm, int? restaurantRatePpm) {
   final String general = formatRatePpm(taxRatePpm);
-  // Equal rates are not a reduction, and printing the same number twice reads
-  // as a rule that does not exist.
-  if (foodRatePpm == null || foodRatePpm >= taxRatePpm) return general;
-  return '$general · groceries ${formatRatePpm(foodRatePpm)}';
+  final StringBuffer out = StringBuffer(general);
+  if (foodRatePpm != null && foodRatePpm < taxRatePpm) {
+    out.write(' · groceries ${formatRatePpm(foodRatePpm)}');
+  }
+  // Above, not below: a restaurant rate at or under the general rate is either
+  // a county that levies no restaurant tax or two arguments swapped, and
+  // neither is worth a line claiming dining is cheaper.
+  if (restaurantRatePpm != null && restaurantRatePpm > taxRatePpm) {
+    out.write(' · dining ${formatRatePpm(restaurantRatePpm)}');
+  }
+  return out.toString();
 }
 
 /// What a category row says under its picker.

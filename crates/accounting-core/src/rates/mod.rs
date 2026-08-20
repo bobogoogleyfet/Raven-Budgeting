@@ -41,14 +41,22 @@ use crate::time::Quarter;
 
 /// Utah's combined rate on unprepared food: 1.75% state plus 1.25% local.
 ///
-/// Flat statewide, and deliberately *not* read out of the workbook — the
-/// combined-rate sheet publishes the general rate only, and the grocery rate is
-/// stated in prose on the page above. If Utah ever varies it by locality this
-/// becomes a column; today a constant is the honest shape.
+/// Flat statewide today, and now read from the publication rather than assumed
+/// — the Simplified chart carries a Grocery Food column per jurisdiction, so a
+/// state that ever varies it by locality needs no code change. This remains as
+/// the fallback for a row whose grocery cell is missing or unreadable, which is
+/// the one case where a constant beats dropping the jurisdiction entirely.
 pub const GROCERY_RATE_PPM: u32 = 30_000;
 
-/// The tab holding combined rates by jurisdiction.
-const COMBINED_SHEET: &str = "Combined Rate";
+/// The tab holding one row per jurisdiction with every rate that applies to it.
+///
+/// The `Simplified` chart rather than `Combined Rate`, which was read until
+/// M7. Both publish the same 389 jurisdictions and the same combined figure,
+/// but the combined sheet carries *only* that figure: the grocery rate had to
+/// be a hardcoded constant, and the prepared-food rate was simply absent, so
+/// every restaurant receipt was taxed 1% light. This sheet has all three in
+/// adjacent columns.
+const SIMPLIFIED_SHEET: &str = "Simplified";
 
 /// One taxing jurisdiction and what it charges.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -61,6 +69,13 @@ pub struct TaxArea {
     pub combined_rate_ppm: u32,
     /// The reduced rate on unprepared food, where the state has one.
     pub food_rate_ppm: Option<u32>,
+    /// The rate on prepared food, where the county levies a restaurant tax.
+    ///
+    /// The *whole* rate as published, not the increment over
+    /// [`Self::combined_rate_ppm`] — that is the figure the chart prints, and
+    /// deriving the increment here would disagree with the source the quarter
+    /// a county moved both.
+    pub restaurant_rate_ppm: Option<u32>,
 }
 
 /// One quarter's publication, parsed.
@@ -84,14 +99,14 @@ pub fn quarter_for(today: NaiveDate) -> Quarter {
     Quarter::from_date(today)
 }
 
-/// Where a quarter's combined-rate workbook lives.
+/// Where a quarter's rate workbook lives.
 ///
-/// `2026Q3` → `.../26q3combined.xlsx`. The two-digit year is the publisher's
-/// convention, not a choice made here.
+/// `2026Q3` → `.../26q3simple.xlsx`. The two-digit year and the `simple`
+/// suffix are both the publisher's convention, not choices made here.
 #[must_use]
 pub fn workbook_url(quarter: Quarter) -> String {
     format!(
-        "https://files.tax.utah.gov/tax/salestax/rate/{:02}q{}combined.xlsx",
+        "https://files.tax.utah.gov/tax/salestax/rate/{:02}q{}simple.xlsx",
         quarter.year.rem_euclid(100),
         quarter.quarter
     )
@@ -128,15 +143,17 @@ const BUNDLED_CSV: &str = include_str!("utah_2026q3.csv");
 /// the file, because a file that turned out to be the wrong quarter would then
 /// happily relabel itself.
 pub fn parse_workbook(bytes: &[u8], quarter: Quarter) -> Result<RateTable> {
-    let sheet = workbook::read_sheet(bytes, COMBINED_SHEET)?;
+    let sheet = workbook::read_sheet(bytes, SIMPLIFIED_SHEET)?;
     let header = find_header(&sheet)?;
     let mut areas = Vec::new();
+    let mut grocery_seen = 0usize;
+    let mut prepared_seen = 0usize;
 
     for row in &sheet {
         let (Some(name), Some(code), Some(rate)) = (
             row.get(&header.name).map(|s| s.trim()),
             row.get(&header.code).map(|s| s.trim()),
-            row.get(&header.rate),
+            row.get(&header.combined),
         ) else {
             continue;
         };
@@ -146,11 +163,25 @@ pub fn parse_workbook(bytes: &[u8], quarter: Quarter) -> Result<RateTable> {
         if !is_area_code(code) || name.is_empty() {
             continue;
         }
+        // One torn cell is not worth dropping a jurisdiction over, so both of
+        // these are lenient per row — but leniency per row is exactly how a
+        // *column* that moved gets absorbed silently, so the counts are
+        // checked in aggregate below.
+        let grocery = row.get(&header.grocery).and_then(|v| rate_to_ppm(v).ok());
+        let prepared = row.get(&header.prepared).and_then(|v| rate_to_ppm(v).ok());
+        grocery_seen += usize::from(grocery.is_some());
+        prepared_seen += usize::from(prepared.is_some());
+
         areas.push(TaxArea {
             code: code.to_string(),
             name: name.to_string(),
             combined_rate_ppm: rate_to_ppm(rate)?,
-            food_rate_ppm: Some(GROCERY_RATE_PPM),
+            // Falling back to the constant rather than to None on an isolated
+            // torn row: None would quietly re-tax food at the general rate,
+            // and the aggregate guard below already catches the case where the
+            // whole column is gone.
+            food_rate_ppm: Some(grocery.unwrap_or(GROCERY_RATE_PPM)),
+            restaurant_rate_ppm: prepared,
         });
     }
 
@@ -164,6 +195,26 @@ pub fn parse_workbook(bytes: &[u8], quarter: Quarter) -> Result<RateTable> {
             areas.len()
         )));
     }
+    // The same guard as the row count, applied to the two columns added after
+    // the combined rate. Per-row leniency is what makes them absorb a moved
+    // column silently: every cell fails, every row falls back, the parse
+    // "succeeds", and the app goes back to taxing groceries at a hardcoded
+    // constant and prepared food at the general rate — with nothing to show
+    // for it. A column that parsed for not one jurisdiction out of hundreds is
+    // a layout change, not a state that stopped publishing.
+    for (column, seen) in [
+        ("Grocery Food", grocery_seen),
+        ("Prepared Food (Restaurant)", prepared_seen),
+    ] {
+        if seen == 0 {
+            return Err(CoreError::RateData(format!(
+                "the {column} column of the {quarter} workbook parsed no rates \
+                 in {} jurisdictions; the layout has moved",
+                areas.len()
+            )));
+        }
+    }
+
     Ok(RateTable {
         quarter,
         effective_on: find_effective_date(&sheet),
@@ -178,30 +229,62 @@ const MINIMUM_PLAUSIBLE_AREAS: usize = 200;
 struct Header {
     name: String,
     code: String,
-    rate: String,
+    combined: String,
+    grocery: String,
+    prepared: String,
 }
 
-/// Locate the header row and the three columns worth reading.
+/// Locate the header row and the five columns worth reading.
 ///
-/// By heading text rather than by letter. Column Z is the combined rate today,
+/// By heading text rather than by letter. Column D is the combined rate today,
 /// and a single inserted column in a hand-maintained workbook would silently
-/// turn it into something else — a filter that reads the wrong column and still
-/// parses is the failure worth engineering against.
+/// turn it into the grocery rate — a filter that reads the wrong column and
+/// still parses is the failure worth engineering against, and here the wrong
+/// column is *also* a plausible-looking tax rate.
+///
+/// The chart stacks its headings over three rows, so each column is named by
+/// its own last line: `Combined / Sales and Use`, `Grocery / Food`, `Prepared
+/// Food / (Restaurant)`. Matching on those last lines is what makes one row
+/// carry all five. `Food` is ambiguous across the whole sheet — it appears in
+/// both the grocery and prepared-food stacks — but not *within* the bottom
+/// row, which is the only row this looks at.
 fn find_header(sheet: &workbook::Sheet) -> Result<Header> {
     for row in sheet {
+        // Exactly one match, or none. `Food` is a bare one-word heading in a
+        // hand-maintained printed chart, and a second cell reading exactly
+        // `Food` — a legend, a footnote column — would otherwise bind
+        // whichever letter sorts first in the map. That order is
+        // lexicographic on the column *letter*, so past column Z it is not
+        // even left-to-right ("AA" < "B"): the parser would pick an arbitrary
+        // column, still parse, and install a wrong rate silently. Refusing an
+        // ambiguous heading is the same trade as `MINIMUM_PLAUSIBLE_AREAS`.
         let find = |wanted: &str| {
-            row.iter()
-                .find(|(_, v)| v.trim().eq_ignore_ascii_case(wanted))
-                .map(|(col, _)| col.clone())
+            let mut hits = row
+                .iter()
+                .filter(|(_, v)| v.trim().eq_ignore_ascii_case(wanted))
+                .map(|(col, _)| col.clone());
+            match (hits.next(), hits.next()) {
+                (Some(only), None) => Some(only),
+                _ => None,
+            }
         };
-        if let (Some(name), Some(rate)) = (find("Location"), find("Sales Rate"))
-            && let Some(code) = find("Code")
+        if let (Some(name), Some(code)) = (find("Location"), find("Code"))
+            && let (Some(combined), Some(grocery), Some(prepared)) =
+                (find("Sales and Use"), find("Food"), find("(Restaurant)"))
         {
-            return Ok(Header { name, code, rate });
+            return Ok(Header {
+                name,
+                code,
+                combined,
+                grocery,
+                prepared,
+            });
         }
     }
     Err(CoreError::RateData(
-        "no header row with Location, Code and Sales Rate columns".to_string(),
+        "no header row with exactly one each of Location, Code, Sales and Use, Food \
+         and (Restaurant)"
+            .to_string(),
     ))
 }
 
@@ -260,7 +343,8 @@ fn rate_to_ppm(text: &str) -> Result<u32> {
     Ok((fraction * 1_000_000.0).round() as u32)
 }
 
-/// Read the bundled CSV: `code,name,combined_rate_ppm,food_rate_ppm`.
+/// Read the bundled CSV:
+/// `code,name,combined_rate_ppm,food_rate_ppm,restaurant_rate_ppm`.
 fn parse_snapshot(csv_text: &str, quarter: Quarter) -> Result<RateTable> {
     let mut reader = csv::ReaderBuilder::new()
         .comment(Some(b'#'))
@@ -278,16 +362,21 @@ fn parse_snapshot(csv_text: &str, quarter: Quarter) -> Result<RateTable> {
                 .parse()
                 .map_err(|_| CoreError::RateData(format!("snapshot: {raw:?} is not a rate")))
         };
-        let food = field(3)?.trim();
+        // An optional trailing column: a snapshot taken before M7 has four
+        // fields, and reading it as "no prepared-food rate published" is both
+        // true of that file and the safe reading of it.
+        let optional = |i: usize| -> Result<Option<u32>> {
+            match record.get(i).map(str::trim) {
+                None | Some("") => Ok(None),
+                Some(raw) => Ok(Some(number(raw)?)),
+            }
+        };
         areas.push(TaxArea {
             code: field(0)?.trim().to_string(),
             name: field(1)?.trim().to_string(),
             combined_rate_ppm: number(field(2)?)?,
-            food_rate_ppm: if food.is_empty() {
-                None
-            } else {
-                Some(number(food)?)
-            },
+            food_rate_ppm: optional(3)?,
+            restaurant_rate_ppm: optional(4)?,
         });
     }
     Ok(RateTable {
@@ -306,10 +395,10 @@ mod tests {
         let q = Quarter::new(2026, 3).expect("valid");
         assert_eq!(
             workbook_url(q),
-            "https://files.tax.utah.gov/tax/salestax/rate/26q3combined.xlsx"
+            "https://files.tax.utah.gov/tax/salestax/rate/26q3simple.xlsx"
         );
         let q1 = Quarter::new(2027, 1).expect("valid");
-        assert!(workbook_url(q1).ends_with("27q1combined.xlsx"));
+        assert!(workbook_url(q1).ends_with("27q1simple.xlsx"));
     }
 
     #[test]
@@ -377,7 +466,11 @@ mod tests {
         // make one jurisdiction overwrite another every quarter.
         let mut seen = std::collections::HashSet::new();
         for area in bundled().areas {
-            assert!(seen.insert(area.code.clone()), "duplicate code {}", area.code);
+            assert!(
+                seen.insert(area.code.clone()),
+                "duplicate code {}",
+                area.code
+            );
         }
     }
 

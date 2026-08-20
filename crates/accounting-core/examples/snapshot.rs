@@ -10,8 +10,8 @@
 //! and the two would drift in ways nothing would catch.
 //!
 //! ```sh
-//! curl -O https://files.tax.utah.gov/tax/salestax/rate/26q3combined.xlsx
-//! cargo run -p accounting-core --example snapshot -- 26q3combined.xlsx 2026Q3 \
+//! curl -O https://files.tax.utah.gov/tax/salestax/rate/26q3simple.xlsx
+//! cargo run -p accounting-core --example snapshot -- 26q3simple.xlsx 2026Q3 \
 //!     > crates/accounting-core/src/rates/utah_2026q3.csv
 //! ```
 //!
@@ -25,7 +25,7 @@ use accounting_core::time::Quarter;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [path, quarter] = args.as_slice() else {
-        eprintln!("usage: snapshot <combined-rates.xlsx> <YYYYQn>");
+        eprintln!("usage: snapshot <simplified-rates.xlsx> <YYYYQn>");
         return ExitCode::FAILURE;
     };
 
@@ -52,7 +52,7 @@ fn main() -> ExitCode {
 
     // Written into the file so the next person to open it can tell what it is
     // and where it came from without going back to the commit message.
-    println!("# Utah State Tax Commission — combined sales and use tax rates");
+    println!("# Utah State Tax Commission — sales and use tax rates (Simplified chart)");
     println!("# quarter: {quarter}");
     match table.effective_on {
         Some(date) => println!("# in effect: {date}"),
@@ -63,7 +63,7 @@ fn main() -> ExitCode {
         accounting_core::rates::workbook_url(quarter)
     );
     println!("# regenerate: cargo run -p accounting-core --example snapshot");
-    println!("code,name,combined_rate_ppm,food_rate_ppm");
+    println!("code,name,combined_rate_ppm,food_rate_ppm,restaurant_rate_ppm");
     for area in &table.areas {
         // The name can hold a comma ("St. George" cannot, but nothing promises
         // the next annexation is as polite), so it is quoted whenever it needs
@@ -73,13 +73,14 @@ fn main() -> ExitCode {
         } else {
             area.name.clone()
         };
+        let optional = |ppm: Option<u32>| ppm.map_or_else(String::new, |v| v.to_string());
         println!(
-            "{},{},{},{}",
+            "{},{},{},{},{}",
             area.code,
             name,
             area.combined_rate_ppm,
-            area.food_rate_ppm
-                .map_or_else(String::new, |ppm| ppm.to_string())
+            optional(area.food_rate_ppm),
+            optional(area.restaurant_rate_ppm)
         );
     }
     eprintln!("{} jurisdictions", table.areas.len());

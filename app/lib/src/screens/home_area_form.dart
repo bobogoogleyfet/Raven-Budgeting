@@ -13,6 +13,7 @@ typedef HomeSetter = Future<void> Function({
   required String? areaCode,
   required int taxRatePpm,
   required int? foodRatePpm,
+  required int? restaurantRatePpm,
 });
 
 /// Asking where the user shops.
@@ -176,14 +177,17 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
 
     setState(() => _saving = true);
     try {
-      // A hand-typed area gets null for both: the user moved the choice off
-      // the list, so there is no jurisdiction to follow, and carrying Utah's
-      // 3% over to Boise would undertax every grocery receipt entered there.
+      // A hand-typed area gets null for all of them: the user moved the
+      // choice off the list, so there is no jurisdiction to follow. Carrying
+      // Utah's 3% over to Boise would undertax every grocery receipt entered
+      // there, and carrying Utah County's restaurant tax would overtax every
+      // meal.
       await widget.save(
         name: where,
         areaCode: match?.code,
         taxRatePpm: ppm,
         foodRatePpm: match?.foodRatePpm,
+        restaurantRatePpm: match?.restaurantRatePpm,
       );
       if (!mounted) return;
       setState(() => _feedback = 'Home is now $where.');
@@ -242,7 +246,7 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
         const SizedBox(height: 12),
         if (match != null)
           Text(
-            'Sales tax ${rateSummary(match.taxRatePpm, match.foodRatePpm)}'
+            'Sales tax ${rateSummary(match.taxRatePpm, match.foodRatePpm, match.restaurantRatePpm)}'
             '${widget.firstRun ? " — an estimate; a receipt's own tax always wins." : ''}',
             style: theme.textTheme.bodyMedium,
           ),
@@ -328,8 +332,8 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
           Text(
             'You can change this any time. Rates here are starting points, not '
             'gospel — they change. Groceries are taxed at the lower rate where '
-            'the state has one; a restaurant meal is not, because prepared food '
-            'is taxed in full.',
+            'the state has one; a restaurant meal is taxed higher, because most '
+            'Utah counties add a restaurant tax on prepared food.',
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
           ),

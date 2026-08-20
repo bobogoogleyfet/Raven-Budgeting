@@ -25,6 +25,10 @@ pub struct Location {
     /// The reduced rate for food categories here, if this place has one.
     /// `None` means food is taxed like everything else.
     pub food_rate_ppm: Option<u32>,
+    /// The elevated rate for prepared food here, if the county levies a
+    /// restaurant tax. `None` means prepared food is taxed like everything
+    /// else — never that it is untaxed.
+    pub restaurant_rate_ppm: Option<u32>,
     /// The published jurisdiction these rates came from, e.g. `25-090`.
     ///
     /// `None` means somebody typed the rate, and a quarterly refresh leaves it
@@ -42,8 +46,8 @@ pub struct Location {
 const MAX_RATE_PPM: u32 = 1_000_000;
 
 const SELECT_LOCATION: &str =
-    "SELECT id, uuid, name, tax_rate_ppm, food_rate_ppm, area_code,
-                                      prices_include_tax,
+    "SELECT id, uuid, name, tax_rate_ppm, food_rate_ppm, restaurant_rate_ppm,
+                                      area_code, prices_include_tax,
                                       is_home, notes, archived_at IS NOT NULL
                                  FROM location";
 
@@ -54,11 +58,12 @@ fn map_location(row: &Row<'_>) -> rusqlite::Result<Location> {
         name: row.get(2)?,
         tax_rate_ppm: row.get(3)?,
         food_rate_ppm: row.get(4)?,
-        area_code: row.get(5)?,
-        prices_include_tax: row.get(6)?,
-        is_home: row.get(7)?,
-        notes: row.get(8)?,
-        archived: row.get(9)?,
+        restaurant_rate_ppm: row.get(5)?,
+        area_code: row.get(6)?,
+        prices_include_tax: row.get(7)?,
+        is_home: row.get(8)?,
+        notes: row.get(9)?,
+        archived: row.get(10)?,
     })
 }
 
@@ -154,6 +159,36 @@ pub fn rename(db: &Db, id: LocationId, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Set the elevated rate for prepared food at this location.
+///
+/// `None` removes it, meaning prepared food is taxed like everything else.
+/// Never read as "prepared food is untaxed here" — that is `taxable = 0` on
+/// the category, and it is a different claim.
+pub fn set_restaurant_rate(
+    db: &Db,
+    id: LocationId,
+    restaurant_rate_ppm: Option<u32>,
+) -> Result<()> {
+    if let Some(ppm) = restaurant_rate_ppm
+        && ppm > MAX_RATE_PPM
+    {
+        return Err(CoreError::Invalid(format!(
+            "restaurant rate {ppm} ppm is above 100%"
+        )));
+    }
+    let changed = db.conn().execute(
+        "UPDATE location
+            SET restaurant_rate_ppm = ?2,
+                updated_at          = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE id = ?1",
+        params![id, restaurant_rate_ppm],
+    )?;
+    if changed == 0 {
+        return Err(CoreError::NotFound(format!("location {id}")));
+    }
+    Ok(())
+}
+
 /// Set the reduced rate for food categories at this location.
 ///
 /// `None` removes it, meaning food is taxed like everything else — which is
@@ -199,7 +234,7 @@ pub fn set_rate(db: &Db, id: LocationId, tax_rate_ppm: u32) -> Result<()> {
     Ok(())
 }
 
-/// Take both rates from a published jurisdiction, and keep following it.
+/// Take all three rates from a published jurisdiction, and keep following it.
 ///
 /// The recorded `area_code` is what a quarterly refresh looks for: this
 /// location's rates are the state's figures, so when the state revises them
@@ -211,23 +246,33 @@ pub fn adopt_area(
     area_code: &str,
     tax_rate_ppm: u32,
     food_rate_ppm: Option<u32>,
+    restaurant_rate_ppm: Option<u32>,
 ) -> Result<()> {
     check_rate(tax_rate_ppm)?;
-    if let Some(ppm) = food_rate_ppm
-        && ppm > MAX_RATE_PPM
-    {
-        return Err(CoreError::Invalid(format!(
-            "food rate {ppm} ppm is above 100%"
-        )));
+    for (label, rate) in [("food", food_rate_ppm), ("restaurant", restaurant_rate_ppm)] {
+        if let Some(ppm) = rate
+            && ppm > MAX_RATE_PPM
+        {
+            return Err(CoreError::Invalid(format!(
+                "{label} rate {ppm} ppm is above 100%"
+            )));
+        }
     }
     let changed = db.conn().execute(
         "UPDATE location
-            SET tax_rate_ppm  = ?2,
-                food_rate_ppm = ?3,
-                area_code     = ?4,
-                updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            SET tax_rate_ppm        = ?2,
+                food_rate_ppm       = ?3,
+                restaurant_rate_ppm = ?4,
+                area_code           = ?5,
+                updated_at          = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
           WHERE id = ?1",
-        params![id, tax_rate_ppm, food_rate_ppm, area_code],
+        params![
+            id,
+            tax_rate_ppm,
+            food_rate_ppm,
+            restaurant_rate_ppm,
+            area_code
+        ],
     )?;
     if changed == 0 {
         return Err(CoreError::NotFound(format!("location {id}")));
@@ -242,18 +287,22 @@ pub fn adopt_area(
 pub fn refresh_followed_rates(db: &Db) -> Result<usize> {
     let changed = db.conn().execute(
         "UPDATE location
-            SET tax_rate_ppm  = (SELECT combined_rate_ppm FROM tax_area
-                                  WHERE tax_area.code = location.area_code),
-                food_rate_ppm = (SELECT food_rate_ppm FROM tax_area
-                                  WHERE tax_area.code = location.area_code),
-                updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            SET tax_rate_ppm        = (SELECT combined_rate_ppm FROM tax_area
+                                        WHERE tax_area.code = location.area_code),
+                food_rate_ppm       = (SELECT food_rate_ppm FROM tax_area
+                                        WHERE tax_area.code = location.area_code),
+                restaurant_rate_ppm = (SELECT restaurant_rate_ppm FROM tax_area
+                                        WHERE tax_area.code = location.area_code),
+                updated_at          = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
           WHERE area_code IS NOT NULL
             AND EXISTS (SELECT 1 FROM tax_area WHERE tax_area.code = location.area_code)
             -- Only where something actually differs, so updated_at still marks
             -- a real change rather than the last time the app was launched.
-            AND (tax_rate_ppm,  COALESCE(food_rate_ppm, -1))
-             <> (SELECT combined_rate_ppm, COALESCE(food_rate_ppm, -1) FROM tax_area
-                  WHERE tax_area.code = location.area_code)",
+            AND (tax_rate_ppm, COALESCE(food_rate_ppm, -1),
+                 COALESCE(restaurant_rate_ppm, -1))
+             <> (SELECT combined_rate_ppm, COALESCE(food_rate_ppm, -1),
+                        COALESCE(restaurant_rate_ppm, -1)
+                   FROM tax_area WHERE tax_area.code = location.area_code)",
         [],
     )?;
     Ok(changed)

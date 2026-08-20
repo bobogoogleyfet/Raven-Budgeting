@@ -8,8 +8,8 @@
 //! Preview and save run the same core code, so the numbers on screen are not
 //! this layer's reading of the receipt: they *are* what will be stored.
 
-use accounting_core::repo::{locations, merchants, tax_areas};
 use accounting_core::domain::splits::{SplitAmount, SplitDraft};
+use accounting_core::repo::{locations, merchants, tax_areas};
 use accounting_core::service::entry::{self, SubtotalDraft, SubtotalRow};
 use accounting_core::{CategoryId, Money, TxnId};
 
@@ -85,6 +85,10 @@ pub struct ContextDto {
     pub tax_rate_ppm: u32,
     /// The location's reduced rate on unprepared food, where it has one.
     pub food_rate_ppm: Option<u32>,
+    /// The location's elevated rate on prepared food, where the county levies
+    /// a restaurant tax. `None` means prepared food is taxed like anything
+    /// else here — never that it is untaxed.
+    pub restaurant_rate_ppm: Option<u32>,
     pub category_rates: Vec<CategoryRateDto>,
     pub default_category_id: Option<i64>,
     pub detail_level: String,
@@ -112,6 +116,8 @@ pub struct AreaDto {
     pub tax_rate_ppm: u32,
     /// None where the state taxes food like everything else.
     pub food_rate_ppm: Option<u32>,
+    /// None where the county levies no restaurant tax on prepared food.
+    pub restaurant_rate_ppm: Option<u32>,
 }
 
 fn to_draft(dto: SubtotalDraftDto) -> Result<SubtotalDraft, String> {
@@ -214,6 +220,7 @@ pub fn entry_context(merchant: Option<String>) -> Result<ContextDto, String> {
         location_name: ctx.location.as_ref().map(|l| l.name.clone()),
         tax_rate_ppm: ctx.tax.rate_ppm,
         food_rate_ppm: ctx.location.as_ref().and_then(|l| l.food_rate_ppm),
+        restaurant_rate_ppm: ctx.location.as_ref().and_then(|l| l.restaurant_rate_ppm),
         category_rates: entry::category_rates(&db, &ctx)
             .map_err(to_message)?
             .into_iter()
@@ -224,7 +231,11 @@ pub fn entry_context(merchant: Option<String>) -> Result<ContextDto, String> {
             .collect(),
         default_category_id: ctx.default_category.as_ref().map(|c| c.id.get()),
         detail_level: ctx.detail_level.to_string(),
-        recent_merchants: ctx.recent_merchants.iter().map(|m| m.name.clone()).collect(),
+        recent_merchants: ctx
+            .recent_merchants
+            .iter()
+            .map(|m| m.name.clone())
+            .collect(),
     })
 }
 
@@ -257,6 +268,7 @@ pub fn ensure_location(name: String) -> Result<LocationDto, String> {
             &area.code,
             area.combined_rate_ppm,
             area.food_rate_ppm,
+            area.restaurant_rate_ppm,
         )
         .map_err(to_message)?;
     }
@@ -277,12 +289,14 @@ pub fn ensure_location(name: String) -> Result<LocationDto, String> {
 /// nothing else surfaces.
 pub fn home_location() -> Result<Option<LocationDto>, String> {
     let db = db::locked()?;
-    Ok(locations::home(&db).map_err(to_message)?.map(|l| LocationDto {
-        id: l.id.get(),
-        name: l.name,
-        tax_rate_ppm: l.tax_rate_ppm,
-        is_home: l.is_home,
-    }))
+    Ok(locations::home(&db)
+        .map_err(to_message)?
+        .map(|l| LocationDto {
+            id: l.id.get(),
+            name: l.name,
+            tax_rate_ppm: l.tax_rate_ppm,
+            is_home: l.is_home,
+        }))
 }
 
 /// Every known store, most-recently-used first, so the places you go keep
@@ -328,6 +342,7 @@ pub fn list_areas() -> Result<Vec<AreaDto>, String> {
             name: a.name,
             tax_rate_ppm: a.combined_rate_ppm,
             food_rate_ppm: a.food_rate_ppm,
+            restaurant_rate_ppm: a.restaurant_rate_ppm,
         })
         .collect())
 }
@@ -354,7 +369,10 @@ pub struct SplitDraftDto {
 pub fn needs_categorizing() -> Result<Vec<crate::api::transactions::TxnSummaryDto>, String> {
     let db = db::locked()?;
     let rows = entry::needs_categorizing(&db, None).map_err(to_message)?;
-    Ok(rows.iter().map(crate::api::transactions::summarise).collect())
+    Ok(rows
+        .iter()
+        .map(crate::api::transactions::summarise)
+        .collect())
 }
 
 /// Assign categories to a quick-added receipt and clear its review flag.
@@ -400,6 +418,7 @@ pub fn set_home_location(
     area_code: Option<String>,
     tax_rate_ppm: u32,
     food_rate_ppm: Option<u32>,
+    restaurant_rate_ppm: Option<u32>,
 ) -> Result<(), String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -413,6 +432,16 @@ pub fn set_home_location(
     // receipts this rate exists to get right.
     if food_rate_ppm.is_some_and(|food| food > tax_rate_ppm) {
         return Err("a reduced food rate cannot be above the general rate".to_string());
+    }
+    if restaurant_rate_ppm.is_some_and(|r| r > 1_000_000) {
+        return Err("a tax rate above 100% is not a rate".to_string());
+    }
+    // The mirror of the check above, and the same class of mistake: a
+    // restaurant rate *below* the general one means the two arguments were
+    // swapped, and it would undertax exactly the receipts this rate exists to
+    // get right — which is the bug that put it here.
+    if restaurant_rate_ppm.is_some_and(|r| r < tax_rate_ppm) {
+        return Err("a prepared-food rate cannot be below the general rate".to_string());
     }
 
     let db = db::locked()?;
@@ -434,8 +463,15 @@ pub fn set_home_location(
 
     match area_code {
         // Follows the publication from here on.
-        Some(code) => locations::adopt_area(&db, home_id, &code, tax_rate_ppm, food_rate_ppm)
-            .map_err(to_message)?,
+        Some(code) => locations::adopt_area(
+            &db,
+            home_id,
+            &code,
+            tax_rate_ppm,
+            food_rate_ppm,
+            restaurant_rate_ppm,
+        )
+        .map_err(to_message)?,
         None => {
             // `set_rate` clears any link, which is right: a rate typed by hand
             // must not be reverted by the next quarter's download.
@@ -443,6 +479,10 @@ pub fn set_home_location(
             // Written even when None, so moving from Provo to a state with no
             // reduced rate does not leave Utah's 3% behind on every grocery.
             locations::set_food_rate(&db, home_id, food_rate_ppm).map_err(to_message)?;
+            // Same reasoning: moving to a county that levies no restaurant tax
+            // must clear the old one rather than keep charging it.
+            locations::set_restaurant_rate(&db, home_id, restaurant_rate_ppm)
+                .map_err(to_message)?;
         }
     }
     Ok(())
@@ -465,9 +505,8 @@ pub struct RateReleaseDto {
 /// The clock is read here, which is this layer's business and not the core's.
 pub fn rate_release() -> Result<Option<RateReleaseDto>, String> {
     let db = db::locked()?;
-    let wanted =
-        accounting_core::service::rates::wanted_quarter(chrono::Local::now().date_naive())
-            .to_string();
+    let wanted = accounting_core::service::rates::wanted_quarter(chrono::Local::now().date_naive())
+        .to_string();
     Ok(tax_areas::release(&db)
         .map_err(to_message)?
         .map(|r| RateReleaseDto {

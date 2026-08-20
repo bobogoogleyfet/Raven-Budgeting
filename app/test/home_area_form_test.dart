@@ -4,12 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class Saved {
-  Saved(this.name, this.areaCode, this.taxRatePpm, this.foodRatePpm);
+  Saved(
+    this.name,
+    this.areaCode,
+    this.taxRatePpm,
+    this.foodRatePpm,
+    this.restaurantRatePpm,
+  );
 
   final String name;
   final String? areaCode;
   final int taxRatePpm;
   final int? foodRatePpm;
+  final int? restaurantRatePpm;
 }
 
 Future<List<Saved>> pump(
@@ -40,12 +47,14 @@ Future<List<Saved>> pump(
               name: 'Provo',
               taxRatePpm: 74500,
               foodRatePpm: 30000,
+              restaurantRatePpm: 84500,
             ),
             AreaDto(
               code: '25-100',
               name: 'Orem',
               taxRatePpm: 72500,
               foodRatePpm: 30000,
+              restaurantRatePpm: 82500,
             ),
           ],
           loadRelease: () async => refreshed ? (afterRefresh ?? release) : release,
@@ -66,9 +75,12 @@ Future<List<Saved>> pump(
             required String? areaCode,
             required int taxRatePpm,
             required int? foodRatePpm,
+            required int? restaurantRatePpm,
           }) async {
             if (saveError != null) throw saveError;
-            saved.add(Saved(name, areaCode, taxRatePpm, foodRatePpm));
+            saved.add(
+              Saved(name, areaCode, taxRatePpm, foodRatePpm, restaurantRatePpm),
+            );
           },
         ),
       ),

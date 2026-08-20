@@ -41,7 +41,16 @@ const SEED_VERSION_KEY: &str = "seed_version";
 
 /// Bumped when a later release adds defaults, so the additions install on an
 /// existing database without re-adding anything a user has since deleted.
-const SEED_VERSION: i64 = 3;
+///
+/// 4: `uses_restaurant_rate`. Like `uses_food_rate` before it, this is a fact
+/// about what the category *is*, so `upsert_category` re-applies it to
+/// categories that already exist rather than only to freshly seeded ones —
+/// which is also why the bump is belt-and-braces rather than the mechanism.
+///
+/// The flag alone does not fix an upgraded install: it says which rate to
+/// reach for, and the *location* has to have one. Filling that in is
+/// `service::rates::ensure_installed`'s backfill.
+const SEED_VERSION: i64 = 4;
 
 /// A seed category. `rollover` seeds [`budget_line.rollover`] for lines later
 /// created against it.
@@ -51,8 +60,12 @@ struct SeedCategory {
     system_key: Option<&'static str>,
     is_budgeted: bool,
     /// Whether a location's reduced food rate applies. Unprepared food only:
-    /// Restaurants are prepared food and taxed in full.
+    /// Restaurants are prepared food and taxed *above* the general rate, which
+    /// is [`SeedCategory::restaurant`].
     food: bool,
+    /// Whether the county's restaurant tax on prepared food applies.
+    /// Mutually exclusive with [`Self::food`].
+    restaurant: bool,
     /// Whether the amount entered here is a pre-tax subtotal that the app
     /// should add sales tax to. See [`SeedCategory::billed`].
     taxable: bool,
@@ -66,6 +79,7 @@ impl SeedCategory {
             system_key: None,
             is_budgeted: true,
             food: false,
+            restaurant: false,
             taxable: true,
         }
     }
@@ -98,6 +112,20 @@ impl SeedCategory {
         SeedCategory {
             taxable: false,
             ..self
+        }
+    }
+
+    /// A category taxed at the county's prepared-food rate where one exists.
+    ///
+    /// Utah counties may levy a Restaurant Tax of up to 1% on prepared food
+    /// (Utah Code 59-12-603) on top of the combined rate, so a meal is taxed
+    /// *higher* than a shirt, not lower. Before this existed the app charged
+    /// the general rate here and every restaurant receipt came out 1% light —
+    /// $1.01 on a $13.59 subtotal where the receipt said $1.15.
+    const fn restaurant(name: &'static str) -> Self {
+        SeedCategory {
+            restaurant: true,
+            ..SeedCategory::user(name)
         }
     }
 
@@ -144,6 +172,7 @@ impl SeedCategory {
             // location and so has no rate to apply either way; it matters when
             // a receipt is filed against one of these at a place that does.
             taxable: true,
+            restaurant: false,
             system_key: Some(key),
             // Kept off budget screens: budgeting "Transfer" is meaningless and
             // budgeting "Uncategorized" encourages leaving things there.
@@ -185,7 +214,7 @@ static SEED_GROUPS: &[SeedGroup] = &[
         hidden: false,
         categories: &[
             SeedCategory::groceries("Groceries"),
-            SeedCategory::user("Restaurants"),
+            SeedCategory::restaurant("Restaurants"),
             // Motor fuel pays a per-gallon excise, not sales tax, and it is
             // already in the price on the sign.
             SeedCategory::billed("Gas"),
@@ -479,8 +508,15 @@ fn upsert_category(
         // tax to rent forever. They are facts about what the category *is*,
         // not preferences the user set.
         tx.execute(
-            "UPDATE category SET uses_food_rate = ?2, taxable = ?3 WHERE id = ?1",
-            params![id, i64::from(cat.food), i64::from(cat.taxable)],
+            "UPDATE category
+                SET uses_food_rate = ?2, uses_restaurant_rate = ?3, taxable = ?4
+              WHERE id = ?1",
+            params![
+                id,
+                i64::from(cat.food),
+                i64::from(cat.restaurant),
+                i64::from(cat.taxable)
+            ],
         )?;
         return Ok(id);
     }
@@ -488,8 +524,8 @@ fn upsert_category(
     tx.execute(
         "INSERT INTO category
              (uuid, group_id, name, system_key, is_budgeted, uses_food_rate,
-              taxable, default_rollover, sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+              uses_restaurant_rate, taxable, default_rollover, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             new_uuid(),
             group_id,
@@ -497,6 +533,7 @@ fn upsert_category(
             cat.system_key,
             i64::from(cat.is_budgeted),
             i64::from(cat.food),
+            i64::from(cat.restaurant),
             i64::from(cat.taxable),
             i64::from(cat.rollover),
             sort_order,

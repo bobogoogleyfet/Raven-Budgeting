@@ -1354,7 +1354,7 @@ fn run_location(path: &Path, args: &LocationArgs) -> anyhow::Result<()> {
         // and `set_rate` unlinks the location so the next quarterly refresh
         // does not put the published figure back.
         (Some(rate), _) => locations::set_rate(&db, location.id, rate)?,
-        // A name the state publishes brings both of its rates and keeps
+        // A name the state publishes brings all three of its rates and keeps
         // following them, which is what makes `--update` reach this location.
         (None, Some(area)) => locations::adopt_area(
             &db,
@@ -1362,6 +1362,7 @@ fn run_location(path: &Path, args: &LocationArgs) -> anyhow::Result<()> {
             &area.code,
             area.combined_rate_ppm,
             area.food_rate_ppm,
+            area.restaurant_rate_ppm,
         )?,
         (None, None) => {}
     }

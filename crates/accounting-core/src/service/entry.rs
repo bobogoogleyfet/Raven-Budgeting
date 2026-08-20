@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::Db;
 use crate::domain::reconcile::{AmountEntry, Amounts, TaxContext, reconcile};
 use crate::domain::splits::{ResolvedSplit, SplitAmount, SplitDraft, SplitPlan, plan_splits};
-use crate::domain::tax::{category_rate, distribute_tax};
+use crate::domain::tax::{RateClass, category_rate, distribute_tax};
 use crate::error::{CoreError, Result};
 use crate::ids::{CategoryId, TxnId};
 use crate::money::Money;
@@ -152,7 +152,7 @@ pub struct CategoryRate {
 ///
 /// Answered here rather than in the frontend even though it is only a choice
 /// between two numbers. The choosing is the rule, the rule already exists in
-/// [`category_rate`], and a copy of it in TypeScript would be a second
+/// [`category_rate`], and a copy of it in Dart would be a second
 /// implementation that drifts — the day another class of goods gets its own
 /// rate, the screen would still be showing the old two.
 ///
@@ -160,11 +160,21 @@ pub struct CategoryRate {
 /// should say what it will be taxed at, not wait for a number.
 pub fn category_rates(db: &Db, context: &EntryContext) -> Result<Vec<CategoryRate>> {
     let food_rate = context.location.as_ref().and_then(|l| l.food_rate_ppm);
+    let restaurant_rate = context
+        .location
+        .as_ref()
+        .and_then(|l| l.restaurant_rate_ppm);
     Ok(categories::list_all(db)?
         .into_iter()
         .map(|c| CategoryRate {
             category_id: c.id,
-            rate_ppm: category_rate(context.tax.rate_ppm, food_rate, c.uses_food_rate, c.taxable),
+            rate_ppm: category_rate(
+                context.tax.rate_ppm,
+                food_rate,
+                restaurant_rate,
+                RateClass::from_flags(c.uses_food_rate, c.uses_restaurant_rate),
+                c.taxable,
+            ),
         })
         .collect())
 }
@@ -369,6 +379,7 @@ fn single_rate_for(
 ) -> Result<Option<u32>> {
     let base = resolve_context(db, merchant, location, None)?;
     let food = base.location.as_ref().and_then(|l| l.food_rate_ppm);
+    let restaurant = base.location.as_ref().and_then(|l| l.restaurant_rate_ppm);
 
     let known = categories::list_all(db)?;
     let mut rates = draft.splits.iter().map(|split| {
@@ -378,7 +389,11 @@ fn single_rate_for(
         category_rate(
             base.tax.rate_ppm,
             food,
-            category.is_some_and(|c| c.uses_food_rate),
+            restaurant,
+            RateClass::from_flags(
+                category.is_some_and(|c| c.uses_food_rate),
+                category.is_some_and(|c| c.uses_restaurant_rate),
+            ),
             category.is_none_or(|c| c.taxable),
         )
     });
@@ -441,10 +456,15 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
     // the till. Three rows of $33.33 at 7.75% round to $2.58 each, totalling
     // $7.74, where the register charges 7.75% of $99.99 = $7.75.
     //
-    // Not one rate for the receipt either: Utah taxes unprepared food at 3%
-    // and everything else at about 7.25%, so a $7.28 grocery subtotal owes
-    // $0.22 rather than $0.53, and a Walmart run needs both applied.
+    // Not one rate for the receipt either: Utah taxes unprepared food at 3%,
+    // prepared food at about 8.45% where the county levies its restaurant tax,
+    // and everything else at about 7.45%. A $7.28 grocery subtotal owes $0.22
+    // rather than $0.53, and a Walmart run needs more than one of them applied.
     let food_rate = context.location.as_ref().and_then(|l| l.food_rate_ppm);
+    let restaurant_rate = context
+        .location
+        .as_ref()
+        .and_then(|l| l.restaurant_rate_ppm);
     let known: Vec<Category> = categories::list_all(db)?;
     let rate_for = |id: Option<CategoryId>| -> u32 {
         let category = id.and_then(|id| known.iter().find(|c| c.id == id));
@@ -453,7 +473,11 @@ pub fn preview_subtotals(db: &Db, draft: &SubtotalDraft) -> Result<TransactionPr
         category_rate(
             context.tax.rate_ppm,
             food_rate,
-            category.is_some_and(|c| c.uses_food_rate),
+            restaurant_rate,
+            RateClass::from_flags(
+                category.is_some_and(|c| c.uses_food_rate),
+                category.is_some_and(|c| c.uses_restaurant_rate),
+            ),
             // A row with no category yet is treated as taxable; it is blocked
             // from saving anyway, and showing 0% would look like an answer.
             category.is_none_or(|c| c.taxable),

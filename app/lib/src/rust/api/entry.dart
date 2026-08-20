@@ -97,11 +97,13 @@ Future<void> setHomeLocation({
   String? areaCode,
   required int taxRatePpm,
   int? foodRatePpm,
+  int? restaurantRatePpm,
 }) => RustLib.instance.api.crateApiEntrySetHomeLocation(
   name: name,
   areaCode: areaCode,
   taxRatePpm: taxRatePpm,
   foodRatePpm: foodRatePpm,
+  restaurantRatePpm: restaurantRatePpm,
 );
 
 /// Which publication is installed, for the line under the picker.
@@ -133,11 +135,15 @@ class AreaDto {
   /// None where the state taxes food like everything else.
   final int? foodRatePpm;
 
+  /// None where the county levies no restaurant tax on prepared food.
+  final int? restaurantRatePpm;
+
   const AreaDto({
     required this.code,
     required this.name,
     required this.taxRatePpm,
     this.foodRatePpm,
+    this.restaurantRatePpm,
   });
 
   @override
@@ -145,7 +151,8 @@ class AreaDto {
       code.hashCode ^
       name.hashCode ^
       taxRatePpm.hashCode ^
-      foodRatePpm.hashCode;
+      foodRatePpm.hashCode ^
+      restaurantRatePpm.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -155,7 +162,8 @@ class AreaDto {
           code == other.code &&
           name == other.name &&
           taxRatePpm == other.taxRatePpm &&
-          foodRatePpm == other.foodRatePpm;
+          foodRatePpm == other.foodRatePpm &&
+          restaurantRatePpm == other.restaurantRatePpm;
 }
 
 /// What each category is taxed at here, so the form can label a row the moment
@@ -187,6 +195,11 @@ class ContextDto {
 
   /// The location's reduced rate on unprepared food, where it has one.
   final int? foodRatePpm;
+
+  /// The location's elevated rate on prepared food, where the county levies
+  /// a restaurant tax. `None` means prepared food is taxed like anything
+  /// else here — never that it is untaxed.
+  final int? restaurantRatePpm;
   final List<CategoryRateDto> categoryRates;
   final PlatformInt64? defaultCategoryId;
   final String detailLevel;
@@ -197,6 +210,7 @@ class ContextDto {
     this.locationName,
     required this.taxRatePpm,
     this.foodRatePpm,
+    this.restaurantRatePpm,
     required this.categoryRates,
     this.defaultCategoryId,
     required this.detailLevel,
@@ -209,6 +223,7 @@ class ContextDto {
       locationName.hashCode ^
       taxRatePpm.hashCode ^
       foodRatePpm.hashCode ^
+      restaurantRatePpm.hashCode ^
       categoryRates.hashCode ^
       defaultCategoryId.hashCode ^
       detailLevel.hashCode ^
@@ -223,6 +238,7 @@ class ContextDto {
           locationName == other.locationName &&
           taxRatePpm == other.taxRatePpm &&
           foodRatePpm == other.foodRatePpm &&
+          restaurantRatePpm == other.restaurantRatePpm &&
           categoryRates == other.categoryRates &&
           defaultCategoryId == other.defaultCategoryId &&
           detailLevel == other.detailLevel &&

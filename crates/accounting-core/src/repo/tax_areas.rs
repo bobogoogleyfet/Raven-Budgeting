@@ -25,6 +25,9 @@ pub struct TaxArea {
     pub name: String,
     pub combined_rate_ppm: u32,
     pub food_rate_ppm: Option<u32>,
+    /// The published rate on prepared food, where the county levies a
+    /// restaurant tax on top of the combined rate.
+    pub restaurant_rate_ppm: Option<u32>,
 }
 
 /// Which publication is installed.
@@ -40,7 +43,8 @@ pub struct Release {
     pub checked_at: Option<String>,
 }
 
-const SELECT_AREA: &str = "SELECT code, name, combined_rate_ppm, food_rate_ppm FROM tax_area";
+const SELECT_AREA: &str =
+    "SELECT code, name, combined_rate_ppm, food_rate_ppm, restaurant_rate_ppm FROM tax_area";
 
 fn map_area(row: &Row<'_>) -> rusqlite::Result<TaxArea> {
     Ok(TaxArea {
@@ -48,6 +52,7 @@ fn map_area(row: &Row<'_>) -> rusqlite::Result<TaxArea> {
         name: row.get(1)?,
         combined_rate_ppm: row.get(2)?,
         food_rate_ppm: row.get(3)?,
+        restaurant_rate_ppm: row.get(4)?,
     })
 }
 
@@ -116,6 +121,22 @@ pub fn count(db: &Db) -> Result<usize> {
 
 /// Replace the whole table with a new publication, in one transaction.
 ///
+/// Whether the stored table carries any prepared-food rate at all.
+///
+/// The upgrade tell. A table installed before the prepared-food column existed
+/// has a value in every other column and `NULL` in this one for all 389 rows,
+/// which is indistinguishable per-row from "this county levies no restaurant
+/// tax" — but not in aggregate, because no state publishes a chart where the
+/// column is empty everywhere.
+pub fn has_restaurant_rates(db: &Db) -> Result<bool> {
+    let n: i64 = db.conn().query_row(
+        "SELECT count(*) FROM tax_area WHERE restaurant_rate_ppm IS NOT NULL",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(n > 0)
+}
+
 /// Wholesale, not incremental. A quarter can dissolve a district or annex a
 /// town, and a merge that only ever adds and updates would leave the dissolved
 /// one behind forever, quietly offering a rate nobody charges any more.
@@ -126,15 +147,17 @@ pub fn replace_all(db: &Db, areas: &[TaxArea]) -> Result<usize> {
         tx.execute("DELETE FROM tax_area", [])?;
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO tax_area (code, name, combined_rate_ppm, food_rate_ppm)
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO tax_area (code, name, combined_rate_ppm, food_rate_ppm,
+                                       restaurant_rate_ppm)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
             )?;
             for area in areas {
                 stmt.execute(params![
                     area.code,
                     area.name,
                     area.combined_rate_ppm,
-                    area.food_rate_ppm
+                    area.food_rate_ppm,
+                    area.restaurant_rate_ppm
                 ])?;
             }
         }

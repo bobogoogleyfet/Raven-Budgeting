@@ -169,6 +169,7 @@ abstract class RustLibApi extends BaseApi {
     String? areaCode,
     required int taxRatePpm,
     int? foodRatePpm,
+    int? restaurantRatePpm,
   });
 
   PlatformInt64 crateApiEntryTotalOf({required Int64List parts});
@@ -922,6 +923,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     String? areaCode,
     required int taxRatePpm,
     int? foodRatePpm,
+    int? restaurantRatePpm,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -931,6 +933,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_opt_String(areaCode, serializer);
           sse_encode_u_32(taxRatePpm, serializer);
           sse_encode_opt_box_autoadd_u_32(foodRatePpm, serializer);
+          sse_encode_opt_box_autoadd_u_32(restaurantRatePpm, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -943,7 +946,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiEntrySetHomeLocationConstMeta,
-        argValues: [name, areaCode, taxRatePpm, foodRatePpm],
+        argValues: [name, areaCode, taxRatePpm, foodRatePpm, restaurantRatePpm],
         apiImpl: this,
       ),
     );
@@ -952,7 +955,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiEntrySetHomeLocationConstMeta =>
       const TaskConstMeta(
         debugName: "set_home_location",
-        argNames: ["name", "areaCode", "taxRatePpm", "foodRatePpm"],
+        argNames: [
+          "name",
+          "areaCode",
+          "taxRatePpm",
+          "foodRatePpm",
+          "restaurantRatePpm",
+        ],
       );
 
   @override
@@ -988,13 +997,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AreaDto dco_decode_area_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return AreaDto(
       code: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
       taxRatePpm: dco_decode_u_32(arr[2]),
       foodRatePpm: dco_decode_opt_box_autoadd_u_32(arr[3]),
+      restaurantRatePpm: dco_decode_opt_box_autoadd_u_32(arr[4]),
     );
   }
 
@@ -1106,17 +1116,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ContextDto dco_decode_context_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return ContextDto(
       merchantName: dco_decode_opt_String(arr[0]),
       locationName: dco_decode_opt_String(arr[1]),
       taxRatePpm: dco_decode_u_32(arr[2]),
       foodRatePpm: dco_decode_opt_box_autoadd_u_32(arr[3]),
-      categoryRates: dco_decode_list_category_rate_dto(arr[4]),
-      defaultCategoryId: dco_decode_opt_box_autoadd_i_64(arr[5]),
-      detailLevel: dco_decode_String(arr[6]),
-      recentMerchants: dco_decode_list_String(arr[7]),
+      restaurantRatePpm: dco_decode_opt_box_autoadd_u_32(arr[4]),
+      categoryRates: dco_decode_list_category_rate_dto(arr[5]),
+      defaultCategoryId: dco_decode_opt_box_autoadd_i_64(arr[6]),
+      detailLevel: dco_decode_String(arr[7]),
+      recentMerchants: dco_decode_list_String(arr[8]),
     );
   }
 
@@ -1492,11 +1503,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_name = sse_decode_String(deserializer);
     var var_taxRatePpm = sse_decode_u_32(deserializer);
     var var_foodRatePpm = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_restaurantRatePpm = sse_decode_opt_box_autoadd_u_32(deserializer);
     return AreaDto(
       code: var_code,
       name: var_name,
       taxRatePpm: var_taxRatePpm,
       foodRatePpm: var_foodRatePpm,
+      restaurantRatePpm: var_restaurantRatePpm,
     );
   }
 
@@ -1620,6 +1633,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_locationName = sse_decode_opt_String(deserializer);
     var var_taxRatePpm = sse_decode_u_32(deserializer);
     var var_foodRatePpm = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_restaurantRatePpm = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_categoryRates = sse_decode_list_category_rate_dto(deserializer);
     var var_defaultCategoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_detailLevel = sse_decode_String(deserializer);
@@ -1629,6 +1643,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       locationName: var_locationName,
       taxRatePpm: var_taxRatePpm,
       foodRatePpm: var_foodRatePpm,
+      restaurantRatePpm: var_restaurantRatePpm,
       categoryRates: var_categoryRates,
       defaultCategoryId: var_defaultCategoryId,
       detailLevel: var_detailLevel,
@@ -2160,6 +2175,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.name, serializer);
     sse_encode_u_32(self.taxRatePpm, serializer);
     sse_encode_opt_box_autoadd_u_32(self.foodRatePpm, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.restaurantRatePpm, serializer);
   }
 
   @protected
@@ -2271,6 +2287,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.locationName, serializer);
     sse_encode_u_32(self.taxRatePpm, serializer);
     sse_encode_opt_box_autoadd_u_32(self.foodRatePpm, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.restaurantRatePpm, serializer);
     sse_encode_list_category_rate_dto(self.categoryRates, serializer);
     sse_encode_opt_box_autoadd_i_64(self.defaultCategoryId, serializer);
     sse_encode_String(self.detailLevel, serializer);

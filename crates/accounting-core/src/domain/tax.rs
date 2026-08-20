@@ -22,16 +22,59 @@ pub fn resolve_rate(
         .unwrap_or(location_rate_ppm)
 }
 
+/// Which of a location's published rates applies to a category.
+///
+/// Three, not two. A state taxes classes of goods differently in *both*
+/// directions: Utah charges a combined 3% on unprepared food, roughly 7.45% on
+/// ordinary goods, and 8.45% on prepared food, where a county has levied its
+/// Restaurant Tax (Utah Code 59-12-603) on top of the combined rate. Which
+/// figure applies is a property of the *category*, not of the receipt or the
+/// store.
+///
+/// An enum rather than the two schema booleans because the booleans admit a
+/// state that has no meaning — a category cannot be both unprepared and
+/// prepared food — and every caller would otherwise have to decide what that
+/// means for itself. Resolving it once, in [`RateClass::from_flags`], is what
+/// keeps them agreeing.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RateClass {
+    /// Taxed at the location's ordinary combined rate.
+    General,
+    /// Unprepared food, where the state publishes a reduced rate.
+    ReducedFood,
+    /// Prepared food, where the county adds a restaurant tax on top.
+    PreparedFood,
+}
+
+impl RateClass {
+    /// Resolve the schema's two flags (`uses_food_rate`,
+    /// `uses_restaurant_rate`) into one class.
+    ///
+    /// The flags are mutually exclusive in any sane data set, and the seed
+    /// keeps them that way. If both are somehow set, prepared food wins: it is
+    /// the higher of the two rates, and overstating tax produces a total the
+    /// user can see is wrong against the receipt in their hand, while
+    /// understating it looks entirely plausible and reconciles nowhere. Same
+    /// principle as `tax_is_estimated` — a wrong number that looks like a fact
+    /// is the worse failure.
+    #[must_use]
+    pub const fn from_flags(uses_food_rate: bool, uses_restaurant_rate: bool) -> Self {
+        if uses_restaurant_rate {
+            Self::PreparedFood
+        } else if uses_food_rate {
+            Self::ReducedFood
+        } else {
+            Self::General
+        }
+    }
+}
+
 /// The rate a category is taxed at, given what this location charges.
 ///
-/// Two rates rather than one because states tax classes of goods differently:
-/// Utah charges a combined 3% on unprepared food and about 7.45% on everything
-/// else, so which figure applies is a property of the *category*, not of the
-/// receipt or the store.
-///
-/// `food_ppm` of `None` means this place has no reduced rate, which is the
-/// correct reading for most of the US and is why a missing rate falls back to
-/// the general one rather than to zero.
+/// `food_ppm` and `restaurant_ppm` of `None` mean this place publishes no such
+/// rate, which is the correct reading for most of the US. A missing rate falls
+/// back to the general one rather than to zero — "no reduced rate here" and
+/// "free here" are very different claims, and only one of them is ever true.
 ///
 /// It lives here, alone, because it is asked in two places that must never
 /// disagree: the entry form labels each row with a rate, and the tax
@@ -41,7 +84,8 @@ pub fn resolve_rate(
 pub const fn category_rate(
     general_ppm: u32,
     food_ppm: Option<u32>,
-    uses_food_rate: bool,
+    restaurant_ppm: Option<u32>,
+    class: RateClass,
     taxable: bool,
 ) -> u32 {
     if !taxable {
@@ -51,9 +95,16 @@ pub const fn category_rate(
         // and adding a rate on top would invent money nobody was charged.
         return 0;
     }
-    match (uses_food_rate, food_ppm) {
-        (true, Some(reduced)) => reduced,
-        _ => general_ppm,
+    match class {
+        RateClass::ReducedFood => match food_ppm {
+            Some(reduced) => reduced,
+            None => general_ppm,
+        },
+        RateClass::PreparedFood => match restaurant_ppm {
+            Some(prepared) => prepared,
+            None => general_ppm,
+        },
+        RateClass::General => general_ppm,
     }
 }
 

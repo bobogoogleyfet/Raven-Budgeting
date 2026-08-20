@@ -37,6 +37,10 @@ pub struct Category {
     /// Whether a location's reduced food rate applies to this category.
     /// Groceries yes; Restaurants no, since prepared food is taxed in full.
     pub uses_food_rate: bool,
+    /// Prepared food: taxed at the county's restaurant rate, above the general
+    /// one. Mutually exclusive with [`Self::uses_food_rate`]; resolved into a
+    /// single [`RateClass`](crate::domain::tax::RateClass) before use.
+    pub uses_restaurant_rate: bool,
     /// Whether the amount entered for this category is a pre-tax subtotal.
     ///
     /// False for rent, bills and fuel: what the user types there is what they
@@ -71,7 +75,8 @@ impl Category {
 }
 
 const SELECT_CATEGORY: &str = "SELECT c.id, c.uuid, c.group_id, g.name, c.name, c.system_key,
-                                      c.is_budgeted, c.uses_food_rate, c.taxable,
+                                      c.is_budgeted, c.uses_food_rate,
+                                      c.uses_restaurant_rate, c.taxable,
                                       c.default_rollover,
                                       c.sort_order, c.archived_at IS NOT NULL
                                  FROM category c
@@ -90,10 +95,11 @@ fn map_category(row: &Row<'_>) -> rusqlite::Result<Category> {
         system_key: row.get(5)?,
         is_budgeted: row.get(6)?,
         uses_food_rate: row.get(7)?,
-        taxable: row.get(8)?,
-        default_rollover: row.get(9)?,
-        sort_order: row.get(10)?,
-        archived: row.get(11)?,
+        uses_restaurant_rate: row.get(8)?,
+        taxable: row.get(9)?,
+        default_rollover: row.get(10)?,
+        sort_order: row.get(11)?,
+        archived: row.get(12)?,
     })
 }
 
@@ -285,7 +291,9 @@ pub fn create_group(db: &Db, name: &str) -> Result<CategoryGroup> {
             |r| r.get(0),
         )?;
         if taken {
-            return Err(CoreError::Invalid(format!("there is already a group called {name}")));
+            return Err(CoreError::Invalid(format!(
+                "there is already a group called {name}"
+            )));
         }
 
         let sort_order: i64 = tx.query_row(

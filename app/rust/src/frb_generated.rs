@@ -27,7 +27,7 @@
 // Section: imports
 
 use flutter_rust_bridge::for_generated::byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
-use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
 use flutter_rust_bridge::{Handler, IntoIntoDart};
 
 // Section: boilerplate
@@ -884,6 +884,7 @@ fn wire__crate__api__entry__set_home_location_impl(
             let api_area_code = <Option<String>>::sse_decode(&mut deserializer);
             let api_tax_rate_ppm = <u32>::sse_decode(&mut deserializer);
             let api_food_rate_ppm = <Option<u32>>::sse_decode(&mut deserializer);
+            let api_restaurant_rate_ppm = <Option<u32>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -892,6 +893,7 @@ fn wire__crate__api__entry__set_home_location_impl(
                         api_area_code,
                         api_tax_rate_ppm,
                         api_food_rate_ppm,
+                        api_restaurant_rate_ppm,
                     )?;
                     Ok(output_ok)
                 })())
@@ -947,11 +949,13 @@ impl SseDecode for crate::api::entry::AreaDto {
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_taxRatePpm = <u32>::sse_decode(deserializer);
         let mut var_foodRatePpm = <Option<u32>>::sse_decode(deserializer);
+        let mut var_restaurantRatePpm = <Option<u32>>::sse_decode(deserializer);
         return crate::api::entry::AreaDto {
             code: var_code,
             name: var_name,
             tax_rate_ppm: var_taxRatePpm,
             food_rate_ppm: var_foodRatePpm,
+            restaurant_rate_ppm: var_restaurantRatePpm,
         };
     }
 }
@@ -1046,6 +1050,7 @@ impl SseDecode for crate::api::entry::ContextDto {
         let mut var_locationName = <Option<String>>::sse_decode(deserializer);
         let mut var_taxRatePpm = <u32>::sse_decode(deserializer);
         let mut var_foodRatePpm = <Option<u32>>::sse_decode(deserializer);
+        let mut var_restaurantRatePpm = <Option<u32>>::sse_decode(deserializer);
         let mut var_categoryRates =
             <Vec<crate::api::entry::CategoryRateDto>>::sse_decode(deserializer);
         let mut var_defaultCategoryId = <Option<i64>>::sse_decode(deserializer);
@@ -1056,6 +1061,7 @@ impl SseDecode for crate::api::entry::ContextDto {
             location_name: var_locationName,
             tax_rate_ppm: var_taxRatePpm,
             food_rate_ppm: var_foodRatePpm,
+            restaurant_rate_ppm: var_restaurantRatePpm,
             category_rates: var_categoryRates,
             default_category_id: var_defaultCategoryId,
             detail_level: var_detailLevel,
@@ -1687,6 +1693,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::entry::AreaDto {
             self.name.into_into_dart().into_dart(),
             self.tax_rate_ppm.into_into_dart().into_dart(),
             self.food_rate_ppm.into_into_dart().into_dart(),
+            self.restaurant_rate_ppm.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1803,6 +1810,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::entry::ContextDto {
             self.location_name.into_into_dart().into_dart(),
             self.tax_rate_ppm.into_into_dart().into_dart(),
             self.food_rate_ppm.into_into_dart().into_dart(),
+            self.restaurant_rate_ppm.into_into_dart().into_dart(),
             self.category_rates.into_into_dart().into_dart(),
             self.default_category_id.into_into_dart().into_dart(),
             self.detail_level.into_into_dart().into_dart(),
@@ -2156,6 +2164,7 @@ impl SseEncode for crate::api::entry::AreaDto {
         <String>::sse_encode(self.name, serializer);
         <u32>::sse_encode(self.tax_rate_ppm, serializer);
         <Option<u32>>::sse_encode(self.food_rate_ppm, serializer);
+        <Option<u32>>::sse_encode(self.restaurant_rate_ppm, serializer);
     }
 }
 
@@ -2219,6 +2228,7 @@ impl SseEncode for crate::api::entry::ContextDto {
         <Option<String>>::sse_encode(self.location_name, serializer);
         <u32>::sse_encode(self.tax_rate_ppm, serializer);
         <Option<u32>>::sse_encode(self.food_rate_ppm, serializer);
+        <Option<u32>>::sse_encode(self.restaurant_rate_ppm, serializer);
         <Vec<crate::api::entry::CategoryRateDto>>::sse_encode(self.category_rates, serializer);
         <Option<i64>>::sse_encode(self.default_category_id, serializer);
         <String>::sse_encode(self.detail_level, serializer);
@@ -2636,7 +2646,7 @@ mod io {
     use flutter_rust_bridge::for_generated::byteorder::{
         NativeEndian, ReadBytesExt, WriteBytesExt,
     };
-    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate
@@ -2660,7 +2670,7 @@ mod web {
     };
     use flutter_rust_bridge::for_generated::wasm_bindgen;
     use flutter_rust_bridge::for_generated::wasm_bindgen::prelude::*;
-    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate

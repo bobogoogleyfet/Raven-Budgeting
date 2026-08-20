@@ -81,6 +81,7 @@ pub fn install(db: &Db, table: &RateTable) -> Result<Installed> {
             name: a.name.clone(),
             combined_rate_ppm: a.combined_rate_ppm,
             food_rate_ppm: a.food_rate_ppm,
+            restaurant_rate_ppm: a.restaurant_rate_ppm,
         })
         .collect();
 
@@ -136,12 +137,77 @@ fn verify(table: &RateTable) -> Result<()> {
 ///
 /// Never overwrites: a database that has downloaded a newer publication must
 /// not be dragged back to the one compiled into the binary.
+///
+/// # The one exception: backfilling the prepared-food rates, once
+///
+/// Prepared food is taxed *above* the general rate where a county levies its
+/// restaurant tax, and the column recording that arrived after the first
+/// releases shipped. Migrating an existing database adds the column but cannot
+/// fill it — the rates live in a published chart, not in SQL — so an upgraded
+/// install would hold a complete-looking table with a `NULL` prepared-food rate
+/// on every row, and would go on taxing every restaurant receipt at the general
+/// rate.
+///
+/// Nothing else would ever fix it: [`refresh_due`] is false for the rest of the
+/// quarter, precisely because the publication does not change within one. So a
+/// stored table for the quarter we already ship is replaced by the bundled one,
+/// which has the rates. Offline, deterministic.
+///
+/// Guarded by a generation marker rather than by looking at the data, and this
+/// distinction is load-bearing. "No row carries a prepared-food rate" is not
+/// proof that a table predates the column — it is also true of a state that
+/// levies no restaurant tax anywhere, and of a publication whose prepared-food
+/// column failed to parse. Keying off the data would then reinstall on *every*
+/// launch, discarding a mid-quarter revision the user had downloaded and
+/// resetting their followed locations to compiled-in figures, over and over.
+/// A marker runs this exactly once per database, whatever the data looks like.
+///
+/// Restricted to the bundled quarter so it can never drag anyone backwards: an
+/// install carrying a later quarter than the binary keeps it and picks the
+/// rates up at the next quarter turn.
 pub fn ensure_installed(db: &Db) -> Result<bool> {
-    if tax_areas::release(db)?.is_some() && tax_areas::count(db)? > 0 {
-        return Ok(false);
+    let release = tax_areas::release(db)?;
+    if release.is_some() && tax_areas::count(db)? > 0 {
+        let backfilled = backfill_generation(db)? >= BACKFILL_GENERATION;
+        let same_quarter = release.is_some_and(|r| r.quarter == rates::BUNDLED_QUARTER.to_string());
+        // Marked before the work, and marked even when nothing is done: the
+        // point of the marker is that this decision is made once per database,
+        // so a table that legitimately has no prepared-food rates must not be
+        // re-examined on the next launch either.
+        mark_backfilled(db)?;
+        if backfilled || !same_quarter || tax_areas::has_restaurant_rates(db)? {
+            return Ok(false);
+        }
     }
     install(db, &rates::bundled())?;
+    mark_backfilled(db)?;
     Ok(true)
+}
+
+/// The `app_setting` key recording that the prepared-food backfill has run.
+const BACKFILL_GENERATION_KEY: &str = "rates.prepared_food_backfill_generation";
+
+/// Bump to make a later release re-run the backfill.
+const BACKFILL_GENERATION: i64 = 1;
+
+fn backfill_generation(db: &Db) -> Result<i64> {
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT CAST(value AS INTEGER) FROM app_setting WHERE key = ?1")?;
+    let mut rows = stmt.query_map([BACKFILL_GENERATION_KEY], |row| row.get::<_, i64>(0))?;
+    match rows.next() {
+        Some(value) => Ok(value?),
+        None => Ok(0),
+    }
+}
+
+fn mark_backfilled(db: &Db) -> Result<()> {
+    db.conn().execute(
+        "INSERT INTO app_setting (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![BACKFILL_GENERATION_KEY, BACKFILL_GENERATION.to_string()],
+    )?;
+    Ok(())
 }
 
 /// Note that a refresh was attempted, whatever came of it.

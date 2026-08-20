@@ -457,21 +457,29 @@ Future<void> categorizeWhole(int id, int categoryId) => rust_entry.categorize(
 
 /// Name the place the user lives and set its sales-tax rates.
 ///
-/// A hand-typed rate must send a null `areaCode` *and* a null `foodRatePpm`:
+/// A hand-typed rate must send a null `areaCode` *and* null rates beside it:
 /// the user moved the choice off the list, so there is no jurisdiction to
 /// follow, and carrying Utah's 3% over to Boise would undertax every grocery
-/// receipt entered there.
+/// receipt entered there — as carrying Utah County's restaurant tax would
+/// overtax every meal.
+///
+/// Every rate is `required` even though each is nullable, so that adding one
+/// is a compile error at each call site rather than a silently omitted named
+/// argument. A dropped `restaurantRatePpm` would fail nowhere; it would just
+/// quietly go back to taxing meals 1% light.
 Future<void> setHomeLocation({
   required String name,
   required String? areaCode,
   required int taxRatePpm,
   required int? foodRatePpm,
+  required int? restaurantRatePpm,
 }) =>
     rust_entry.setHomeLocation(
       name: name,
       areaCode: areaCode,
       taxRatePpm: taxRatePpm,
       foodRatePpm: foodRatePpm,
+      restaurantRatePpm: restaurantRatePpm,
     );
 
 /// Which rate publication is installed, or null if none is.

@@ -82,15 +82,29 @@ void main() {
   });
 
   test('a reduced food rate is named alongside the general one', () {
-    expect(rateSummary(74500, 30000), '7.45% · groceries 3%');
+    expect(rateSummary(74500, 30000, null), '7.45% · groceries 3%');
   });
 
   test('no reduced rate says nothing about groceries', () {
-    expect(rateSummary(74500, null), '7.45%');
+    expect(rateSummary(74500, null, null), '7.45%');
   });
 
   test('a food rate equal to the general one is not a reduction', () {
-    expect(rateSummary(74500, 74500), '7.45%');
+    expect(rateSummary(74500, 74500, null), '7.45%');
+  });
+
+  test('an elevated prepared-food rate is named as dining', () {
+    // Highland: 7.45% general, 3% on groceries, 8.45% on a restaurant meal.
+    expect(
+      rateSummary(74500, 30000, 84500),
+      '7.45% · groceries 3% · dining 8.45%',
+    );
+  });
+
+  test('a county with no restaurant tax says nothing about dining', () {
+    expect(rateSummary(74500, 30000, null), '7.45% · groceries 3%');
+    // Equal to the general rate is a county that levies none, not a rule.
+    expect(rateSummary(74500, 30000, 74500), '7.45% · groceries 3%');
   });
 
   test('a category with no sales tax says so, rather than showing 0%', () {

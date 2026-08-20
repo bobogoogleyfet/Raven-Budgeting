@@ -74,6 +74,7 @@ pub fn adopt_published_areas(db: &Db) -> Result<usize> {
             &area.code,
             area.combined_rate_ppm,
             area.food_rate_ppm,
+            area.restaurant_rate_ppm,
         )?;
         linked += 1;
     }
