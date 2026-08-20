@@ -71,4 +71,23 @@ void main() {
     expect(typing('abc'), '');
     expect(typing('1a2'), '0.12');
   });
+
+  test('several figures are kept apart as they are typed', () {
+    // Three items rung up under one category, typed as they are read.
+    expect(typing('138+184'), '1.38 + 1.84');
+    expect(typing('138+184+299'), '1.38 + 1.84 + 2.99');
+  });
+
+  test('a part not typed yet is nothing, not a zero', () {
+    expect(typing('138+'), '1.38 + ');
+    expect(amountParts('1.38 + ').length, 1);
+  });
+
+  test('the parts are read back individually', () {
+    expect(
+      amountParts('1.38 + 1.84').map((c) => c.value).toList(),
+      [138, 184],
+    );
+    expect(amountParts('').map((c) => c.value).toList(), isEmpty);
+  });
 }

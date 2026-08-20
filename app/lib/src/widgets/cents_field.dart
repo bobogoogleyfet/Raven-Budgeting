@@ -1,7 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../api.dart' as api;
 import '../money.dart';
+
+/// How the parts of an amount are added up.
+///
+/// The core's, always, in the app. It exists as a variable only because
+/// `flutter test` runs without the compiled library, and a field that cannot
+/// be typed into in a widget test is a field whose behaviour goes untested —
+/// which would be a worse trade than this one. There is still one
+/// implementation of the arithmetic, and it is in Rust.
+Cents Function(List<Cents> parts) addUp = api.totalOf;
+
+/// The parts of an amount typed as `1.38+1.84`.
+///
+/// Parsing, not arithmetic: this splits what was typed and reads each piece.
+/// What they come to is [totalOf], which is the core's answer.
+///
+/// A trailing `+` is a part not typed yet, not a zero — the field is mid-entry
+/// and has nothing to report for it.
+List<Cents> amountParts(String text) {
+  final parts = <Cents>[];
+  for (final piece in text.split('+')) {
+    final cents = parseCents(piece);
+    if (cents != null) parts.add(cents);
+  }
+  return parts;
+}
+
+/// What the field's text comes to, or null while it holds nothing usable.
+Cents? amountValue(String text) {
+  final parts = amountParts(text);
+  if (parts.isEmpty) return null;
+  // One figure is itself; several are the core's sum of them.
+  if (parts.length == 1) return parts.single;
+  return addUp(parts);
+}
 
 /// Fills an amount from the right, the way a till does.
 ///
@@ -25,6 +60,35 @@ class CentsInputFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
+    // Several figures under one category — three items off one receipt — are
+    // typed as they are read and added by the core. Each piece fills from the
+    // cents up on its own.
+    if (newValue.text.contains('+')) {
+      final pieces = newValue.text.split('+');
+      final formatted = [
+        for (final piece in pieces) _oneAmount(piece),
+      ].join(' + ');
+      return TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
+    }
+    return _single(newValue);
+  }
+
+  /// One figure, formatted, or empty.
+  String _oneAmount(String text) {
+    final digits =
+        text.replaceAll(RegExp(r'[^0-9]'), '').replaceFirst(RegExp(r'^0+'), '');
+    if (digits.isEmpty) return text.contains('-') ? '-' : '';
+    final capped = digits.length > _maxDigits
+        ? digits.substring(digits.length - _maxDigits)
+        : digits;
+    final cents = int.parse(capped);
+    return formatCents(fromCore(text.contains('-') ? -cents : cents));
+  }
+
+  TextEditingValue _single(TextEditingValue newValue) {
     // A refund is a negative amount, and the core takes them — so a leading
     // minus survives, wherever in the text it was typed.
     final bool negative = newValue.text.contains('-');
@@ -58,8 +122,9 @@ class CentsInputFormatter extends TextInputFormatter {
   }
 }
 
-/// An amount field: right-aligned, tabular, and filled from the cents up.
-class CentsField extends StatelessWidget {
+/// An amount field: right-aligned, filled from the cents up, and able to hold
+/// several figures at once.
+class CentsField extends StatefulWidget {
   const CentsField({
     super.key,
     required this.controller,
@@ -76,22 +141,68 @@ class CentsField extends StatelessWidget {
   final bool autofocus;
 
   @override
+  State<CentsField> createState() => _CentsFieldState();
+}
+
+class _CentsFieldState extends State<CentsField> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onText);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onText);
+    super.dispose();
+  }
+
+  void _onText() => setState(() {});
+
+  /// Shown only once there is more than one figure: a field holding `1.38`
+  /// does not need to be told it comes to $1.38.
+  String? get _runningTotal {
+    final parts = amountParts(widget.controller.text);
+    if (parts.length < 2) return null;
+    return '= ${formatMoney(addUp(parts))}';
+  }
+
+  /// A key for the plus, because a phone's number pad may not have one.
+  void _addPart() {
+    final text = widget.controller.text;
+    if (text.trim().isEmpty || text.trimRight().endsWith('+')) return;
+    widget.controller.text = '$text + ';
+    widget.controller.selection = TextSelection.collapsed(
+      offset: widget.controller.text.length,
+    );
+    widget.onChanged?.call(widget.controller.text);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return TextField(
-      controller: controller,
-      autofocus: autofocus,
-      onChanged: onChanged,
-      onSubmitted: onSubmitted,
+      controller: widget.controller,
+      autofocus: widget.autofocus,
+      onChanged: widget.onChanged,
+      onSubmitted: widget.onSubmitted,
       textAlign: TextAlign.right,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: const [CentsInputFormatter()],
       decoration: InputDecoration(
-        labelText: label,
+        labelText: widget.label,
         // What the field will hold, not an example of what to put in it: a
         // hint reading "250.00" is a number the reader has to decide not to
         // take literally.
         hintText: '0.00',
         prefixText: r'$',
+        // The sum, while there is one to show. It is the core's answer to what
+        // was typed, not this field's opinion of it.
+        helperText: _runningTotal,
+        suffixIcon: IconButton(
+          onPressed: _addPart,
+          icon: const Icon(Icons.add, size: 18),
+          tooltip: 'Add another amount',
+        ),
         isDense: true,
         border: const OutlineInputBorder(),
       ),

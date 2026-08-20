@@ -74,7 +74,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1593178094;
+  int get rustContentHash => 359984009;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -170,6 +170,8 @@ abstract class RustLibApi extends BaseApi {
     required int taxRatePpm,
     int? foodRatePpm,
   });
+
+  PlatformInt64 crateApiEntryTotalOf({required Int64List parts});
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -952,6 +954,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         debugName: "set_home_location",
         argNames: ["name", "areaCode", "taxRatePpm", "foodRatePpm"],
       );
+
+  @override
+  PlatformInt64 crateApiEntryTotalOf({required Int64List parts}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_i_64_strict(parts, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 26)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_i_64,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiEntryTotalOfConstMeta,
+        argValues: [parts],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEntryTotalOfConstMeta =>
+      const TaskConstMeta(debugName: "total_of", argNames: ["parts"]);
 
   @protected
   String dco_decode_String(dynamic raw) {

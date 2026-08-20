@@ -562,3 +562,14 @@ Future<rust_categories.CategoryDto> createCategory({
 /// Add a group for categories to go in.
 Future<rust_categories.CategoryGroupDto> createCategoryGroup(String name) =>
     rust_categories.createCategoryGroup(name: name);
+
+/// Add up amounts typed as separate figures.
+///
+/// Synchronous: it reads no database, so a field can total as it is typed
+/// rather than a frame later. The adding is the core's — a frontend that adds
+/// money has to do it again for every platform, and the copies drift.
+Cents totalOf(List<Cents> parts) => fromCore(
+      rust_entry.totalOf(
+        parts: Int64List.fromList([for (final part in parts) part.value]),
+      ),
+    );

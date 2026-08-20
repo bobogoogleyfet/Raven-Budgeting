@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:app/src/api.dart';
 import 'package:app/src/money.dart';
 import 'package:app/src/rust/api/db.dart';
+import 'package:app/src/widgets/cents_field.dart';
 import 'package:app/src/rust/api/transactions.dart' as rust_txn;
 import 'package:app/src/rust/frb_generated.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -302,5 +303,21 @@ void main() {
     expect(row.perMonth?.value, 6500);
     expect(row.budgeted?.value, 78000);
     expect(row.isMultiMonth, isTrue);
+  });
+
+  test('several amounts typed into one field come to their sum', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    // Three items rung up under one category. The adding is the core's: a
+    // frontend that does it has to do it again for every platform.
+    expect(amountValue('1.38 + 1.84')?.value, 322);
+    expect(amountValue('1.38 + 1.84 + 2.99')?.value, 621);
+
+    // A part not typed yet is nothing, not a zero.
+    expect(amountValue('1.38 + ')?.value, 138);
+    expect(amountValue(''), isNull);
+
+    // A refund still works, and still subtracts.
+    expect(amountValue('-5.00 + 2.00')?.value, -300);
   });
 }

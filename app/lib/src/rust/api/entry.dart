@@ -114,6 +114,15 @@ Future<void> setHomeLocation({
 Future<RateReleaseDto?> rateRelease() =>
     RustLib.instance.api.crateApiEntryRateRelease();
 
+/// Add up amounts typed as separate figures — `1.38 + 1.84`.
+///
+/// Synchronous and lockless on purpose: it reads no database, so it can run on
+/// the UI thread while somebody is typing rather than arriving a frame later.
+/// The adding itself is the core's, because a frontend that adds money has to
+/// do it again for every platform.
+PlatformInt64 totalOf({required Int64List parts}) =>
+    RustLib.instance.api.crateApiEntryTotalOf(parts: parts);
+
 class AreaDto {
   /// The publisher's jurisdiction code, so a location made from this area
   /// can follow it through later revisions.

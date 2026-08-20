@@ -15,6 +15,7 @@ import '../dates.dart';
 import '../money.dart';
 import '../widgets/cents_field.dart';
 import '../widgets/combobox.dart';
+import '../widgets/date_field.dart';
 import 'review_dialog.dart';
 
 /// How long to wait after a keystroke before asking the core.
@@ -229,7 +230,9 @@ class _EntryScreenState extends State<EntryScreen> {
     final rows = <DraftRow>[];
     if (overrides == null) {
       for (final row in _rows) {
-        final cents = parseCents(row.amount.text);
+        // What the field comes to, which may be several figures added by the
+        // core — three items rung up under one category are one subtotal.
+        final cents = amountValue(row.amount.text);
         // A row still being typed is left out rather than sent as zero: a
         // $0.00 line would claim the user meant to file nothing under that
         // category.
@@ -346,18 +349,6 @@ class _EntryScreenState extends State<EntryScreen> {
     }
   }
 
-  Future<void> _pickDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.parse(_date),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (picked == null) return;
-    setState(() => _date = today(picked));
-    _schedulePreview();
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -375,10 +366,15 @@ class _EntryScreenState extends State<EntryScreen> {
       children: [
         _Field(
           label: 'Date',
-          child: OutlinedButton.icon(
-            onPressed: _pickDate,
-            icon: const Icon(Icons.calendar_today_outlined, size: 18),
-            label: Text(_date),
+          child: DateField(
+            value: _date,
+            onChanged: (iso) {
+              // Empty while the segments are half-typed. Keeping the last good
+              // date would preview a receipt against a day the user is in the
+              // middle of changing.
+              setState(() => _date = iso);
+              _schedulePreview();
+            },
           ),
         ),
         _Field(
