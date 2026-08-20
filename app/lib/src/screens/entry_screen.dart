@@ -507,6 +507,7 @@ class _EntryScreenState extends State<EntryScreen> {
             // jurisdictions, and dropping them over the form on focus helps
             // nobody.
             openOnFocus: false,
+            noMatchLabel: 'No Utah jurisdiction matches “{typed}”.',
             // Only a published jurisdiction, or somewhere already shopped. A
             // name the state does not publish would be created at 0% and
             // record no tax on every receipt filed against it — which is the
@@ -637,6 +638,17 @@ class _CategoryRow extends StatelessWidget {
                   options: [for (final c in options) c.name],
                   hint: 'Select a category',
                   emptyLabel: 'No categories yet.',
+                  // Pick one, never invent one. The chart of accounts is what
+                  // every report groups by, so a name typed against a receipt
+                  // in a hurry would become a permanent heading of its own —
+                  // and the field used to offer exactly that ("Press Enter to
+                  // add …") while `onCommit` quietly matched nothing and left
+                  // the row with no category at all. Categories are made on
+                  // the Budget screen, deliberately, where the group they
+                  // belong to is part of the question.
+                  strict: true,
+                  noMatchLabel:
+                      'No category called “{typed}”. Add it on the Budget screen.',
                   onSubmitted: onCategoryDone,
                   onCommit: (name) {
                     final match = options

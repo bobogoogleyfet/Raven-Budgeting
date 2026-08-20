@@ -449,6 +449,54 @@ void main() {
     expect(popped, isTrue);
   });
 
+  testWidgets('a category cannot be invented by typing it into the row',
+      (tester) async {
+    final fake = Fake();
+    await pump(tester, fake);
+
+    // The field used to offer "Press Enter to add “Vet”" while onCommit quietly
+    // matched nothing — so the prompt promised a category, none was made, and
+    // the row was left with no category at all.
+    final category = find.widgetWithText(TextField, 'Select a category');
+    expect(category, findsOneWidget);
+    // Tapped first: the suggestion list is an overlay that opens on focus, and
+    // enterText alone does not raise it.
+    await tester.tap(category);
+    await tester.pumpAndSettle();
+    await tester.enterText(category, 'Vet');
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Press Enter to add'), findsNothing,
+        reason: 'the form must not offer to create a category');
+    // Refusing without saying why reads as a bug, so it names the fix.
+    expect(find.textContaining('No category called'), findsOneWidget);
+    expect(find.textContaining('Budget screen'), findsOneWidget);
+
+    // Enter does not take it either: a strict field keeps the last name it
+    // knew rather than one it does not.
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(find.text('Vet'), findsNothing);
+  });
+
+  testWidgets('a known category is still picked normally', (tester) async {
+    // The guard must not cost the ordinary case: the whole list is still one
+    // keystroke away.
+    final fake = Fake();
+    await pump(tester, fake);
+
+    final category = find.widgetWithText(TextField, 'Select a category');
+    await tester.tap(category);
+    await tester.pumpAndSettle();
+    await tester.enterText(category, 'Groc');
+    await tester.pumpAndSettle();
+    expect(find.text('Groceries'), findsWidgets);
+
+    await tester.tap(find.text('Groceries').last);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'Groceries'), findsOneWidget);
+  });
+
   testWidgets('a failed save says so and keeps the receipt', (tester) async {
     final fake = Fake()
       ..previewResult = ((draft) => preview(

@@ -50,6 +50,7 @@ class Combobox extends StatefulWidget {
     this.label,
     this.hint,
     this.emptyLabel = 'Nothing here yet.',
+    this.noMatchLabel,
     this.onSubmitted,
     this.openOnFocus = true,
     this.strict = false,
@@ -68,6 +69,14 @@ class Combobox extends StatefulWidget {
   /// What the list says when the box is empty and there is nothing to offer.
   final String emptyLabel;
 
+  /// What a [strict] list says when what was typed matches nothing.
+  ///
+  /// Needed per field, because the reason a name is refused differs and a
+  /// refusal that cannot say why reads as a bug: an unpublished city and a
+  /// category that has not been created yet are different problems with
+  /// different fixes. `{typed}` is replaced with what the user typed.
+  final String? noMatchLabel;
+
   /// Enter on a committed value, for moving on through the form.
   final VoidCallback? onSubmitted;
 
@@ -84,8 +93,12 @@ class Combobox extends StatefulWidget {
   /// more authoritative than the list. A *place* is not: the tax rate comes
   /// from a published jurisdiction, and a name that matches none of them would
   /// be created at 0% and quietly record no tax on every receipt filed against
-  /// it. So a strict field keeps the last name it knew rather than taking one
-  /// it does not.
+  /// it. Nor is a *category*: the chart of accounts is the structure every
+  /// report is grouped by, and a typo entered against a receipt would become a
+  /// permanent one-row heading nobody meant to create.
+  ///
+  /// So a strict field keeps the last name it knew rather than taking one it
+  /// does not, and never offers to create anything.
   final bool strict;
 
   /// Supplied when something else needs to hand focus to this field — the form
@@ -273,7 +286,8 @@ class _ComboboxState extends State<Combobox> {
                       typed.isEmpty
                           ? widget.emptyLabel
                           : widget.strict
-                              ? 'No Utah jurisdiction matches “$typed”.'
+                              ? (widget.noMatchLabel ?? 'Nothing matches “{typed}”.')
+                                  .replaceAll('{typed}', typed)
                               : 'Press Enter to add “$typed”',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
