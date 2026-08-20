@@ -140,6 +140,43 @@ pub fn budget_status(db: &Db, as_of: YearMonth) -> Result<Vec<CategoryBudgetStat
         .collect())
 }
 
+/// What is budgeted this month, and what has been spent against it.
+///
+/// A screen that leads with one figure needs that figure computed here rather
+/// than by summing rows in a frontend: adding money is arithmetic, and rule 4
+/// keeps arithmetic on this side of the boundary so it is written once instead
+/// of once per platform.
+///
+/// Both figures are for the **month**, not the cycle. A yearly line
+/// contributes its monthly share to `budgeted`, which is what makes the pair
+/// comparable — a $780 insurance bill in `budgeted` would swamp a month whose
+/// other envelopes total a few hundred, and answer a question nobody asked.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonthTotals {
+    /// The sum of every budgeted category's contribution for this month.
+    pub budgeted: Money,
+    /// The sum of what was spent in this month against those categories.
+    pub spent: Money,
+}
+
+/// [`MonthTotals`] for `as_of`.
+///
+/// Categories with no line in force contribute nothing to `budgeted`, but
+/// their spending still counts towards `spent`: money that went out is money
+/// that went out, and hiding it because nobody budgeted for it would make the
+/// total disagree with the expense list.
+pub fn month_totals(db: &Db, as_of: YearMonth) -> Result<MonthTotals> {
+    let rows = budget_status(db, as_of)?;
+    Ok(MonthTotals {
+        budgeted: rows
+            .iter()
+            .filter_map(|r| r.status.as_ref())
+            .map(|s| s.monthly_contribution)
+            .sum(),
+        spent: rows.iter().map(|r| r.spent_this_month).sum(),
+    })
+}
+
 /// One category's budget status, for a detail screen.
 ///
 /// Works for an unbudgeted or archived category too — it reports a row with no

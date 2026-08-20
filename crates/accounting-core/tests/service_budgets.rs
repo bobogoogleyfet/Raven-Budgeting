@@ -620,3 +620,75 @@ fn a_month_before_the_line_starts_reports_no_contribution_yet() {
     );
     assert_clean(&db);
 }
+
+// ---------------------------------------------------------------------------
+// month_totals
+// ---------------------------------------------------------------------------
+
+#[test]
+fn month_totals_add_up_the_month_rather_than_the_cycle() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    let gas = cat(&db, "Gas");
+
+    set_line(&db, &record(groceries, Period::Monthly, (2026, 1), 20_000));
+    set_line(&db, &record(gas, Period::Monthly, (2026, 1), 30_000));
+
+    spend_on(&db, "2026-08-04", groceries, 7_550);
+    spend_on(&db, "2026-08-19", gas, 4_200);
+    // Another month's money, which this month's total must not claim.
+    spend_on(&db, "2026-07-30", groceries, 99_900);
+
+    let totals = service::month_totals(&db, ym(2026, 8)).expect("month_totals");
+
+    assert_eq!(totals.budgeted, m(50_000), "$200.00 plus $300.00");
+    assert_eq!(totals.spent, m(11_750), "$75.50 plus $42.00");
+    assert_clean(&db);
+}
+
+#[test]
+fn a_yearly_line_contributes_its_monthly_share_to_the_total() {
+    let db = seeded_db();
+    let insurance = cat(&db, "Car Insurance");
+    let groceries = cat(&db, "Groceries");
+
+    // $780.00 a year is $65.00 a month. Putting the whole bill into a month's
+    // budget total would swamp every other envelope and answer a question
+    // nobody asked.
+    set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 78_000));
+    set_line(&db, &record(groceries, Period::Monthly, (2026, 1), 20_000));
+
+    let totals = service::month_totals(&db, ym(2026, 8)).expect("month_totals");
+
+    assert_eq!(totals.budgeted, m(26_500), "$65.00 plus $200.00");
+    assert_clean(&db);
+}
+
+#[test]
+fn spending_with_no_budget_still_counts_as_spent() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    let hobbies = cat(&db, "Hobbies");
+
+    set_line(&db, &record(groceries, Period::Monthly, (2026, 1), 20_000));
+    // Nobody budgeted for this, but the money still left the account. Hiding
+    // it would make the total disagree with the expense list.
+    spend_on(&db, "2026-08-11", hobbies, 3_000);
+
+    let totals = service::month_totals(&db, ym(2026, 8)).expect("month_totals");
+
+    assert_eq!(totals.budgeted, m(20_000));
+    assert_eq!(totals.spent, m(3_000));
+    assert_clean(&db);
+}
+
+#[test]
+fn a_month_with_nothing_budgeted_totals_zero_rather_than_failing() {
+    let db = seeded_db();
+
+    let totals = service::month_totals(&db, ym(2026, 8)).expect("month_totals");
+
+    assert_eq!(totals.budgeted, Money::ZERO);
+    assert_eq!(totals.spent, Money::ZERO);
+    assert_clean(&db);
+}
