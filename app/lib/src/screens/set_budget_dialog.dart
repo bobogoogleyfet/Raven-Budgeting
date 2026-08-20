@@ -79,7 +79,7 @@ class _SetBudgetDialogState extends State<SetBudgetDialog> {
 
   Future<void> _save() async {
     final int? categoryId = _categoryId;
-    final Cents? amount = parseCents(_amount.text);
+    final Cents? amount = amountValue(_amount.text);
     if (categoryId == null) {
       setState(() => _problem = 'Pick a category to budget for.');
       return;

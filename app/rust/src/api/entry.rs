@@ -476,3 +476,17 @@ pub fn rate_release() -> Result<Option<RateReleaseDto>, String> {
             effective_on: r.effective_on,
         }))
 }
+
+/// Add up amounts typed as separate figures — `1.38 + 1.84`.
+///
+/// Synchronous and lockless on purpose: it reads no database, so it can run on
+/// the UI thread while somebody is typing rather than arriving a frame later.
+/// The adding itself is the core's, because a frontend that adds money has to
+/// do it again for every platform.
+#[flutter_rust_bridge::frb(sync)]
+pub fn total_of(parts: Vec<i64>) -> Result<i64, String> {
+    let amounts: Vec<Money> = parts.into_iter().map(Money::from_cents).collect();
+    Money::checked_total(&amounts)
+        .map(|total| total.cents())
+        .ok_or_else(|| "that adds up to more than money goes".to_string())
+}

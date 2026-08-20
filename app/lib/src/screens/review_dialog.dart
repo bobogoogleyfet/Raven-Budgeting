@@ -43,12 +43,12 @@ List<DraftRow> editsFrom(List<ReviewLine> lines) => [
       for (final line in lines)
         DraftRow(
           categoryId: line.categoryId,
-          subtotal: parseCents(line.subtotalText) ?? zero,
+          subtotal: amountValue(line.subtotalText) ?? zero,
           // Only a figure the user actually touched is sent as an override.
           // Sending every row's tax back would make each save look like it had
           // been read off the paper, and `taxIsEstimated` would stop meaning
           // anything.
-          tax: line.taxEdited ? (parseCents(line.taxText) ?? zero) : null,
+          tax: line.taxEdited ? (amountValue(line.taxText) ?? zero) : null,
         ),
     ];
 
