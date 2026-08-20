@@ -6,6 +6,7 @@ import 'src/destinations.dart';
 import 'src/rust/api/db.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/screens/categories_screen.dart';
+import 'src/screens/expenses_screen.dart';
 import 'src/screens/home_screen.dart';
 import 'src/screens/placeholder_screen.dart';
 import 'src/shell.dart';
@@ -46,8 +47,7 @@ class AccountingApp extends StatelessWidget {
   Widget _screenFor(BuildContext context, Destination destination) {
     return switch (destination) {
       Destination.home => const HomeScreen(),
-      Destination.expenses =>
-        PlaceholderScreen(destination: destination, phase: 'phase 3'),
+      Destination.expenses => const ExpensesScreen(),
       Destination.inbox ||
       Destination.budget =>
         PlaceholderScreen(destination: destination, phase: 'phase 5'),
