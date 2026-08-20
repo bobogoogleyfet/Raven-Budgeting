@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'src/destinations.dart';
 import 'src/rust/api/db.dart';
 import 'src/rust/frb_generated.dart';
+import 'src/screens/budget_screen.dart';
 import 'src/screens/entry_screen.dart';
 import 'src/screens/expenses_screen.dart';
 import 'src/screens/home_screen.dart';
@@ -48,8 +49,8 @@ class AccountingApp extends StatelessWidget {
     return switch (destination) {
       Destination.home => const HomeScreen(),
       Destination.expenses => const ExpensesScreen(),
-      Destination.inbox ||
-      Destination.budget =>
+      Destination.budget => const BudgetScreen(),
+      Destination.inbox =>
         PlaceholderScreen(destination: destination, phase: 'phase 5'),
       Destination.settings => PlaceholderScreen(
           destination: destination,
