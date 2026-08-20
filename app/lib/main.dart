@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'src/destinations.dart';
 import 'src/rust/api/db.dart';
 import 'src/rust/frb_generated.dart';
-import 'src/screens/categories_screen.dart';
+import 'src/screens/entry_screen.dart';
 import 'src/screens/expenses_screen.dart';
 import 'src/screens/home_screen.dart';
 import 'src/screens/placeholder_screen.dart';
@@ -62,16 +62,13 @@ class AccountingApp extends StatelessWidget {
   /// Entering an expense is a focused task, so it gets a screen of its own
   /// rather than a pane inside the shell — Material 3's full-screen dialog,
   /// which is also what makes it work identically on a phone.
-  ///
-  /// The form itself is phase 4. Until then this shows the categories it will
-  /// be built out of, which at least proves the bridge end to end.
   void _newExpense(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
         builder: (context) => Scaffold(
           appBar: AppBar(title: const Text('New expense')),
-          body: const CategoriesScreen(),
+          body: const EntryScreen(),
         ),
       ),
     );

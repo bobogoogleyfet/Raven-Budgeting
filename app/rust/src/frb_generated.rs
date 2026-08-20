@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -157362424;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -929842350;
 
 // Section: executor
 
@@ -112,6 +112,72 @@ fn wire__crate__api__transactions__delete_transaction_impl(
         },
     )
 }
+fn wire__crate__api__entry__ensure_location_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "ensure_location",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_name = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::ensure_location(api_name)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__entry__entry_context_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "entry_context",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_merchant = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::entry_context(api_merchant)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__transactions__filter_values_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -138,6 +204,38 @@ fn wire__crate__api__transactions__filter_values_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::transactions::filter_values()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__entry__home_location_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "home_location",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::home_location()?;
                     Ok(output_ok)
                 })())
             }
@@ -178,6 +276,38 @@ fn wire__crate__api__init__init_app_impl(
         },
     )
 }
+fn wire__crate__api__entry__list_areas_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "list_areas",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::list_areas()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__categories__list_categories_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -204,6 +334,70 @@ fn wire__crate__api__categories__list_categories_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::categories::list_categories()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__entry__list_locations_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "list_locations",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::list_locations()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__entry__list_merchants_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "list_merchants",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::list_merchants()?;
                     Ok(output_ok)
                 })())
             }
@@ -319,6 +513,72 @@ fn wire__crate__api__db__open_database_impl(
         },
     )
 }
+fn wire__crate__api__entry__preview_subtotals_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "preview_subtotals",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_draft = <crate::api::entry::SubtotalDraftDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::preview_subtotals(api_draft)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__entry__save_subtotals_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "save_subtotals",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_draft = <crate::api::entry::SubtotalDraftDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::entry::save_subtotals(api_draft)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 
 // Section: dart2rust
 
@@ -327,6 +587,22 @@ impl SseDecode for String {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <Vec<u8>>::sse_decode(deserializer);
         return String::from_utf8(inner).unwrap();
+    }
+}
+
+impl SseDecode for crate::api::entry::AreaDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_code = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_taxRatePpm = <u32>::sse_decode(deserializer);
+        let mut var_foodRatePpm = <Option<u32>>::sse_decode(deserializer);
+        return crate::api::entry::AreaDto {
+            code: var_code,
+            name: var_name,
+            tax_rate_ppm: var_taxRatePpm,
+            food_rate_ppm: var_foodRatePpm,
+        };
     }
 }
 
@@ -387,6 +663,43 @@ impl SseDecode for crate::api::categories::CategoryDto {
     }
 }
 
+impl SseDecode for crate::api::entry::CategoryRateDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_categoryId = <i64>::sse_decode(deserializer);
+        let mut var_ratePpm = <u32>::sse_decode(deserializer);
+        return crate::api::entry::CategoryRateDto {
+            category_id: var_categoryId,
+            rate_ppm: var_ratePpm,
+        };
+    }
+}
+
+impl SseDecode for crate::api::entry::ContextDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_merchantName = <Option<String>>::sse_decode(deserializer);
+        let mut var_locationName = <Option<String>>::sse_decode(deserializer);
+        let mut var_taxRatePpm = <u32>::sse_decode(deserializer);
+        let mut var_foodRatePpm = <Option<u32>>::sse_decode(deserializer);
+        let mut var_categoryRates =
+            <Vec<crate::api::entry::CategoryRateDto>>::sse_decode(deserializer);
+        let mut var_defaultCategoryId = <Option<i64>>::sse_decode(deserializer);
+        let mut var_detailLevel = <String>::sse_decode(deserializer);
+        let mut var_recentMerchants = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::entry::ContextDto {
+            merchant_name: var_merchantName,
+            location_name: var_locationName,
+            tax_rate_ppm: var_taxRatePpm,
+            food_rate_ppm: var_foodRatePpm,
+            category_rates: var_categoryRates,
+            default_category_id: var_defaultCategoryId,
+            detail_level: var_detailLevel,
+            recent_merchants: var_recentMerchants,
+        };
+    }
+}
+
 impl SseDecode for crate::api::transactions::FilterValueDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -434,6 +747,18 @@ impl SseDecode for Vec<String> {
     }
 }
 
+impl SseDecode for Vec<crate::api::entry::AreaDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::entry::AreaDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::budget::BudgetRowDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -460,6 +785,20 @@ impl SseDecode for Vec<crate::api::categories::CategoryDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::entry::CategoryRateDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::entry::CategoryRateDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::transactions::FilterValueDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -469,6 +808,30 @@ impl SseDecode for Vec<crate::api::transactions::FilterValueDto> {
             ans_.push(<crate::api::transactions::FilterValueDto>::sse_decode(
                 deserializer,
             ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::entry::LocationDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::entry::LocationDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::entry::MerchantDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::entry::MerchantDto>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -498,6 +861,32 @@ impl SseDecode for Vec<u8> {
     }
 }
 
+impl SseDecode for Vec<crate::api::entry::SplitRowDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::entry::SplitRowDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::entry::SubtotalRowDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::entry::SubtotalRowDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::transactions::TxnSummaryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -509,6 +898,36 @@ impl SseDecode for Vec<crate::api::transactions::TxnSummaryDto> {
             ));
         }
         return ans_;
+    }
+}
+
+impl SseDecode for crate::api::entry::LocationDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <i64>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_taxRatePpm = <u32>::sse_decode(deserializer);
+        let mut var_isHome = <bool>::sse_decode(deserializer);
+        return crate::api::entry::LocationDto {
+            id: var_id,
+            name: var_name,
+            tax_rate_ppm: var_taxRatePpm,
+            is_home: var_isHome,
+        };
+    }
+}
+
+impl SseDecode for crate::api::entry::MerchantDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <i64>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_defaultCategoryId = <Option<i64>>::sse_decode(deserializer);
+        return crate::api::entry::MerchantDto {
+            id: var_id,
+            name: var_name,
+            default_category_id: var_defaultCategoryId,
+        };
     }
 }
 
@@ -557,6 +976,17 @@ impl SseDecode for Option<i64> {
     }
 }
 
+impl SseDecode for Option<crate::api::entry::LocationDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::entry::LocationDto>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<u32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -576,6 +1006,94 @@ impl SseDecode for Option<Vec<i64>> {
         } else {
             return None;
         }
+    }
+}
+
+impl SseDecode for crate::api::entry::PreviewDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_subtotal = <i64>::sse_decode(deserializer);
+        let mut var_tax = <i64>::sse_decode(deserializer);
+        let mut var_total = <i64>::sse_decode(deserializer);
+        let mut var_taxIsEstimated = <bool>::sse_decode(deserializer);
+        let mut var_taxRatePpm = <u32>::sse_decode(deserializer);
+        let mut var_appliedRatePpm = <Option<u32>>::sse_decode(deserializer);
+        let mut var_unassigned = <i64>::sse_decode(deserializer);
+        let mut var_detailLevel = <String>::sse_decode(deserializer);
+        let mut var_rows = <Vec<crate::api::entry::SplitRowDto>>::sse_decode(deserializer);
+        let mut var_warnings = <Vec<String>>::sse_decode(deserializer);
+        let mut var_blockers = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::entry::PreviewDto {
+            subtotal: var_subtotal,
+            tax: var_tax,
+            total: var_total,
+            tax_is_estimated: var_taxIsEstimated,
+            tax_rate_ppm: var_taxRatePpm,
+            applied_rate_ppm: var_appliedRatePpm,
+            unassigned: var_unassigned,
+            detail_level: var_detailLevel,
+            rows: var_rows,
+            warnings: var_warnings,
+            blockers: var_blockers,
+        };
+    }
+}
+
+impl SseDecode for crate::api::entry::SplitRowDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_categoryId = <Option<i64>>::sse_decode(deserializer);
+        let mut var_categoryName = <Option<String>>::sse_decode(deserializer);
+        let mut var_subtotal = <i64>::sse_decode(deserializer);
+        let mut var_tax = <i64>::sse_decode(deserializer);
+        let mut var_amount = <i64>::sse_decode(deserializer);
+        return crate::api::entry::SplitRowDto {
+            category_id: var_categoryId,
+            category_name: var_categoryName,
+            subtotal: var_subtotal,
+            tax: var_tax,
+            amount: var_amount,
+        };
+    }
+}
+
+impl SseDecode for crate::api::entry::SubtotalDraftDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <Option<i64>>::sse_decode(deserializer);
+        let mut var_txnDate = <String>::sse_decode(deserializer);
+        let mut var_merchant = <Option<String>>::sse_decode(deserializer);
+        let mut var_location = <Option<String>>::sse_decode(deserializer);
+        let mut var_rows = <Vec<crate::api::entry::SubtotalRowDto>>::sse_decode(deserializer);
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        let mut var_needsReview = <bool>::sse_decode(deserializer);
+        let mut var_rememberDefaults = <bool>::sse_decode(deserializer);
+        return crate::api::entry::SubtotalDraftDto {
+            id: var_id,
+            txn_date: var_txnDate,
+            merchant: var_merchant,
+            location: var_location,
+            rows: var_rows,
+            notes: var_notes,
+            needs_review: var_needsReview,
+            remember_defaults: var_rememberDefaults,
+        };
+    }
+}
+
+impl SseDecode for crate::api::entry::SubtotalRowDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_categoryId = <Option<i64>>::sse_decode(deserializer);
+        let mut var_subtotal = <i64>::sse_decode(deserializer);
+        let mut var_tax = <Option<i64>>::sse_decode(deserializer);
+        let mut var_note = <Option<String>>::sse_decode(deserializer);
+        return crate::api::entry::SubtotalRowDto {
+            category_id: var_categoryId,
+            subtotal: var_subtotal,
+            tax: var_tax,
+            note: var_note,
+        };
     }
 }
 
@@ -643,17 +1161,25 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        3 => wire__crate__api__transactions__filter_values_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__init__init_app_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__categories__list_categories_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__transactions__list_transactions_impl(
+        3 => wire__crate__api__entry__ensure_location_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__entry__entry_context_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__transactions__filter_values_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__entry__home_location_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__init__init_app_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__entry__list_areas_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__categories__list_categories_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__entry__list_locations_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__entry__list_merchants_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__transactions__list_transactions_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        7 => wire__crate__api__budget__month_totals_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__db__open_database_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__budget__month_totals_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__db__open_database_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__entry__preview_subtotals_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__entry__save_subtotals_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -672,6 +1198,24 @@ fn pde_ffi_dispatcher_sync_impl(
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::AreaDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.code.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.tax_rate_ppm.into_into_dart().into_dart(),
+            self.food_rate_ppm.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::entry::AreaDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::AreaDto> for crate::api::entry::AreaDto {
+    fn into_into_dart(self) -> crate::api::entry::AreaDto {
+        self
+    }
+}
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::budget::BudgetRowDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
@@ -728,6 +1272,51 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::categories::CategoryDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::CategoryRateDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.category_id.into_into_dart().into_dart(),
+            self.rate_ppm.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::entry::CategoryRateDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::CategoryRateDto>
+    for crate::api::entry::CategoryRateDto
+{
+    fn into_into_dart(self) -> crate::api::entry::CategoryRateDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::ContextDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.merchant_name.into_into_dart().into_dart(),
+            self.location_name.into_into_dart().into_dart(),
+            self.tax_rate_ppm.into_into_dart().into_dart(),
+            self.food_rate_ppm.into_into_dart().into_dart(),
+            self.category_rates.into_into_dart().into_dart(),
+            self.default_category_id.into_into_dart().into_dart(),
+            self.detail_level.into_into_dart().into_dart(),
+            self.recent_merchants.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::entry::ContextDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::ContextDto>
+    for crate::api::entry::ContextDto
+{
+    fn into_into_dart(self) -> crate::api::entry::ContextDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::transactions::FilterValueDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -771,6 +1360,51 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::transactions::FilterValuesDto
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::LocationDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.tax_rate_ppm.into_into_dart().into_dart(),
+            self.is_home.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::entry::LocationDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::LocationDto>
+    for crate::api::entry::LocationDto
+{
+    fn into_into_dart(self) -> crate::api::entry::LocationDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::MerchantDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.default_category_id.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::entry::MerchantDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::MerchantDto>
+    for crate::api::entry::MerchantDto
+{
+    fn into_into_dart(self) -> crate::api::entry::MerchantDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::budget::MonthTotalsDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -788,6 +1422,107 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::budget::MonthTotalsDto>
     for crate::api::budget::MonthTotalsDto
 {
     fn into_into_dart(self) -> crate::api::budget::MonthTotalsDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::PreviewDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.subtotal.into_into_dart().into_dart(),
+            self.tax.into_into_dart().into_dart(),
+            self.total.into_into_dart().into_dart(),
+            self.tax_is_estimated.into_into_dart().into_dart(),
+            self.tax_rate_ppm.into_into_dart().into_dart(),
+            self.applied_rate_ppm.into_into_dart().into_dart(),
+            self.unassigned.into_into_dart().into_dart(),
+            self.detail_level.into_into_dart().into_dart(),
+            self.rows.into_into_dart().into_dart(),
+            self.warnings.into_into_dart().into_dart(),
+            self.blockers.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::entry::PreviewDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::PreviewDto>
+    for crate::api::entry::PreviewDto
+{
+    fn into_into_dart(self) -> crate::api::entry::PreviewDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::SplitRowDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.category_id.into_into_dart().into_dart(),
+            self.category_name.into_into_dart().into_dart(),
+            self.subtotal.into_into_dart().into_dart(),
+            self.tax.into_into_dart().into_dart(),
+            self.amount.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::entry::SplitRowDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::SplitRowDto>
+    for crate::api::entry::SplitRowDto
+{
+    fn into_into_dart(self) -> crate::api::entry::SplitRowDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::SubtotalDraftDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.txn_date.into_into_dart().into_dart(),
+            self.merchant.into_into_dart().into_dart(),
+            self.location.into_into_dart().into_dart(),
+            self.rows.into_into_dart().into_dart(),
+            self.notes.into_into_dart().into_dart(),
+            self.needs_review.into_into_dart().into_dart(),
+            self.remember_defaults.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::entry::SubtotalDraftDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::SubtotalDraftDto>
+    for crate::api::entry::SubtotalDraftDto
+{
+    fn into_into_dart(self) -> crate::api::entry::SubtotalDraftDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::entry::SubtotalRowDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.category_id.into_into_dart().into_dart(),
+            self.subtotal.into_into_dart().into_dart(),
+            self.tax.into_into_dart().into_dart(),
+            self.note.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::entry::SubtotalRowDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::entry::SubtotalRowDto>
+    for crate::api::entry::SubtotalRowDto
+{
+    fn into_into_dart(self) -> crate::api::entry::SubtotalRowDto {
         self
     }
 }
@@ -822,6 +1557,16 @@ impl SseEncode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<u8>>::sse_encode(self.into_bytes(), serializer);
+    }
+}
+
+impl SseEncode for crate::api::entry::AreaDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.code, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <u32>::sse_encode(self.tax_rate_ppm, serializer);
+        <Option<u32>>::sse_encode(self.food_rate_ppm, serializer);
     }
 }
 
@@ -861,6 +1606,28 @@ impl SseEncode for crate::api::categories::CategoryDto {
     }
 }
 
+impl SseEncode for crate::api::entry::CategoryRateDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.category_id, serializer);
+        <u32>::sse_encode(self.rate_ppm, serializer);
+    }
+}
+
+impl SseEncode for crate::api::entry::ContextDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.merchant_name, serializer);
+        <Option<String>>::sse_encode(self.location_name, serializer);
+        <u32>::sse_encode(self.tax_rate_ppm, serializer);
+        <Option<u32>>::sse_encode(self.food_rate_ppm, serializer);
+        <Vec<crate::api::entry::CategoryRateDto>>::sse_encode(self.category_rates, serializer);
+        <Option<i64>>::sse_encode(self.default_category_id, serializer);
+        <String>::sse_encode(self.detail_level, serializer);
+        <Vec<String>>::sse_encode(self.recent_merchants, serializer);
+    }
+}
+
 impl SseEncode for crate::api::transactions::FilterValueDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -895,6 +1662,16 @@ impl SseEncode for Vec<String> {
     }
 }
 
+impl SseEncode for Vec<crate::api::entry::AreaDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::entry::AreaDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::budget::BudgetRowDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -915,12 +1692,42 @@ impl SseEncode for Vec<crate::api::categories::CategoryDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::entry::CategoryRateDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::entry::CategoryRateDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::transactions::FilterValueDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::transactions::FilterValueDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::entry::LocationDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::entry::LocationDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::entry::MerchantDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::entry::MerchantDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -945,6 +1752,26 @@ impl SseEncode for Vec<u8> {
     }
 }
 
+impl SseEncode for Vec<crate::api::entry::SplitRowDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::entry::SplitRowDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::entry::SubtotalRowDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::entry::SubtotalRowDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::transactions::TxnSummaryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -952,6 +1779,25 @@ impl SseEncode for Vec<crate::api::transactions::TxnSummaryDto> {
         for item in self {
             <crate::api::transactions::TxnSummaryDto>::sse_encode(item, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::api::entry::LocationDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <u32>::sse_encode(self.tax_rate_ppm, serializer);
+        <bool>::sse_encode(self.is_home, serializer);
+    }
+}
+
+impl SseEncode for crate::api::entry::MerchantDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <Option<i64>>::sse_encode(self.default_category_id, serializer);
     }
 }
 
@@ -993,6 +1839,16 @@ impl SseEncode for Option<i64> {
     }
 }
 
+impl SseEncode for Option<crate::api::entry::LocationDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::entry::LocationDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<u32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1010,6 +1866,58 @@ impl SseEncode for Option<Vec<i64>> {
         if let Some(value) = self {
             <Vec<i64>>::sse_encode(value, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::api::entry::PreviewDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.subtotal, serializer);
+        <i64>::sse_encode(self.tax, serializer);
+        <i64>::sse_encode(self.total, serializer);
+        <bool>::sse_encode(self.tax_is_estimated, serializer);
+        <u32>::sse_encode(self.tax_rate_ppm, serializer);
+        <Option<u32>>::sse_encode(self.applied_rate_ppm, serializer);
+        <i64>::sse_encode(self.unassigned, serializer);
+        <String>::sse_encode(self.detail_level, serializer);
+        <Vec<crate::api::entry::SplitRowDto>>::sse_encode(self.rows, serializer);
+        <Vec<String>>::sse_encode(self.warnings, serializer);
+        <Vec<String>>::sse_encode(self.blockers, serializer);
+    }
+}
+
+impl SseEncode for crate::api::entry::SplitRowDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<i64>>::sse_encode(self.category_id, serializer);
+        <Option<String>>::sse_encode(self.category_name, serializer);
+        <i64>::sse_encode(self.subtotal, serializer);
+        <i64>::sse_encode(self.tax, serializer);
+        <i64>::sse_encode(self.amount, serializer);
+    }
+}
+
+impl SseEncode for crate::api::entry::SubtotalDraftDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<i64>>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.txn_date, serializer);
+        <Option<String>>::sse_encode(self.merchant, serializer);
+        <Option<String>>::sse_encode(self.location, serializer);
+        <Vec<crate::api::entry::SubtotalRowDto>>::sse_encode(self.rows, serializer);
+        <Option<String>>::sse_encode(self.notes, serializer);
+        <bool>::sse_encode(self.needs_review, serializer);
+        <bool>::sse_encode(self.remember_defaults, serializer);
+    }
+}
+
+impl SseEncode for crate::api::entry::SubtotalRowDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<i64>>::sse_encode(self.category_id, serializer);
+        <i64>::sse_encode(self.subtotal, serializer);
+        <Option<i64>>::sse_encode(self.tax, serializer);
+        <Option<String>>::sse_encode(self.note, serializer);
     }
 }
 
