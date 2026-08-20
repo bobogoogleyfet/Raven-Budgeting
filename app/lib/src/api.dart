@@ -13,12 +13,14 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 import 'money.dart';
 import 'rust/api/budget.dart' as rust_budget;
 import 'rust/api/entry.dart' as rust_entry;
+import 'rust/api/rates.dart' as rust_rates;
 import 'rust/api/categories.dart' as rust_categories;
 import 'rust/api/transactions.dart' as rust_txn;
 
 export 'rust/api/categories.dart' show CategoryDto;
 export 'rust/api/entry.dart'
     show AreaDto, ContextDto, LocationDto, MerchantDto, RateReleaseDto;
+export 'rust/api/rates.dart' show RefreshDto;
 
 /// One row of the expense list.
 class TxnSummary {
@@ -474,3 +476,10 @@ Future<void> setHomeLocation({
 
 /// Which rate publication is installed, or null if none is.
 Future<rust_entry.RateReleaseDto?> rateRelease() => rust_entry.rateRelease();
+
+/// Refresh the rate table if the quarter has turned.
+///
+/// Never throws for being offline: a laptop that cannot reach the network is in its
+/// normal state, and last quarter's rates are estimates a receipt overrules
+/// anyway. The staleness is what gets surfaced, by [rateRelease].
+Future<rust_rates.RefreshDto> refreshRates() => rust_rates.refreshRates();
