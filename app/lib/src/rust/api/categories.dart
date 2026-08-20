@@ -31,6 +31,14 @@ Future<CategoryDto> createCategory({
   taxable: taxable,
 );
 
+/// Add a group for categories to go in.
+///
+/// Wanted because the seeded six are one person's idea of how spending divides
+/// up. Education ships as an empty group for the same reason: the shape is
+/// useful, the contents are personal.
+Future<CategoryGroupDto> createCategoryGroup({required String name}) =>
+    RustLib.instance.api.crateApiCategoriesCreateCategoryGroup(name: name);
+
 /// One row of the category list.
 ///
 /// Mirrors the Tauri shell's `CategoryDto` field for field, so the two

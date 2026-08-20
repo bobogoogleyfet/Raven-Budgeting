@@ -558,3 +558,7 @@ Future<rust_categories.CategoryDto> createCategory({
       name: name,
       taxable: taxable,
     );
+
+/// Add a group for categories to go in.
+Future<rust_categories.CategoryGroupDto> createCategoryGroup(String name) =>
+    rust_categories.createCategoryGroup(name: name);
