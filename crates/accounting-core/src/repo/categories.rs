@@ -266,6 +266,24 @@ pub fn uncategorized(db: &Db) -> Result<Category> {
 
 /// Add a category to a group, sorted after everything already in it.
 pub fn create(db: &Db, group_id: CategoryGroupId, name: &str) -> Result<Category> {
+    // Taxable, like the column's own default: most things a person adds are
+    // bought in a shop.
+    create_with_tax(db, group_id, name, true)
+}
+
+/// Create a category, saying whether the till adds sales tax to it.
+///
+/// Asked at creation rather than corrected afterwards. The column defaults to
+/// taxable, so a category made first and fixed second is taxable in between —
+/// and a receipt entered in that window records tax nobody was charged. A car
+/// payment at 7.45% is $537.25 where the statement says $500.00, and nothing
+/// on screen would say why.
+pub fn create_with_tax(
+    db: &Db,
+    group_id: CategoryGroupId,
+    name: &str,
+    taxable: bool,
+) -> Result<Category> {
     let name = name.trim();
     if name.is_empty() {
         return Err(CoreError::Invalid("category name is empty".to_string()));
@@ -292,8 +310,9 @@ pub fn create(db: &Db, group_id: CategoryGroupId, name: &str) -> Result<Category
         )?;
 
         tx.execute(
-            "INSERT INTO category (uuid, group_id, name, sort_order) VALUES (?1, ?2, ?3, ?4)",
-            params![new_uuid(), group_id, name, sort_order],
+            "INSERT INTO category (uuid, group_id, name, sort_order, taxable) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![new_uuid(), group_id, name, sort_order, taxable],
         )?;
         Ok(CategoryId::new(tx.last_insert_rowid()))
     })?;

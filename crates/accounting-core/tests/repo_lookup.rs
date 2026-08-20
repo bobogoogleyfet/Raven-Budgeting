@@ -515,3 +515,46 @@ fn touch_stores_exactly_the_timestamp_it_is_given() {
 
     assert_clean(&db);
 }
+
+// ---------------------------------------------------------------------------
+// Creating a category with its tax treatment
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_new_category_is_taxable_unless_it_is_told_otherwise() {
+    let db = seeded_db();
+    let bills = categories::list_groups(&db)
+        .expect("groups")
+        .into_iter()
+        .find(|g| g.name == "Bills")
+        .expect("Bills");
+
+    let shopped = categories::create(&db, bills.id, "Stationery").expect("create");
+    assert!(shopped.taxable, "the column's own default");
+
+    // A car payment is not bought at a till: the amount on the statement is
+    // the amount paid, and adding 7.45% to it would invent money nobody was
+    // charged.
+    let billed = categories::create_with_tax(&db, bills.id, "Car Payment", false)
+        .expect("create");
+    assert!(!billed.taxable);
+    assert_eq!(billed.group_name, "Bills");
+}
+
+#[test]
+fn a_category_created_untaxed_is_untaxed_from_the_first_read() {
+    let db = seeded_db();
+    let bills = categories::list_groups(&db)
+        .expect("groups")
+        .into_iter()
+        .find(|g| g.name == "Bills")
+        .expect("Bills");
+
+    let created = categories::create_with_tax(&db, bills.id, "Car Payment", false)
+        .expect("create");
+
+    // Read back rather than trusted from the return value: a second write to
+    // fix the flag would leave a window where a receipt could be taxed.
+    let fetched = categories::get(&db, created.id).expect("get");
+    assert!(!fetched.taxable);
+}
