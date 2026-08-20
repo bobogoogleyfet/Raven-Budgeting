@@ -183,10 +183,20 @@ red is reserved for over budget. Past the seventh, categories fold into one
 grey arc — a generated eighth hue is indistinguishable from an existing one
 under CVD — except when the tail is a single category, which keeps its name.
 
+Selecting a category steps its arc onto a wider circle — the same angles, so it
+still sits over its own share — and lets the rest recede. Growing the stroke
+instead moved the arc's own edges, which made choosing one look like the data
+had changed.
+
+The legend names the seven the ring draws, then one row for the tail, then a
+link to the Budget screen. It deliberately does not list every budget: with a
+full chart of accounts budgeted that is twenty rows under a summary, which is
+a worse copy of a screen that already exists.
+
 The ring is drawn, not drawn *on*: arcs painted as paths, so it is
-resolution-independent and stays crisp at any device pixel ratio. Its
-jaggedness was never resolution — it was per-segment tracks turning every gap
-into a notch in the ring's outline.
+resolution-independent and stays crisp at any device pixel ratio — checked at
+2x. Its jaggedness was never resolution; it was per-segment tracks turning
+every gap into a notch in the ring's outline.
 
 This settled after one wrong turn worth recording: entering an expense was
 briefly the home surface itself, with no destination selected. That works on a
