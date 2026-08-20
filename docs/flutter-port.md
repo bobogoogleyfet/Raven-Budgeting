@@ -198,12 +198,14 @@ person knows they were seen.
   publication — silently, and forever. `tax_areas::match_key` strips a `, UT`
   suffix; the picker does not.
 
-One more the port has not closed: nothing in the Flutter app downloads a new
-rate table. The bridge installs what is bundled and adopts published areas, but
-there is no equivalent of the Tauri shell's background refresh, so the
-provenance line will read "superseded" from the first day of the next quarter
-and stay there. That is the state the message exists to make visible, which is
-some comfort, but it is not the same as fetching the file.
+Closed since: the app fetches the quarterly table itself. `api/rates.rs` does
+the one thing the core is not allowed to do — pull the bytes — and everything
+worth deciding stays in `service::rates`. It runs unawaited at launch, drops
+the database lock before the network call, and records the check before the
+attempt so a machine with no route out tries once a day rather than on every
+launch. Settings also has a "Check for new rates" button, which the TypeScript
+has no equivalent of: the provenance line makes staleness visible, and that
+makes it actionable.
 
 ## What must survive the port
 
