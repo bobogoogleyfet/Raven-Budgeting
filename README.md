@@ -98,6 +98,30 @@ The desktop app reads the same `pacc.db` layout the CLI uses, so `pacc doctor`,
 `pacc export` and `pacc backup` all work against it — point `--db` at the app data
 directory.
 
+### The Flutter app
+
+The frontend that will replace the Tauri shell, and the one that goes to
+Android and iOS. Phase 1 of `docs/flutter-port.md`: it opens the same
+`pacc.db` the CLI and the Tauri app use, and lists the seeded categories.
+
+Needs Flutter on `PATH` and `flutter_rust_bridge_codegen` from cargo. The
+generated Dart under `app/lib/src/rust/` is committed and never edited by
+hand; regenerate it with `flutter_rust_bridge_codegen generate` after changing
+anything under `app/rust/src/api/`.
+
+```sh
+cd app
+flutter pub get
+flutter test                                    # widget tests, no device
+flutter test integration_test/ -d linux         # calls the real core
+flutter run -d linux
+```
+
+`app/rust` is a workspace member, so `cargo build --workspace` compiles it —
+but that proves only that it compiles. It is a `cdylib`: nothing links it into
+an application until Flutter's own build runs, so a change there is not tested
+until `flutter test integration_test/` has run.
+
 ## Platform status
 
 | Platform | Status |
