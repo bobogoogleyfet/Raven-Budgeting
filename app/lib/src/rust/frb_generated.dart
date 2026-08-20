@@ -72,7 +72,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 917756690;
+  int get rustContentHash => -157362424;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -105,6 +105,8 @@ abstract class RustLibApi extends BaseApi {
     bool? includeNoMerchant,
     String? sort,
   });
+
+  Future<MonthTotalsDto> crateApiBudgetMonthTotals({required String month});
 
   Future<String> crateApiDbOpenDatabase({String? appDataDir});
 }
@@ -306,6 +308,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<MonthTotalsDto> crateApiBudgetMonthTotals({required String month}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(month, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_month_totals_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiBudgetMonthTotalsConstMeta,
+        argValues: [month],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiBudgetMonthTotalsConstMeta =>
+      const TaskConstMeta(debugName: "month_totals", argNames: ["month"]);
+
+  @override
   Future<String> crateApiDbOpenDatabase({String? appDataDir}) {
     return handler.executeNormal(
       NormalTask(
@@ -315,7 +345,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 8,
             port: port_,
           );
         },
@@ -471,6 +501,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<TxnSummaryDto> dco_decode_list_txn_summary_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_txn_summary_dto).toList();
+  }
+
+  @protected
+  MonthTotalsDto dco_decode_month_totals_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return MonthTotalsDto(
+      budgeted: dco_decode_i_64(arr[0]),
+      spent: dco_decode_i_64(arr[1]),
+    );
   }
 
   @protected
@@ -722,6 +764,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ans_.add(sse_decode_txn_summary_dto(deserializer));
     }
     return ans_;
+  }
+
+  @protected
+  MonthTotalsDto sse_decode_month_totals_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_budgeted = sse_decode_i_64(deserializer);
+    var var_spent = sse_decode_i_64(deserializer);
+    return MonthTotalsDto(budgeted: var_budgeted, spent: var_spent);
   }
 
   @protected
@@ -987,6 +1037,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     for (final item in self) {
       sse_encode_txn_summary_dto(item, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_month_totals_dto(
+    MonthTotalsDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self.budgeted, serializer);
+    sse_encode_i_64(self.spent, serializer);
   }
 
   @protected

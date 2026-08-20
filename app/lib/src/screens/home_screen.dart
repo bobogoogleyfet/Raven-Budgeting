@@ -4,29 +4,30 @@ import '../api.dart';
 import '../breakpoints.dart';
 import '../dates.dart';
 import '../money.dart';
+import '../widgets/budget_ring.dart';
 import '../widgets/money_text.dart';
 import '../widgets/section.dart';
 
-/// How many recent expenses the overview shows. Three is what fits above the
-/// fold on a phone next to the budget, and the whole list is one tap away.
+/// How many recent expenses the overview shows. Three is what fits under the
+/// ring on a phone, and the whole list is one tap away.
 const int _recentCount = 3;
 
 typedef BudgetLoader = Future<List<BudgetRow>> Function(String month);
+typedef TotalsLoader = Future<MonthTotals> Function(String month);
 typedef RecentLoader = Future<List<TxnSummary>> Function(int limit);
 
 /// The budget at a glance, and what was spent most recently.
-///
-/// Two questions, in the order they get asked: is there money left, and what
-/// went out. Everything else is a tap away.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     this.loadBudget = budgetStatus,
+    this.loadTotals = monthTotals,
     this.loadRecent = _recent,
     this.month,
   });
 
   final BudgetLoader loadBudget;
+  final TotalsLoader loadTotals;
   final RecentLoader loadRecent;
 
   /// The month to report on, as `YYYY-MM`. Defaults to this one, read from the
@@ -41,7 +42,7 @@ Future<List<TxnSummary>> _recent(int limit) =>
     listTransactions(TxnQuery(limit: limit));
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<(List<BudgetRow>, List<TxnSummary>)> _overview;
+  late Future<(List<BudgetRow>, MonthTotals, List<TxnSummary>)> _overview;
   late String _month;
 
   @override
@@ -54,17 +55,16 @@ class _HomeScreenState extends State<HomeScreen> {
   void _load() {
     _overview = (
       widget.loadBudget(_month),
+      widget.loadTotals(_month),
       widget.loadRecent(_recentCount),
     ).wait;
   }
 
-  void _reload() {
-    setState(_load);
-  }
+  void _reload() => setState(_load);
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<(List<BudgetRow>, List<TxnSummary>)>(
+    return FutureBuilder<(List<BudgetRow>, MonthTotals, List<TxnSummary>)>(
       future: _overview,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -73,11 +73,12 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final (budget, recent) = snapshot.requireData;
+        final (budget, totals, recent) = snapshot.requireData;
         return _Overview(
           month: _month,
           budget: budget.where((r) => r.isBudgeted).toList(),
           unbudgeted: budget.where((r) => !r.isBudgeted).length,
+          totals: totals,
           recent: recent,
         );
       },
@@ -85,38 +86,87 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _Overview extends StatelessWidget {
+class _Overview extends StatefulWidget {
   const _Overview({
     required this.month,
     required this.budget,
     required this.unbudgeted,
+    required this.totals,
     required this.recent,
   });
 
   final String month;
   final List<BudgetRow> budget;
   final int unbudgeted;
+  final MonthTotals totals;
   final List<TxnSummary> recent;
+
+  @override
+  State<_Overview> createState() => _OverviewState();
+}
+
+class _OverviewState extends State<_Overview> {
+  /// Which segment the user tapped, if any. Tapping is how a segment says
+  /// which category it is — the ring itself is one colour, because colour here
+  /// means state and not identity.
+  int? _selected;
 
   @override
   Widget build(BuildContext context) {
     final sizeClass = WindowSizeClass.of(MediaQuery.sizeOf(context).width);
-    final detailed = sizeClass != WindowSizeClass.compact;
+    final bool wide = sizeClass != WindowSizeClass.compact;
 
     final budgetSection = Section(
       title: 'Budget',
-      subtitle: monthLabel(month),
-      child: budget.isEmpty
+      subtitle: monthLabel(widget.month),
+      child: widget.budget.isEmpty
           ? const EmptyNote(
-              'Nothing is budgeted yet.\nSet one with: pacc budget set --category NAME --amount N',
+              'Nothing is budgeted yet.\n'
+              'Set one with: pacc budget set --category NAME --amount N',
             )
           : Column(
               children: [
-                for (final row in budget)
-                  BudgetRowTile(row: row, detailed: detailed),
-                if (unbudgeted > 0)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: SizedBox(
+                    // Big enough to read a figure inside, small enough that the
+                    // legend under it is still on screen on a phone.
+                    height: wide ? 280 : 240,
+                    child: BudgetRing(
+                      segments: [
+                        for (final row in widget.budget)
+                          RingSegment(
+                            label: row.categoryName,
+                            budgeted: row.perMonth?.value ?? 0,
+                            spent: row.spentThisMonth.value,
+                            isOver: row.isOver,
+                          ),
+                      ],
+                      selected: _selected,
+                      onSelect: (index) => setState(() => _selected = index),
+                      thickness: wide ? 24 : 20,
+                      centre: _Centre(
+                        totals: widget.totals,
+                        selected: _selected == null
+                            ? null
+                            : widget.budget[_selected!],
+                      ),
+                    ),
+                  ),
+                ),
+                _Legend(
+                  rows: widget.budget,
+                  selected: _selected,
+                  onSelect: (index) => setState(
+                    () => _selected = _selected == index ? null : index,
+                  ),
+                  wide: wide,
+                ),
+                if (widget.unbudgeted > 0)
                   EmptyNote(
-                    '$unbudgeted ${unbudgeted == 1 ? 'category has' : 'categories have'} no budget.',
+                    '${widget.unbudgeted} '
+                    '${widget.unbudgeted == 1 ? 'category has' : 'categories have'}'
+                    ' no budget.',
                   ),
               ],
             ),
@@ -124,20 +174,17 @@ class _Overview extends StatelessWidget {
 
     final recentSection = Section(
       title: 'Recent',
-      subtitle: recent.isEmpty ? null : 'Last $_recentCount',
-      child: recent.isEmpty
+      subtitle: widget.recent.isEmpty ? null : 'Last $_recentCount',
+      child: widget.recent.isEmpty
           ? const EmptyNote('No expenses yet.')
           : Column(
               children: [
-                for (final txn in recent)
-                  RecentExpenseTile(txn: txn, detailed: detailed),
+                for (final txn in widget.recent)
+                  RecentExpenseTile(txn: txn, detailed: wide),
               ],
             ),
     );
 
-    // Side by side once there is width for it, and stacked on a phone with the
-    // budget first: "is there money left" is the question the app is opened to
-    // answer, and the recent expenses are the evidence under it.
     if (sizeClass == WindowSizeClass.compact ||
         sizeClass == WindowSizeClass.medium) {
       return ListView(
@@ -160,132 +207,191 @@ class _Overview extends StatelessWidget {
   }
 }
 
-/// One category's budget.
+/// The figure in the hole.
 ///
-/// On a phone: the name, and what is left or how far over. Where there is
-/// width, the figures behind that — spent, of how much, and how the funding is
-/// doing — because the number that matters is the same either way and the
-/// working is what a wider window has room for.
-class BudgetRowTile extends StatelessWidget {
-  const BudgetRowTile({super.key, required this.row, required this.detailed});
+/// The one number the screen leads with, so it is the only thing at this size.
+/// Proportional figures, not tabular: tabular gives every digit the width of a
+/// zero, which makes a large standalone number look loose.
+class _Centre extends StatelessWidget {
+  const _Centre({required this.totals, required this.selected});
 
-  final BudgetRow row;
-  final bool detailed;
+  final MonthTotals totals;
+
+  /// A tapped category, whose own figures replace the total until it is
+  /// tapped again.
+  final BudgetRow? selected;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final over = row.isOver;
+    final row = selected;
+    final bool over = row?.isOver ?? false;
+
+    final String headline = formatMoney(row?.spentThisMonth ?? totals.spent);
+    final String against = formatMoney(row?.perMonth ?? totals.budgeted);
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          row?.categoryName ?? 'Spent',
+          style: theme.textTheme.labelMedium
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 2),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            headline,
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: over ? theme.colorScheme.error : theme.colorScheme.onSurface,
+            ),
+            maxLines: 1,
+          ),
+        ),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'of $against',
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            maxLines: 1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Which arc is which.
+///
+/// The ring is one colour, so this is where identity lives. Over budget is
+/// named in words and carries an icon as well as the colour — a state told by
+/// hue alone is a state some readers are not told at all.
+class _Legend extends StatelessWidget {
+  const _Legend({
+    required this.rows,
+    required this.selected,
+    required this.onSelect,
+    required this.wide,
+  });
+
+  final List<BudgetRow> rows;
+  final int? selected;
+  final void Function(int index) onSelect;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        for (int i = 0; i < rows.length; i++)
+          _LegendRow(
+            row: rows[i],
+            selected: selected == i,
+            onTap: () => onSelect(i),
+            wide: wide,
+            theme: theme,
+          ),
+      ],
+    );
+  }
+}
+
+class _LegendRow extends StatelessWidget {
+  const _LegendRow({
+    required this.row,
+    required this.selected,
+    required this.onTap,
+    required this.wide,
+    required this.theme,
+  });
+
+  final BudgetRow row;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool wide;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool over = row.isOver;
     final Color amountColour =
         over ? theme.colorScheme.error : theme.colorScheme.onSurface;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  row.categoryName,
-                  style: theme.textTheme.bodyLarge,
-                  overflow: TextOverflow.ellipsis,
-                ),
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        color: selected
+            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
+            : null,
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        child: Row(
+          children: [
+            if (over) ...[
+              Icon(
+                Icons.error_outline,
+                size: 16,
+                color: theme.colorScheme.error,
+              ),
+              const SizedBox(width: 6),
+            ],
+            Expanded(
+              child: Text(
+                row.categoryName,
+                style: theme.textTheme.bodyLarge,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (wide) ...[
+              // Funding is a different question from over-budget and keeps
+              // different words and no colour: an envelope spent exactly to
+              // plan is behind on funding and perfectly fine on spending, and
+              // flagging that would train the reader to ignore the screen.
+              Text(
+                [
+                  if (row.isMultiMonth) '${row.monthsRemaining} mo cycle',
+                  if (row.funding == 'behind')
+                    'behind ${formatMoney(row.fundingBy)}',
+                  if (row.funding == 'ahead')
+                    'ahead ${formatMoney(row.fundingBy)}',
+                ].join(' · '),
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
               const SizedBox(width: 12),
-              // Fixed widths so the amounts line up down the column. Tabular
-              // figures only align digits with each other; a trailing word of
-              // a different length still pushes the number about, and a column
-              // of amounts that does not line up is one you read twice.
-              SizedBox(
-                width: 104,
-                // "Left" and "over" are the same fact from either side, so
-                // only one of them is ever on screen.
-                child: MoneyText(
-                  over ? row.overspentBy! : row.remaining!,
-                  textAlign: TextAlign.right,
-                  style:
-                      theme.textTheme.titleMedium?.copyWith(color: amountColour),
-                ),
-              ),
-              const SizedBox(width: 4),
-              SizedBox(
-                width: 30,
-                child: Text(
-                  over ? 'over' : 'left',
-                  style:
-                      theme.textTheme.labelMedium?.copyWith(color: amountColour),
-                ),
-              ),
             ],
-          ),
-          const SizedBox(height: 6),
-          _Bar(row: row),
-          if (detailed) ...[
-            const SizedBox(height: 6),
-            _Figures(row: row),
+            // Fixed widths so the amounts line up down the column: a trailing
+            // word of a different length otherwise pushes the number about.
+            SizedBox(
+              width: 104,
+              // "Left" and "over" are one fact from either side, so only one
+              // is ever on screen.
+              child: MoneyText(
+                over ? row.overspentBy! : row.remaining!,
+                textAlign: TextAlign.right,
+                style: theme.textTheme.titleMedium?.copyWith(color: amountColour),
+              ),
+            ),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 30,
+              child: Text(
+                over ? 'over' : 'left',
+                style: theme.textTheme.labelMedium?.copyWith(color: amountColour),
+              ),
+            ),
           ],
-        ],
+        ),
       ),
     );
-  }
-}
-
-/// How much of the cycle's budget is gone.
-class _Bar extends StatelessWidget {
-  const _Bar({required this.row});
-
-  final BudgetRow row;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final int budgeted = row.budgeted?.value ?? 0;
-    final int spent = row.spentCycle?.value ?? 0;
-    // A ratio for pixels, not a monetary figure: it produces a fraction of a
-    // bar's width, is clamped, and is never sent anywhere. Every amount on
-    // screen still comes from the core.
-    final double fraction =
-        budgeted <= 0 ? 0 : (spent / budgeted).clamp(0.0, 1.0);
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(4),
-      child: LinearProgressIndicator(
-        value: fraction,
-        minHeight: 6,
-        // Not `surfaceContainerHighest`: that is exactly what a filled card is
-        // painted with, so the track vanished into it and a category with
-        // nothing spent looked like it had no bar at all.
-        backgroundColor: theme.colorScheme.outlineVariant,
-        color: row.isOver ? theme.colorScheme.error : theme.colorScheme.primary,
-      ),
-    );
-  }
-}
-
-class _Figures extends StatelessWidget {
-  const _Figures({required this.row});
-
-  final BudgetRow row;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = theme.textTheme.bodySmall
-        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
-    final parts = <String>[
-      '${formatMoney(row.spentCycle!)} of ${formatMoney(row.budgeted!)}',
-      // A cycle longer than a month has to say so, or "left" reads as left of
-      // this month rather than left of the year's bill.
-      if (row.isMultiMonth) '${row.monthsRemaining} months left in cycle',
-      // Funding is a different question from over-budget and gets different
-      // words: an envelope spent exactly to plan is behind on funding and
-      // perfectly fine on spending.
-      if (row.funding == 'behind') 'behind ${formatMoney(row.fundingBy)}',
-      if (row.funding == 'ahead') 'ahead ${formatMoney(row.fundingBy)}',
-    ];
-    return Text(parts.join(' · '), style: style);
   }
 }
 

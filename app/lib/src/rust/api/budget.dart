@@ -7,6 +7,10 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+/// The month's totals, for the figure the overview leads with.
+Future<MonthTotalsDto> monthTotals({required String month}) =>
+    RustLib.instance.api.crateApiBudgetMonthTotals(month: month);
+
 /// Every budgeted category, for the month given as `YYYY-MM`.
 ///
 /// Includes categories with no budget line — the screen's most useful job is
@@ -117,4 +121,26 @@ class BudgetRowDto {
           funding == other.funding &&
           fundingBy == other.fundingBy &&
           monthsRemaining == other.monthsRemaining;
+}
+
+/// What is budgeted this month, and what has been spent against it.
+///
+/// Summed by the core, not here and not in Dart: adding money is arithmetic,
+/// and a total computed per frontend is a total that drifts per frontend.
+class MonthTotalsDto {
+  final PlatformInt64 budgeted;
+  final PlatformInt64 spent;
+
+  const MonthTotalsDto({required this.budgeted, required this.spent});
+
+  @override
+  int get hashCode => budgeted.hashCode ^ spent.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MonthTotalsDto &&
+          runtimeType == other.runtimeType &&
+          budgeted == other.budgeted &&
+          spent == other.spent;
 }
