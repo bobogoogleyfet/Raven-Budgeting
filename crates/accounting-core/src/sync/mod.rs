@@ -38,6 +38,8 @@ pub mod bundle;
 pub mod device;
 pub mod entity;
 pub mod hlc;
+pub mod merge;
 
 pub use bundle::{Bundle, BundleError, Change};
 pub use hlc::{DeviceId, Hlc};
+pub use merge::{Applied, export, import};

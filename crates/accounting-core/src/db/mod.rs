@@ -132,6 +132,21 @@ impl Db {
         self.conn.busy_timeout(BUSY_TIMEOUT)?;
 
         MIGRATIONS.to_latest(&mut self.conn)?;
+
+        // Before anything can write, and that ordering is the whole point.
+        // The change-log triggers stamp every write with this device's name,
+        // and the seed runs on the very next call — so a database that named
+        // itself later would carry a pile of unattributable entries that no
+        // bundle could ever send. Minted here rather than in the migration
+        // because a migration runs inside a transaction with no good source of
+        // randomness.
+        //
+        // Conditional, so reopening keeps the name: it identifies the
+        // *replica*, and peers track how far along it is by that name.
+        self.conn.execute(
+            "UPDATE sync_clock SET device = ?1 WHERE id = 1 AND device = ''",
+            [new_uuid()],
+        )?;
         Ok(())
     }
 
