@@ -102,6 +102,21 @@ Future<ReviewOutcome?> showReviewDialog({
   );
 }
 
+/// One amount box, wide enough for a five-figure receipt line.
+const double _amountColumn = 110;
+
+/// The narrowest content that can still be a table: two amount columns, the
+/// gap between them, and enough left over for a category name to be read.
+///
+/// Below this the line is stacked instead of squeezed, because the columns are
+/// the one thing here that cannot give: a [CentsField] is a `$` prefix, a 48px
+/// add-another button and the figure, and shrinking it hides the figure long
+/// before it stops eating the label. A phone's dialog is 240px wide at a
+/// 320px window and 280px at 360px — 192px and 232px of content — so both are
+/// stacked, which is also M3's answer to a form out of horizontal room: one
+/// column, full-size controls.
+const double _tableNeeds = _amountColumn * 2 + 8 + 120;
+
 class _ReviewDialog extends StatefulWidget {
   const _ReviewDialog({required this.preview, required this.recompute});
 
@@ -169,87 +184,84 @@ class _ReviewDialogState extends State<_ReviewDialog> {
       title: const Text('Does this match your receipt?'),
       content: SizedBox(
         width: 520,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Correct any amount or tax that differs from the paper — '
-                'the receipt wins.',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 16),
-              Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final bool table = constraints.maxWidth >= _tableNeeds;
+            return SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Expanded(child: SizedBox()),
-                  SizedBox(
-                    width: 110,
-                    child: Text('Amount',
-                        textAlign: TextAlign.right,
-                        style: theme.textTheme.labelMedium),
+                  Text(
+                    'Correct any amount or tax that differs from the paper — '
+                    'the receipt wins.',
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 110,
-                    child: Text('Tax',
-                        textAlign: TextAlign.right,
-                        style: theme.textTheme.labelMedium),
+                  const SizedBox(height: 16),
+                  // Headings only where there are columns to head. Stacked,
+                  // each box carries its own label instead.
+                  if (table)
+                    Row(
+                      children: [
+                        const Expanded(child: SizedBox()),
+                        SizedBox(
+                          width: _amountColumn,
+                          child: Text('Amount',
+                              textAlign: TextAlign.right,
+                              style: theme.textTheme.labelMedium),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: _amountColumn,
+                          child: Text('Tax',
+                              textAlign: TextAlign.right,
+                              style: theme.textTheme.labelMedium),
+                        ),
+                      ],
+                    ),
+                  const Divider(),
+                  for (int i = 0; i < _lines.length; i++) ...[
+                    // Stacked, one line runs to three of them, so consecutive
+                    // categories need a rule between them to stay apart.
+                    if (!table && i > 0) const Divider(height: 1),
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: table ? 4 : 8),
+                      child: _line(i, table: table, theme: theme),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  // Sums, and therefore not editable. The rows are what the
+                  // receipt says; these are what the rows come to.
+                  const Divider(),
+                  _SumRow(
+                    label: 'Subtotal',
+                    amount: _preview.subtotal,
+                    table: table,
                   ),
+                  _SumRow(
+                    label: 'Total tax',
+                    amount: _preview.tax,
+                    table: table,
+                  ),
+                  _SumRow(
+                    label: 'Total',
+                    amount: _preview.total,
+                    table: table,
+                    grand: true,
+                  ),
+                  if (problem != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      problem,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.error),
+                    ),
+                  ],
                 ],
               ),
-              const Divider(),
-              for (int i = 0; i < _lines.length; i++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(_lines[i].label)),
-                      SizedBox(
-                        width: 110,
-                        child: _AmountField(
-                          controller: _subtotal[i],
-                          onChanged: (value) {
-                            _lines[i].subtotalText = value;
-                            _refresh();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 110,
-                        child: _AmountField(
-                          controller: _tax[i],
-                          onChanged: (value) {
-                            _lines[i].taxText = value;
-                            // From here this row's figure is the user's, and
-                            // stays theirs.
-                            _lines[i].taxEdited = true;
-                            _refresh();
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 8),
-              // Sums, and therefore not editable. The rows are what the receipt
-              // says; these are what the rows come to.
-              const Divider(),
-              _SumRow(label: 'Subtotal', amount: _preview.subtotal),
-              _SumRow(label: 'Total tax', amount: _preview.tax),
-              _SumRow(label: 'Total', amount: _preview.total, grand: true),
-              if (problem != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  problem,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.error),
-                ),
-              ],
-            ],
-          ),
+            );
+          },
         ),
       ),
       // Three actions, which M3 allows and this dialog earns: one of them
@@ -287,25 +299,94 @@ class _ReviewDialogState extends State<_ReviewDialog> {
       ],
     );
   }
+
+  /// One category: its name and the two figures that can be corrected.
+  ///
+  /// As a row while [table], as a block of three lines when not.
+  Widget _line(int i, {required bool table, required ThemeData theme}) {
+    final Widget subtotal = _AmountField(
+      controller: _subtotal[i],
+      label: table ? null : 'Amount',
+      onChanged: (value) {
+        _lines[i].subtotalText = value;
+        _refresh();
+      },
+    );
+    final Widget tax = _AmountField(
+      controller: _tax[i],
+      label: table ? null : 'Tax',
+      onChanged: (value) {
+        _lines[i].taxText = value;
+        // From here this row's figure is the user's, and stays theirs.
+        _lines[i].taxEdited = true;
+        _refresh();
+      },
+    );
+
+    if (table) {
+      return Row(
+        children: [
+          Expanded(child: Text(_lines[i].label)),
+          SizedBox(width: _amountColumn, child: subtotal),
+          const SizedBox(width: 8),
+          SizedBox(width: _amountColumn, child: tax),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // The category is the heading of its own block now, not a cell, and
+        // it has the whole width — which is the point: at 360px the columns
+        // left it four pixels and nothing said so.
+        Text(_lines[i].label, style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        subtotal,
+        const SizedBox(height: 8),
+        tax,
+      ],
+    );
+  }
 }
 
 class _AmountField extends StatelessWidget {
-  const _AmountField({required this.controller, required this.onChanged});
+  const _AmountField({
+    required this.controller,
+    required this.onChanged,
+    this.label,
+  });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
 
+  /// Set only where there is no column heading to name the box.
+  final String? label;
+
   @override
   Widget build(BuildContext context) {
-    return CentsField(controller: controller, onChanged: onChanged);
+    return CentsField(
+      controller: controller,
+      label: label,
+      onChanged: onChanged,
+    );
   }
 }
 
 class _SumRow extends StatelessWidget {
-  const _SumRow({required this.label, required this.amount, this.grand = false});
+  const _SumRow({
+    required this.label,
+    required this.amount,
+    required this.table,
+    this.grand = false,
+  });
 
   final String label;
   final Cents amount;
+
+  /// Whether the lines above are columns, in which case the sum keeps the
+  /// tax column's width clear so it lands under the amounts it adds up.
+  final bool table;
+
   final bool grand;
 
   @override
@@ -320,11 +401,13 @@ class _SumRow extends StatelessWidget {
         children: [
           Expanded(child: Text(label, style: style)),
           SizedBox(
-            width: 110,
+            width: _amountColumn,
             child: MoneyText(amount, textAlign: TextAlign.right, style: style),
           ),
-          const SizedBox(width: 8),
-          const SizedBox(width: 110),
+          if (table) ...[
+            const SizedBox(width: 8),
+            const SizedBox(width: _amountColumn),
+          ],
         ],
       ),
     );
