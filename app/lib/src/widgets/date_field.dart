@@ -200,6 +200,13 @@ class _DateFieldState extends State<DateField> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Punctuation between the boxes, not a word: ' / ' set at body size took
+    // 99px of the row, which was most of the calendar button that used to be
+    // cut off the end of it at a phone's width.
+    final Widget slash = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Text('/', style: theme.textTheme.bodyLarge),
+    );
 
     return Row(
       children: [
@@ -218,7 +225,7 @@ class _DateFieldState extends State<DateField> {
             next: _dayFocus,
           ),
         ),
-        Text(' / ', style: theme.textTheme.bodyLarge),
+        slash,
         _Segment(
           controller: _day,
           focus: _dayFocus,
@@ -233,7 +240,7 @@ class _DateFieldState extends State<DateField> {
             next: _yearFocus,
           ),
         ),
-        Text(' / ', style: theme.textTheme.bodyLarge),
+        slash,
         _Segment(
           controller: _year,
           focus: _yearFocus,
@@ -276,28 +283,36 @@ class _Segment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Focus(
-        onKeyEvent: onKey,
-        child: TextField(
-          controller: controller,
-          focusNode: focus,
-          autofocus: autofocus,
-          onChanged: onChanged,
-          textAlign: TextAlign.center,
-          keyboardType: const TextInputType.numberWithOptions(signed: false),
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(maxLength),
-          ],
-          decoration: InputDecoration(
-            hintText: hint,
-            isDense: true,
-            counterText: '',
-            border: const OutlineInputBorder(),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+    // Flex in proportion to its own width, so the three segments keep their
+    // natural sizes while the row has room and give way together when it has
+    // not. Whatever is short comes off the digits — which scroll — never off
+    // the calendar button, which is a 48px touch target and the only way in
+    // for anyone not typing.
+    return Flexible(
+      flex: width.round(),
+      child: SizedBox(
+        width: width,
+        child: Focus(
+          onKeyEvent: onKey,
+          child: TextField(
+            controller: controller,
+            focusNode: focus,
+            autofocus: autofocus,
+            onChanged: onChanged,
+            textAlign: TextAlign.center,
+            keyboardType: const TextInputType.numberWithOptions(signed: false),
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(maxLength),
+            ],
+            decoration: InputDecoration(
+              hintText: hint,
+              isDense: true,
+              counterText: '',
+              border: const OutlineInputBorder(),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+            ),
           ),
         ),
       ),

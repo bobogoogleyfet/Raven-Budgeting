@@ -36,6 +36,36 @@ Future<void> typeDigits(WidgetTester tester, String digits) async {
   }
 }
 
+/// The field on a window [width] logical pixels wide, laid out with the
+/// padding the entry form gives it, and every layout error that raised.
+///
+/// The handler is put back before this returns — a failed `expect` while it is
+/// still overridden wedges the binding instead of reporting itself.
+Future<List<String>> pumpAt(WidgetTester tester, double width) async {
+  tester.view.physicalSize = Size(width, 800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+
+  final errors = <String>[];
+  final previous = FlutterError.onError;
+  FlutterError.onError = (details) => errors.add(details.exceptionAsString());
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: DateField(value: '2026-08-20', onChanged: (_) {}),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+
+  FlutterError.onError = previous;
+  return errors;
+}
+
 void main() {
   testWidgets('an existing date fills the segments', (tester) async {
     await pump(tester, value: '2026-08-20');
@@ -150,4 +180,41 @@ void main() {
 
     expect(tester.widget<TextField>(segment(0)).controller?.text, '');
   });
+
+  // A phone held in one hand, and a slightly larger one.
+  for (final width in [320.0, 360.0]) {
+    testWidgets('the whole field fits a ${width.toInt()}px window',
+        (tester) async {
+      final errors = await pumpAt(tester, width);
+
+      expect(errors, isEmpty);
+    });
+
+    testWidgets('the calendar button is not clipped at ${width.toInt()}px',
+        (tester) async {
+      await pumpAt(tester, width);
+
+      // Whole, and still M3's minimum touch target. It is the only way into
+      // the field for someone who is not typing, so it is the last thing that
+      // may be trimmed to fit.
+      final button = tester.getRect(find.byType(IconButton));
+      expect(button.size, const Size(48, 48));
+      expect(
+        button.right,
+        lessThanOrEqualTo(tester.getRect(find.byType(DateField)).right),
+      );
+    });
+
+    testWidgets('the segments keep their width at ${width.toInt()}px',
+        (tester) async {
+      await pumpAt(tester, width);
+
+      // Room was found between the boxes, not taken out of them: a segment
+      // narrow enough to hide a digit would be a worse fit than the one that
+      // overflowed.
+      expect(tester.getSize(segment(0)).width, 46);
+      expect(tester.getSize(segment(1)).width, 46);
+      expect(tester.getSize(segment(2)).width, 68);
+    });
+  }
 }
