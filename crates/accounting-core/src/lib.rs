@@ -75,9 +75,11 @@
 //! returns a row for every budgeted category (including the unbudgeted ones, so
 //! a UI can offer to budget them) with the [`FundedStatus`] the domain layer
 //! computes. Funding and overspending are separate measures and disagree in
-//! normal use — an envelope spent exactly to plan is [`OnTrack::Behind`] on
-//! funding and perfectly fine on spending — so a UI must render them as
-//! separate columns and never label `Behind` as "over budget".
+//! normal use — a monthly bill nobody has paid yet is [`OnTrack::Behind`] on
+//! funding while having spent nothing at all, and a yearly premium is behind by
+//! whatever was never actually set aside rather than by what the plan said — so
+//! a UI must render them as separate columns and never label `Behind` as "over
+//! budget".
 //!
 //! [`service::reports`] — the categories × months grid, in two bases. Money is
 //! **stored cash-flow dated in every basis**; [`ReportBasis::Amortized`] is a
@@ -111,6 +113,7 @@ pub mod money;
 pub mod rates;
 pub mod repo;
 pub mod service;
+pub mod sync;
 pub mod time;
 
 pub use db::{Db, InvariantViolation, check_all, seed_defaults};
