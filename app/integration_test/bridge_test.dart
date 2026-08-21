@@ -320,4 +320,78 @@ void main() {
     // A refund still works, and still subtracts.
     expect(amountValue('-5.00 + 2.00')?.value, -300);
   });
+
+  test('this device names itself once and keeps that name', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    final first = await thisDevice();
+    final second = await thisDevice();
+
+    // The name is minted on demand and then belongs to the database: peers
+    // track how far along it is by that name, so a second answer would look
+    // to them like a third device.
+    expect(first, isNotEmpty);
+    expect(second, first);
+    expect((await syncStatus()).thisDevice, first);
+  });
+
+  test('a sealed bundle only opens with the phrase it was sealed with',
+      () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    final bytes = await exportBundle(phrase: 'seven rusty kettles');
+
+    // The magic is what makes a wrong file chosen in a picker fail with "this
+    // is not a sync file" rather than with "the phrase is wrong", which would
+    // send somebody hunting for a typo that was never there.
+    expect(String.fromCharCodes(bytes.take(8)), 'PACCSYNC');
+
+    Object? refused;
+    try {
+      await importBundle(bytes: bytes, phrase: 'seven rusty kettes');
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused, isNotNull);
+    // Never the phrase, in the message or anywhere near it.
+    expect('$refused'.contains('kett'), isFalse);
+
+    // The right phrase opens it. This device applying its own bundle takes
+    // nothing — its timestamps are not newer than themselves — which is the
+    // proof that seal, parse and merge all ran.
+    final applied = await importBundle(bytes: bytes, phrase: 'seven rusty kettles');
+    expect(applied.applied, 0);
+    expect(applied.deferred, isEmpty);
+    expect(applied.unknownKinds, isEmpty);
+  });
+
+  test('an empty phrase is refused rather than sealing an open file', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    // The phrase is the only thing protecting a whole ledger left in a synced
+    // folder; an empty one derives a key anybody else can derive too.
+    expect(
+      () => exportBundle(phrase: ''),
+      throwsA(isA<Object>()),
+    );
+  });
+
+  test('the first bundle of a pairing records no peer', () async {
+    await openDatabase(appDataDir: dataDir.path);
+
+    final bytes = await exportBundle(phrase: 'seven rusty kettles');
+    await markDelivered(phrase: 'seven rusty kettles', bytes: bytes);
+
+    // A watermark names a device, and there is none yet. Inventing one would
+    // make it the "only peer" every later export addressed itself to while the
+    // real device's mark stayed empty.
+    //
+    // Filtered by name rather than asserted empty because the test above
+    // imported *this* database's own bundle, and `merge::import` records a
+    // peer row for whoever the bundle came from — which in that one case is
+    // this device. No file from a real second device can do that: it carries
+    // a different name.
+    final status = await syncStatus();
+    expect(status.peers.where((peer) => peer != status.thisDevice), isEmpty);
+  });
 }

@@ -11,6 +11,7 @@ import 'api/categories.dart';
 import 'api/db.dart';
 import 'api/entry.dart';
 import 'api/rates.dart';
+import 'api/sync.dart';
 import 'api/transactions.dart';
 
 import 'dart:async';
@@ -30,6 +31,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String dco_decode_String(dynamic raw);
+
+  @protected
+  AppliedDto dco_decode_applied_dto(dynamic raw);
 
   @protected
   AreaDto dco_decode_area_dto(dynamic raw);
@@ -113,6 +117,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Int64List dco_decode_list_prim_i_64_strict(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -182,6 +189,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SupersededDto dco_decode_superseded_dto(dynamic raw);
 
   @protected
+  SyncStatusDto dco_decode_sync_status_dto(dynamic raw);
+
+  @protected
   TxnSummaryDto dco_decode_txn_summary_dto(dynamic raw);
 
   @protected
@@ -198,6 +208,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
+
+  @protected
+  AppliedDto sse_decode_applied_dto(SseDeserializer deserializer);
 
   @protected
   AreaDto sse_decode_area_dto(SseDeserializer deserializer);
@@ -293,6 +306,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -372,6 +388,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SupersededDto sse_decode_superseded_dto(SseDeserializer deserializer);
 
   @protected
+  SyncStatusDto sse_decode_sync_status_dto(SseDeserializer deserializer);
+
+  @protected
   TxnSummaryDto sse_decode_txn_summary_dto(SseDeserializer deserializer);
 
   @protected
@@ -391,6 +410,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_applied_dto(AppliedDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_area_dto(AreaDto self, SseSerializer serializer);
@@ -525,6 +547,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -631,6 +656,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_superseded_dto(SupersededDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sync_status_dto(SyncStatusDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_txn_summary_dto(TxnSummaryDto self, SseSerializer serializer);

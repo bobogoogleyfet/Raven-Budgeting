@@ -8,6 +8,8 @@
 /// as `Int64List`. Converting once here beats every caller remembering to.
 library;
 
+import 'dart:typed_data' show Uint8List;
+
 import 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 
 import 'money.dart';
@@ -15,6 +17,7 @@ import 'rust/api/budget.dart' as rust_budget;
 import 'rust/api/entry.dart' as rust_entry;
 import 'rust/api/rates.dart' as rust_rates;
 import 'rust/api/categories.dart' as rust_categories;
+import 'rust/api/sync.dart' as rust_sync;
 import 'rust/api/transactions.dart' as rust_txn;
 
 export 'rust/api/categories.dart' show CategoryDto, CategoryGroupDto;
@@ -728,3 +731,127 @@ Cents totalOf(List<Cents> parts) => fromCore(
         parts: Int64List.fromList([for (final part in parts) part.value]),
       ),
     );
+
+/// Where this database has got to with the devices it syncs with.
+///
+/// [thisDevice] names the *database*, not the hardware and not the person: a
+/// peer tracks how far along this one is by that name, so a database restored
+/// onto a new laptop carries on as the same device rather than becoming a
+/// third one.
+class SyncStatus {
+  const SyncStatus({
+    required this.thisDevice,
+    required this.peers,
+    required this.openConflicts,
+  });
+
+  final String thisDevice;
+
+  /// Every device this one has exchanged anything with. Empty until a bundle
+  /// from somewhere else has been imported — which is what a first export is
+  /// for.
+  final List<String> peers;
+
+  /// Disagreements nobody has looked at yet. Not errors: both devices changed
+  /// the same thing, the later edit is in place, and the earlier one is kept.
+  final int openConflicts;
+
+  /// Whether an export has a peer to address itself to.
+  bool get isPaired => peers.isNotEmpty;
+}
+
+/// What importing a bundle did.
+///
+/// The counts are the headline; [deferred] and [unknownKinds] are the part
+/// that must never be shown as a count alone. Both mean *data did not arrive*,
+/// and a bare number reads exactly like a clean import.
+class Applied {
+  const Applied({
+    required this.applied,
+    required this.ignored,
+    required this.conflicts,
+    required this.deferred,
+    required this.unknownKinds,
+  });
+
+  /// Changes taken, because they were newer than anything here.
+  final int applied;
+
+  /// Changes ignored, because this device already had the same or newer.
+  /// Nothing was lost: the other device was simply behind.
+  final int ignored;
+
+  /// Changes where both devices had edited the same thing. The later edit won
+  /// and the earlier one was kept rather than dropped — losing a conflict is
+  /// not a judgement that the value was wrong.
+  final int conflicts;
+
+  /// Changes that could not be applied because something they point at has not
+  /// reached this device. One sentence each, from the core.
+  final List<String> deferred;
+
+  /// Kinds this release does not understand, written by a newer one.
+  final List<String> unknownKinds;
+
+  /// Whether anything in the file failed to land. Both lists mean the same
+  /// thing to a user — it is still only on the other device.
+  bool get somethingIsMissing => deferred.isNotEmpty || unknownKinds.isNotEmpty;
+}
+
+/// This device's name within the sync group, minting one if it has never had
+/// one.
+Future<String> thisDevice() => rust_sync.thisDevice();
+
+/// This device, its peers, and anything waiting for a human.
+Future<SyncStatus> syncStatus() async {
+  final status = await rust_sync.syncStatus();
+  return SyncStatus(
+    thisDevice: status.thisDevice,
+    peers: status.peers,
+    openConflicts: status.openConflicts,
+  );
+}
+
+/// Build the sealed file holding everything a peer has not been sent.
+///
+/// Returns bytes rather than writing them: on Android and iOS the destination
+/// comes from a system picker and the app is handed a stream, so where the
+/// file goes is the UI's business. Nothing is recorded as sent by this —
+/// [markDelivered] is the separate step, taken once the bytes are actually on
+/// disk, because a file that never reached the other device must not stop its
+/// contents from being sent again.
+///
+/// A null [peer] means "the only device you sync with"; with several the core
+/// refuses and names them rather than send one device's history to another.
+Future<Uint8List> exportBundle({String? peer, required String phrase}) =>
+    rust_sync.exportBundle(peer: peer, phrase: phrase);
+
+/// Record that a bundle reached its peer, so the next one carries only what
+/// changed after it.
+///
+/// Does nothing when this database has no peer yet: a watermark names a
+/// device, and the first bundle of a pairing has nobody to name.
+Future<void> markDelivered({
+  String? peer,
+  required String phrase,
+  required Uint8List bytes,
+}) =>
+    rust_sync.markDelivered(peer: peer, phrase: phrase, bytes: bytes);
+
+/// Apply a sealed file written by another device.
+///
+/// Throws when the phrase does not match or the file is not a sync file. The
+/// message names neither the phrase nor anything inside the file.
+Future<Applied> importBundle({
+  required Uint8List bytes,
+  required String phrase,
+}) async {
+  final result = await rust_sync.importBundle(bytes: bytes, phrase: phrase);
+  return Applied(
+    applied: result.applied,
+    ignored: result.ignored,
+    conflicts: result.conflicts,
+    deferred: result.deferred_,
+    unknownKinds: result.unknownKinds,
+  );
+}

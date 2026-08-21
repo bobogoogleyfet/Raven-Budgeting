@@ -48,10 +48,17 @@ class HomeAreaForm extends StatefulWidget {
     this.loadRelease = rateRelease,
     this.refresh = refreshRates,
     this.save = setHomeLocation,
+    this.embedded = false,
   });
 
   final String submitLabel;
   final VoidCallback onSaved;
+
+  /// Whether this form is one section of a longer page rather than the whole
+  /// of one. Embedded, it stops scrolling on its own and lets the page it sits
+  /// in do it — two scrolling regions on one settings page is how a user ends
+  /// up unable to reach the section underneath.
+  final bool embedded;
 
   /// First run says a little more, because there is nothing else on screen to
   /// explain what the question is for.
@@ -206,6 +213,9 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
     final bool unknown = _committed.trim().isNotEmpty && match == null;
 
     return ListView(
+      shrinkWrap: widget.embedded,
+      physics:
+          widget.embedded ? const NeverScrollableScrollPhysics() : null,
       padding: const EdgeInsets.all(16),
       children: [
         if (widget.firstRun) ...[
