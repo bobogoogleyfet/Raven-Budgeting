@@ -17,3 +17,4 @@ pub mod entry;
 pub mod locations;
 pub mod rates;
 pub mod reports;
+pub mod sync;
