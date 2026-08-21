@@ -90,6 +90,15 @@ class _AccountingAppState extends State<AccountingApp> {
   late bool _configured = widget.configured;
   final GlobalKey<AppShellState> _shell = GlobalKey<AppShellState>();
 
+  /// Bumped when something is written, to force the visible screen to reload.
+  ///
+  /// Every screen reads its data once, in `initState`, which is right for a
+  /// screen nothing else writes to — and wrong the moment a receipt is filed
+  /// behind it. Changing this changes the key the screen is built under, so
+  /// its State is rebuilt and it asks the core again. A screen-by-screen
+  /// refresh hook would be four hooks that each have to remember to fire.
+  int _dataVersion = 0;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -114,6 +123,13 @@ class _AccountingAppState extends State<AccountingApp> {
   }
 
   Widget _screenFor(BuildContext context, Destination destination) {
+    return KeyedSubtree(
+      key: ValueKey((destination, _dataVersion)),
+      child: _destination(context, destination),
+    );
+  }
+
+  Widget _destination(BuildContext context, Destination destination) {
     return switch (destination) {
       Destination.home =>
         HomeScreen(onSetBudget: _goToBudget, onOpenBudgets: _goToBudget),
@@ -132,15 +148,25 @@ class _AccountingAppState extends State<AccountingApp> {
   /// rather than a pane inside the shell — Material 3's full-screen dialog,
   /// which is also what makes it work identically on a phone.
   Future<void> _newExpense(BuildContext context) async {
+    // Set by the form each time it writes one, which is not the same as the
+    // form being closed: "Save & New" files several without ever leaving, and
+    // closing without saving must not cost a reload.
+    bool saved = false;
     final bool? goHome = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         fullscreenDialog: true,
         builder: (context) => Scaffold(
           appBar: AppBar(title: const Text('New expense')),
-          body: const EntryScreen(),
+          body: EntryScreen(onSaved: () => saved = true),
         ),
       ),
     );
+    // Before the destination changes, so whichever screen lands is already
+    // showing the receipt that was just filed rather than the list from
+    // before it.
+    if (saved) {
+      setState(() => _dataVersion++);
+    }
     // The form pops `true` when the user chose "Save & Home". Dismissing it any
     // other way — the close button, Back, the system gesture — returns null and
     // leaves them wherever they were, which is the only answer that is right

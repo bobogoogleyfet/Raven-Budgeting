@@ -542,6 +542,48 @@ void main() {
     expect(fake.previews.last.rows.single.tax?.value, 0);
   });
 
+  testWidgets('each save notifies the caller, so the app can reload behind it',
+      (tester) async {
+    // What the shell hangs its refresh on. Every screen reads its data once in
+    // initState, so without this a receipt is filed and the list behind the
+    // form still shows the state from before it.
+    final fake = Fake()
+      ..previewResult = (draft) => preview(
+            rows: [row(1, 'Groceries', 728, 22)],
+            subtotal: 728,
+            tax: 22,
+            total: 750,
+          );
+    int saves = 0;
+    tester.view.physicalSize = const Size(900, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EntryScreen(core: fake.api, onSaved: () => saves++),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await enterAmount(tester, '7.28');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save expense'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & New'));
+    await tester.pumpAndSettle();
+    expect(saves, 1);
+
+    // Fired per save, not per close: "Save & New" files several without ever
+    // leaving the form.
+    await enterAmount(tester, '3.50');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save expense'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & New'));
+    await tester.pumpAndSettle();
+    expect(saves, 2);
+  });
+
   testWidgets('a failed save says so and keeps the receipt', (tester) async {
     final fake = Fake()
       ..previewResult = ((draft) => preview(
