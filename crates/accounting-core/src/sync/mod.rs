@@ -35,6 +35,7 @@
 //! to rather than shipped 389 rows over a USB stick.
 
 pub mod bundle;
+pub mod crypto;
 pub mod device;
 pub mod entity;
 pub mod hlc;

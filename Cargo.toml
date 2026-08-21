@@ -66,6 +66,23 @@ anyhow = "1"
 # runtime. rustls rather than the platform's TLS, so the Android and iOS builds
 # do not each need their own answer.
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+
+# Encrypting a sync bundle. A file that carries a household's whole ledger
+# through a synced folder or onto a stick is readable by anything with access
+# to that folder unless it is encrypted where it is written.
+#
+# Both are pure Rust (RustCrypto), which is the requirement that rules out most
+# of the alternatives: anything binding libsodium or OpenSSL compiles C and
+# breaks the aarch64-linux-android and aarch64-apple-ios targets, the same trap
+# the `zip` and `rust_xlsxwriter` notes above describe.
+#
+# ChaCha20-Poly1305 rather than AES-GCM: it is constant-time in software
+# without hardware support, which a phone may or may not expose to us, and it
+# has no catastrophic failure mode on nonce reuse beyond the usual one.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc", "getrandom"] }
+# Argon2id turns a phrase a person can repeat over the phone into a key. A
+# plain hash would let anyone with the file try a billion phrases a second.
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
