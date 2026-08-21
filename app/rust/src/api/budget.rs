@@ -45,6 +45,17 @@ pub struct BudgetRowDto {
     pub overspent_by: Option<i64>,
     /// Spending in this month alone. Never null.
     pub spent_this_month: i64,
+    /// Whether this category's group holds money that is owed rather than
+    /// merely available — rent versus groceries. Decides whether a shortfall
+    /// is worded as being behind or as having money left.
+    pub group_is_obligation: bool,
+    /// What was actually set aside this month, in cents. `None` means nothing
+    /// has been recorded — which a sinking fund counts as nothing saved, and
+    /// which the screen must tell apart from a recorded zero.
+    pub contributed_this_month: Option<i64>,
+    /// Whether this line is saved into rather than paid out of: a yearly
+    /// premium, a car-repair fund. Only these can take a contribution.
+    pub is_sinking_fund: bool,
     /// `"ahead" | "on track" | "behind" | "none"`.
     pub funding: String,
     /// The magnitude of ahead or behind. Never negative.
@@ -105,11 +116,50 @@ pub fn budget_status(month: String) -> Result<Vec<BudgetRowDto>, String> {
                 overspent_by: row.status.as_ref().map(|s| s.spend.overspent_by.cents()),
                 months_remaining: row.status.as_ref().map(|s| s.months_remaining),
                 spent_this_month: row.spent_this_month.cents(),
+                group_is_obligation: row.group_is_obligation,
+                contributed_this_month: row.contributed_this_month.map(|m| m.cents()),
+                is_sinking_fund: row
+                    .line
+                    .as_ref()
+                    .is_some_and(|l| !matches!(l.period, Period::Monthly)),
                 funding: funding.to_string(),
                 funding_by,
             }
         })
         .collect())
+}
+
+/// Record what was actually set aside for a category in one month.
+///
+/// A sinking fund is funded by what this records and by nothing else. Without
+/// it every yearly line reads as behind by its whole schedule, which is true
+/// and useless — the app would be reporting that you have not saved because it
+/// has never been told that you have.
+///
+/// Never a transaction: money moved into savings has not been spent, and filing
+/// it as spending would count it against the budget now and again when the bill
+/// is finally paid.
+pub fn record_contribution(
+    category_id: i64,
+    month: String,
+    amount_cents: i64,
+) -> Result<(), String> {
+    let month: YearMonth = month.parse().map_err(to_message)?;
+    let db = db::locked()?;
+    budgets::record_contribution(
+        &db,
+        CategoryId::new(category_id),
+        month,
+        Money::from_cents(amount_cents),
+    )
+    .map_err(to_message)
+}
+
+/// Forget a recorded contribution, returning the month to "nothing recorded".
+pub fn forget_contribution(category_id: i64, month: String) -> Result<(), String> {
+    let month: YearMonth = month.parse().map_err(to_message)?;
+    let db = db::locked()?;
+    budgets::forget_contribution(&db, CategoryId::new(category_id), month).map_err(to_message)
 }
 
 /// What setting a budget did, so the screen can say so out loud.

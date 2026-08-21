@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 359984009;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1376462314;
 
 // Section: executor
 
@@ -310,6 +310,41 @@ fn wire__crate__api__transactions__filter_values_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::transactions::filter_values()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__budget__forget_contribution_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "forget_contribution",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_category_id = <i64>::sse_decode(&mut deserializer);
+            let api_month = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::budget::forget_contribution(api_category_id, api_month)?;
                     Ok(output_ok)
                 })())
             }
@@ -748,6 +783,45 @@ fn wire__crate__api__entry__rate_release_impl(
         },
     )
 }
+fn wire__crate__api__budget__record_contribution_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "record_contribution",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_category_id = <i64>::sse_decode(&mut deserializer);
+            let api_month = <String>::sse_decode(&mut deserializer);
+            let api_amount_cents = <i64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::budget::record_contribution(
+                        api_category_id,
+                        api_month,
+                        api_amount_cents,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__rates__refresh_rates_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -980,6 +1054,9 @@ impl SseDecode for crate::api::budget::BudgetRowDto {
         let mut var_remaining = <Option<i64>>::sse_decode(deserializer);
         let mut var_overspentBy = <Option<i64>>::sse_decode(deserializer);
         let mut var_spentThisMonth = <i64>::sse_decode(deserializer);
+        let mut var_groupIsObligation = <bool>::sse_decode(deserializer);
+        let mut var_contributedThisMonth = <Option<i64>>::sse_decode(deserializer);
+        let mut var_isSinkingFund = <bool>::sse_decode(deserializer);
         let mut var_funding = <String>::sse_decode(deserializer);
         let mut var_fundingBy = <i64>::sse_decode(deserializer);
         let mut var_monthsRemaining = <Option<u32>>::sse_decode(deserializer);
@@ -994,6 +1071,9 @@ impl SseDecode for crate::api::budget::BudgetRowDto {
             remaining: var_remaining,
             overspent_by: var_overspentBy,
             spent_this_month: var_spentThisMonth,
+            group_is_obligation: var_groupIsObligation,
+            contributed_this_month: var_contributedThisMonth,
+            is_sinking_fund: var_isSinkingFund,
             funding: var_funding,
             funding_by: var_fundingBy,
             months_remaining: var_monthsRemaining,
@@ -1639,33 +1719,35 @@ fn pde_ffi_dispatcher_primary_impl(
         6 => wire__crate__api__entry__ensure_location_impl(port, ptr, rust_vec_len, data_len),
         7 => wire__crate__api__entry__entry_context_impl(port, ptr, rust_vec_len, data_len),
         8 => wire__crate__api__transactions__filter_values_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__entry__home_location_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__init__init_app_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__entry__list_areas_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__categories__list_categories_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__categories__list_category_groups_impl(
+        9 => wire__crate__api__budget__forget_contribution_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__entry__home_location_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__init__init_app_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__entry__list_areas_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__categories__list_categories_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__categories__list_category_groups_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        14 => wire__crate__api__entry__list_locations_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__entry__list_merchants_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__transactions__list_transactions_impl(
+        15 => wire__crate__api__entry__list_locations_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__entry__list_merchants_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__transactions__list_transactions_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        17 => wire__crate__api__budget__month_totals_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__entry__needs_categorizing_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__db__open_database_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__entry__preview_subtotals_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__entry__rate_release_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__rates__refresh_rates_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__entry__save_subtotals_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__budget__set_budget_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__entry__set_home_location_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__budget__month_totals_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__entry__needs_categorizing_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__db__open_database_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__entry__preview_subtotals_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__entry__rate_release_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__budget__record_contribution_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__rates__refresh_rates_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__entry__save_subtotals_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__budget__set_budget_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__entry__set_home_location_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1678,7 +1760,7 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        26 => wire__crate__api__entry__total_of_impl(ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__entry__total_of_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1718,6 +1800,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::budget::BudgetRowDto {
             self.remaining.into_into_dart().into_dart(),
             self.overspent_by.into_into_dart().into_dart(),
             self.spent_this_month.into_into_dart().into_dart(),
+            self.group_is_obligation.into_into_dart().into_dart(),
+            self.contributed_this_month.into_into_dart().into_dart(),
+            self.is_sinking_fund.into_into_dart().into_dart(),
             self.funding.into_into_dart().into_dart(),
             self.funding_by.into_into_dart().into_dart(),
             self.months_remaining.into_into_dart().into_dart(),
@@ -2188,6 +2273,9 @@ impl SseEncode for crate::api::budget::BudgetRowDto {
         <Option<i64>>::sse_encode(self.remaining, serializer);
         <Option<i64>>::sse_encode(self.overspent_by, serializer);
         <i64>::sse_encode(self.spent_this_month, serializer);
+        <bool>::sse_encode(self.group_is_obligation, serializer);
+        <Option<i64>>::sse_encode(self.contributed_this_month, serializer);
+        <bool>::sse_encode(self.is_sinking_fund, serializer);
         <String>::sse_encode(self.funding, serializer);
         <i64>::sse_encode(self.funding_by, serializer);
         <Option<u32>>::sse_encode(self.months_remaining, serializer);

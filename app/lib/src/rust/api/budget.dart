@@ -19,6 +19,35 @@ Future<MonthTotalsDto> monthTotals({required String month}) =>
 Future<List<BudgetRowDto>> budgetStatus({required String month}) =>
     RustLib.instance.api.crateApiBudgetBudgetStatus(month: month);
 
+/// Record what was actually set aside for a category in one month.
+///
+/// A sinking fund is funded by what this records and by nothing else. Without
+/// it every yearly line reads as behind by its whole schedule, which is true
+/// and useless — the app would be reporting that you have not saved because it
+/// has never been told that you have.
+///
+/// Never a transaction: money moved into savings has not been spent, and filing
+/// it as spending would count it against the budget now and again when the bill
+/// is finally paid.
+Future<void> recordContribution({
+  required PlatformInt64 categoryId,
+  required String month,
+  required PlatformInt64 amountCents,
+}) => RustLib.instance.api.crateApiBudgetRecordContribution(
+  categoryId: categoryId,
+  month: month,
+  amountCents: amountCents,
+);
+
+/// Forget a recorded contribution, returning the month to "nothing recorded".
+Future<void> forgetContribution({
+  required PlatformInt64 categoryId,
+  required String month,
+}) => RustLib.instance.api.crateApiBudgetForgetContribution(
+  categoryId: categoryId,
+  month: month,
+);
+
 /// Set a category's budget from `month` onward.
 ///
 /// Three cases, all handled by the core in one transaction: nothing in force
@@ -89,6 +118,20 @@ class BudgetRowDto {
   /// Spending in this month alone. Never null.
   final PlatformInt64 spentThisMonth;
 
+  /// Whether this category's group holds money that is owed rather than
+  /// merely available — rent versus groceries. Decides whether a shortfall
+  /// is worded as being behind or as having money left.
+  final bool groupIsObligation;
+
+  /// What was actually set aside this month, in cents. `None` means nothing
+  /// has been recorded — which a sinking fund counts as nothing saved, and
+  /// which the screen must tell apart from a recorded zero.
+  final PlatformInt64? contributedThisMonth;
+
+  /// Whether this line is saved into rather than paid out of: a yearly
+  /// premium, a car-repair fund. Only these can take a contribution.
+  final bool isSinkingFund;
+
   /// `"ahead" | "on track" | "behind" | "none"`.
   final String funding;
 
@@ -110,6 +153,9 @@ class BudgetRowDto {
     this.remaining,
     this.overspentBy,
     required this.spentThisMonth,
+    required this.groupIsObligation,
+    this.contributedThisMonth,
+    required this.isSinkingFund,
     required this.funding,
     required this.fundingBy,
     this.monthsRemaining,
@@ -127,6 +173,9 @@ class BudgetRowDto {
       remaining.hashCode ^
       overspentBy.hashCode ^
       spentThisMonth.hashCode ^
+      groupIsObligation.hashCode ^
+      contributedThisMonth.hashCode ^
+      isSinkingFund.hashCode ^
       funding.hashCode ^
       fundingBy.hashCode ^
       monthsRemaining.hashCode;
@@ -146,6 +195,9 @@ class BudgetRowDto {
           remaining == other.remaining &&
           overspentBy == other.overspentBy &&
           spentThisMonth == other.spentThisMonth &&
+          groupIsObligation == other.groupIsObligation &&
+          contributedThisMonth == other.contributedThisMonth &&
+          isSinkingFund == other.isSinkingFund &&
           funding == other.funding &&
           fundingBy == other.fundingBy &&
           monthsRemaining == other.monthsRemaining;

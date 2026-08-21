@@ -41,6 +41,10 @@ pub struct Category {
     /// one. Mutually exclusive with [`Self::uses_food_rate`]; resolved into a
     /// single [`RateClass`](crate::domain::tax::RateClass) before use.
     pub uses_restaurant_rate: bool,
+    /// Whether this category's *group* holds money that is owed rather than
+    /// merely available. Carried down from the group so a caller deciding how
+    /// to word a shortfall does not need a second lookup.
+    pub group_is_obligation: bool,
     /// Whether the amount entered for this category is a pre-tax subtotal.
     ///
     /// False for rent, bills and fuel: what the user types there is what they
@@ -61,6 +65,8 @@ pub struct CategoryGroup {
     /// is hidden so Uncategorized/Transfer/Reimbursable do not clutter the
     /// user's own structure.
     pub is_hidden: bool,
+    /// Money budgeted in this group is owed, not merely available.
+    pub is_obligation: bool,
     pub sort_order: i64,
     pub archived: bool,
 }
@@ -78,12 +84,14 @@ const SELECT_CATEGORY: &str = "SELECT c.id, c.uuid, c.group_id, g.name, c.name, 
                                       c.is_budgeted, c.uses_food_rate,
                                       c.uses_restaurant_rate, c.taxable,
                                       c.default_rollover,
-                                      c.sort_order, c.archived_at IS NOT NULL
+                                      c.sort_order, c.archived_at IS NOT NULL,
+                                      g.is_obligation
                                  FROM category c
                                  JOIN category_group g ON g.id = c.group_id";
 
-const SELECT_GROUP: &str = "SELECT id, uuid, name, is_hidden, sort_order, archived_at IS NOT NULL
-                              FROM category_group";
+const SELECT_GROUP: &str =
+    "SELECT id, uuid, name, is_hidden, sort_order, archived_at IS NOT NULL, is_obligation
+       FROM category_group";
 
 fn map_category(row: &Row<'_>) -> rusqlite::Result<Category> {
     Ok(Category {
@@ -100,6 +108,7 @@ fn map_category(row: &Row<'_>) -> rusqlite::Result<Category> {
         default_rollover: row.get(10)?,
         sort_order: row.get(11)?,
         archived: row.get(12)?,
+        group_is_obligation: row.get(13)?,
     })
 }
 
@@ -111,6 +120,7 @@ fn map_group(row: &Row<'_>) -> rusqlite::Result<CategoryGroup> {
         is_hidden: row.get(3)?,
         sort_order: row.get(4)?,
         archived: row.get(5)?,
+        is_obligation: row.get(6)?,
     })
 }
 

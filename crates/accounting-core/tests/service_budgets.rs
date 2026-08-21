@@ -25,7 +25,7 @@ use accounting_core::repo::budgets::{self, BudgetLineRecord};
 use accounting_core::repo::{categories, transactions};
 use accounting_core::service::budgets as service;
 use accounting_core::service::budgets::CategoryBudgetStatus;
-use accounting_core::{CategoryId, Db, Money, YearMonth};
+use accounting_core::{CategoryId, Db, Money, MonthRange, YearMonth};
 use common::{
     amounts, assert_clean, cat, day, m, months, save, seeded_db, spend_on, split, txn, ym,
 };
@@ -55,6 +55,31 @@ fn record(
 #[track_caller]
 fn set_line(db: &Db, rec: &BudgetLineRecord) {
     service::upsert_budget_line(db, rec).unwrap_or_else(|e| panic!("upsert_budget_line: {e}"));
+}
+
+/// Set aside, for real, every month the schedule asks for from the line's
+/// start through `through`.
+///
+/// A stored budget line is a *plan*; `budget_contribution` is what was actually
+/// banked, and that is what a sinking fund's balance is now built from. A test
+/// about cycle or rollover arithmetic has to state the fact as well as the
+/// plan, or it stops asking what the arithmetic does with the money and starts
+/// asking whether anyone ever transferred any — a real question, but a
+/// different one, pinned by `only_recorded_contributions_fund_a_sinking_fund`.
+#[track_caller]
+fn fund_on_plan(db: &Db, category_id: CategoryId, through: YearMonth) {
+    let stored = budgets::for_category(db, category_id, through)
+        .unwrap_or_else(|e| panic!("for_category {category_id}: {e}"))
+        .unwrap_or_else(|| panic!("{category_id} must have a budget line to fund"));
+    for month in MonthRange::new(stored.line.period_start, through).iter() {
+        budgets::set_contribution(
+            db,
+            category_id,
+            month,
+            monthly_contribution(&stored.line, month),
+        )
+        .unwrap_or_else(|e| panic!("set_contribution {month}: {e}"));
+    }
 }
 
 #[track_caller]
@@ -238,12 +263,12 @@ fn budget_status_drops_a_category_once_it_is_archived() {
 
 #[test]
 fn funding_and_overspending_are_reported_separately_and_disagree() {
-    // The bug this guards: a $400/month grocery envelope with exactly $400
-    // spent is `Behind($400)` on *funding* — the schedule says $400 should be
-    // banked and the envelope is empty — while being exactly on budget on
-    // *spending*. Only `spend.overspent_by` may ever be rendered as "over
-    // budget"; rendering `OnTrack::Behind` that way marks every healthy monthly
-    // envelope red.
+    // A monthly bill is paid, not saved for, so its `on_track` asks what is
+    // still outstanding this month and `spend` asks whether more went out than
+    // was budgeted. A $400 envelope with exactly $400 spent satisfies both, so
+    // that case no longer separates them; the overspend does. Nothing has gone
+    // unpaid, so funding stays `OnTrack` while `spend.overspent_by` — the only
+    // measure a UI may ever render as "over budget" — reports the excess.
     let db = seeded_db();
     let groceries = cat(&db, "Groceries");
     let mut line = record(groceries, Period::Monthly, (2026, 8), 40_000);
@@ -254,17 +279,54 @@ fn funding_and_overspending_are_reported_separately_and_disagree() {
     let status = status_for(&db, groceries, ym(2026, 8));
     let funded = status.status.as_ref().expect("a line means a status");
 
-    assert_eq!(funded.on_track, OnTrack::Behind(m(40_000)));
-    assert_eq!(funded.funded_balance, Money::ZERO);
+    assert_eq!(funded.on_track, OnTrack::OnTrack, "the bill is settled");
+    assert_eq!(
+        funded.funded_balance,
+        Money::ZERO,
+        "the envelope is empty, which is what paying a monthly bill looks like"
+    );
     assert_eq!(funded.spend.budgeted, m(40_000));
     assert_eq!(funded.spend.spent, m(40_000));
     assert_eq!(funded.spend.remaining, Money::ZERO);
     assert_eq!(
         funded.spend.overspent_by,
         Money::ZERO,
-        "spending exactly to plan is not overspending, however `on_track` reads"
+        "spending exactly to plan is not overspending"
     );
     assert_eq!(status.spent_this_month, m(40_000));
+
+    // Another $150.00 out the door: still nothing outstanding, and now over
+    // budget. The two measures part company here, and only here.
+    spend_on(&db, "2026-08-20", groceries, 15_000);
+    let over = status_for(&db, groceries, ym(2026, 8));
+    let over = over.status.as_ref().expect("a line means a status");
+    assert_eq!(
+        over.on_track,
+        OnTrack::OnTrack,
+        "an overspend is not a funding surplus, so this stops at on track"
+    );
+    assert_eq!(over.spend.overspent_by, m(15_000));
+    assert_clean(&db);
+}
+
+#[test]
+fn an_unpaid_monthly_bill_is_the_case_that_reads_behind() {
+    // The other half of the rule, and the reading that makes `Behind` worth
+    // showing: with nothing paid, the whole month's budget is outstanding.
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    let mut line = record(groceries, Period::Monthly, (2026, 8), 40_000);
+    line.rollover = false;
+    set_line(&db, &line);
+
+    let status = status_for(&db, groceries, ym(2026, 8));
+    let funded = status.status.as_ref().expect("a line means a status");
+    assert_eq!(funded.on_track, OnTrack::Behind(m(40_000)));
+    assert_eq!(
+        funded.spend.overspent_by,
+        Money::ZERO,
+        "an unpaid bill is not an overspend either"
+    );
     assert_clean(&db);
 }
 
@@ -288,11 +350,14 @@ fn overspending_shows_up_only_in_the_spend_status() {
 #[test]
 fn a_twelve_hundred_a_year_line_is_a_hundred_a_month_and_eight_hundred_funded_by_august() {
     // The milestone's acceptance criterion, end to end through storage:
-    // $1200/yr from 2026-01 with nothing spent reads, in August, as $100.00
-    // this month, 8 x $100.00 = $800.00 contributed, and exactly on schedule.
+    // $1200/yr from 2026-01, funded as scheduled and with nothing spent, reads
+    // in August as $100.00 this month, 8 x $100.00 = $800.00 contributed, and
+    // exactly on schedule. The eight deposits have to be recorded, because the
+    // balance is built from money that was set aside and not from the plan.
     let db = seeded_db();
     let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
+    fund_on_plan(&db, insurance, ym(2026, 8));
 
     let status = status_for(&db, insurance, ym(2026, 8));
     let funded = status.status.as_ref().expect("status");
@@ -317,6 +382,45 @@ fn a_twelve_hundred_a_year_line_is_a_hundred_a_month_and_eight_hundred_funded_by
 }
 
 #[test]
+fn only_recorded_contributions_fund_a_sinking_fund() {
+    // The plan is not the fact. A $1200/yr line nobody has transferred a cent
+    // into has nothing banked, however faithfully its schedule says $100 a
+    // month. Funding it from the schedule answered "will the $1200 be there in
+    // December" out of the plan itself, which is the one question that must be
+    // answered from what actually happened.
+    let db = seeded_db();
+    let insurance = cat(&db, "Car Insurance");
+    set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
+
+    let unfunded = status_for(&db, insurance, ym(2026, 8));
+    let unfunded = unfunded.status.as_ref().expect("status");
+    assert_eq!(unfunded.contributed_to_date, Money::ZERO);
+    assert_eq!(unfunded.funded_balance, Money::ZERO);
+    assert_eq!(unfunded.on_track, OnTrack::Behind(m(80_000)));
+    assert_eq!(
+        unfunded.monthly_contribution,
+        m(10_000),
+        "the schedule still says what it always said; only the balance stopped believing it"
+    );
+
+    // Two months genuinely set aside close two months of the gap.
+    budgets::set_contribution(&db, insurance, ym(2026, 2), m(10_000)).expect("set_contribution");
+    budgets::set_contribution(&db, insurance, ym(2026, 3), m(10_000)).expect("set_contribution");
+    let partly = status_for(&db, insurance, ym(2026, 8));
+    let partly = partly.status.as_ref().expect("status");
+    assert_eq!(partly.funded_balance, m(20_000));
+    assert_eq!(partly.on_track, OnTrack::Behind(m(60_000)));
+
+    // A second figure for a month already recorded is a correction to it, not
+    // a second deposit; adding would inflate the very number this table exists
+    // to make trustworthy.
+    budgets::set_contribution(&db, insurance, ym(2026, 3), m(15_000)).expect("set_contribution");
+    let corrected = status_for(&db, insurance, ym(2026, 8));
+    assert_eq!(corrected.status.expect("status").funded_balance, m(25_000));
+    assert_clean(&db);
+}
+
+#[test]
 fn an_adjustment_moves_the_funded_balance_by_exactly_its_amount() {
     // The "I threw an extra $50 at it" lever, and the "write this overspend
     // off so it stops propagating through every later rollover" lever, are the
@@ -324,6 +428,9 @@ fn an_adjustment_moves_the_funded_balance_by_exactly_its_amount() {
     let db = seeded_db();
     let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
+    // Kept on plan, so the `Ahead` below is the adjustment's doing and not an
+    // artefact of a fund nobody has paid into.
+    fund_on_plan(&db, insurance, ym(2026, 8));
 
     let before = status_for(&db, insurance, ym(2026, 8));
     let before_balance = before.status.as_ref().expect("status").funded_balance;
@@ -352,6 +459,7 @@ fn spending_shows_up_against_the_line_it_belongs_to() {
     let db = seeded_db();
     let insurance = cat(&db, "Car Insurance");
     set_line(&db, &record(insurance, Period::Yearly, (2026, 1), 120_000));
+    fund_on_plan(&db, insurance, ym(2026, 8));
     spend_on(&db, "2026-03-14", insurance, 120_000);
 
     let status = status_for(&db, insurance, ym(2026, 8));
@@ -411,6 +519,7 @@ fn a_non_rollover_yearly_line_still_accumulates_inside_its_year() {
     let mut line = record(insurance, Period::Yearly, (2026, 1), 120_000);
     line.rollover = false;
     set_line(&db, &line);
+    fund_on_plan(&db, insurance, ym(2027, 1));
 
     // Eight months of $100.00 have accumulated toward the bill.
     assert_eq!(

@@ -589,6 +589,107 @@ pub fn adjustments_for(
     Ok(rows)
 }
 
+/// Money actually set aside for one category, keyed by the month it went in.
+///
+/// The shape [`crate::domain::budget_calc::funded_balance`] takes. A month with
+/// nothing recorded is absent rather than zero — and for a sinking fund those
+/// mean the same thing on purpose: nothing was saved that month.
+pub fn contributions_for(
+    db: &Db,
+    category_id: CategoryId,
+    range: MonthRange,
+) -> Result<BTreeMap<YearMonth, Money>> {
+    if range.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let mut stmt = db.conn().prepare(
+        "SELECT year_month, SUM(amount_cents)
+           FROM budget_contribution
+          WHERE category_id = ?1 AND archived_at IS NULL
+            AND year_month >= ?2 AND year_month <= ?3
+          GROUP BY year_month",
+    )?;
+    let rows = stmt
+        .query_map(params![category_id, range.start, range.end], |r| {
+            Ok((r.get::<_, YearMonth>(0)?, r.get::<_, Money>(1)?))
+        })?
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+    Ok(rows)
+}
+
+/// Every live contribution in `range`, for **every** category.
+///
+/// One query for the whole budget screen, for the same reason as
+/// [`all_adjustments`]: the per-category alternative is a round trip per row.
+pub fn all_contributions(
+    db: &Db,
+    range: MonthRange,
+) -> Result<BTreeMap<CategoryId, BTreeMap<YearMonth, Money>>> {
+    if range.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let mut stmt = db.conn().prepare(
+        "SELECT category_id, year_month, SUM(amount_cents)
+           FROM budget_contribution
+          WHERE archived_at IS NULL AND year_month >= ?1 AND year_month <= ?2
+          GROUP BY category_id, year_month",
+    )?;
+    let rows = stmt
+        .query_map(params![range.start, range.end], |r| {
+            Ok((
+                r.get::<_, CategoryId>(0)?,
+                r.get::<_, YearMonth>(1)?,
+                r.get::<_, Money>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut out: BTreeMap<CategoryId, BTreeMap<YearMonth, Money>> = BTreeMap::new();
+    for (category_id, ym, amount) in rows {
+        out.entry(category_id).or_default().insert(ym, amount);
+    }
+    Ok(out)
+}
+
+/// Record what was set aside for one category in one month, replacing whatever
+/// was recorded before.
+///
+/// Replace rather than add: a second figure for a month already recorded is a
+/// correction to it, not a second deposit. Adding would silently double the
+/// funded balance, which is the number this table exists to make trustworthy.
+///
+/// `Money::ZERO` is stored rather than treated as a delete, because "we set
+/// aside nothing this month" said out loud is a different statement from never
+/// having been asked, even though `funded_balance` treats them alike today.
+pub fn set_contribution(
+    db: &Db,
+    category_id: CategoryId,
+    year_month: YearMonth,
+    amount: Money,
+) -> Result<()> {
+    db.conn().execute(
+        "INSERT INTO budget_contribution (uuid, category_id, year_month, amount_cents)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (category_id, year_month) WHERE archived_at IS NULL
+         DO UPDATE SET amount_cents = excluded.amount_cents,
+                       updated_at   = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        params![new_uuid(), category_id, year_month, amount],
+    )?;
+    Ok(())
+}
+
+/// Forget a recorded contribution, returning the month to "nothing recorded".
+pub fn clear_contribution(db: &Db, category_id: CategoryId, year_month: YearMonth) -> Result<()> {
+    db.conn().execute(
+        "UPDATE budget_contribution
+            SET archived_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE category_id = ?1 AND year_month = ?2 AND archived_at IS NULL",
+        params![category_id, year_month],
+    )?;
+    Ok(())
+}
+
 /// Every live adjustment in `range`, for **every** category, summed per month.
 ///
 /// One query for the whole budget screen. The per-category alternative issues a

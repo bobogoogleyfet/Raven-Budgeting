@@ -14,6 +14,9 @@ BudgetRow budgeted(
   String funding = 'on track',
   int fundingBy = 0,
   int monthsRemaining = 1,
+  bool groupIsObligation = false,
+  int? contributedThisMonth,
+  bool isSinkingFund = false,
 }) =>
     BudgetRow(
       categoryId: 1,
@@ -26,6 +29,10 @@ BudgetRow budgeted(
       remaining: fromCore(remaining),
       overspentBy: fromCore(overspentBy),
       spentThisMonth: fromCore(spent),
+      groupIsObligation: groupIsObligation,
+      contributedThisMonth:
+          contributedThisMonth == null ? null : fromCore(contributedThisMonth),
+      isSinkingFund: isSinkingFund,
       funding: funding,
       fundingBy: fromCore(fundingBy),
       monthsRemaining: monthsRemaining,
@@ -42,10 +49,33 @@ const BudgetRow unbudgeted = BudgetRow(
   remaining: null,
   overspentBy: null,
   spentThisMonth: zero,
+  groupIsObligation: false,
+  contributedThisMonth: null,
+  isSinkingFund: false,
   funding: 'none',
   fundingBy: zero,
   monthsRemaining: null,
 );
+
+/// A category with no budget line, which has been spent on anyway.
+BudgetRow unbudgetedSpent(String name, int spent) => BudgetRow(
+      categoryId: 3,
+      categoryName: name,
+      groupName: 'Non-Monthly',
+      budgeted: null,
+      perMonth: null,
+      funded: null,
+      spentCycle: null,
+      remaining: null,
+      overspentBy: null,
+      spentThisMonth: fromCore(spent),
+      groupIsObligation: false,
+      contributedThisMonth: null,
+      isSinkingFund: false,
+      funding: 'none',
+      fundingBy: zero,
+      monthsRemaining: null,
+    );
 
 TxnSummary expense(String? merchant, int total, {String date = '2026-08-19'}) =>
     TxnSummary(
@@ -365,5 +395,35 @@ void main() {
     final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
     expect(ring.segments, hasLength(8));
     expect(ring.segments.last.label, 'Category 1');
+  });
+
+  testWidgets('spending with no budget shows as a red slice, not as nothing',
+      (tester) async {
+    // The one kind of spending nobody planned for used to be the one kind the
+    // picture of the month did not show: unbudgeted rows were filtered off the
+    // ring, so $80 spent against no budget simply vanished.
+    await pump(tester, budget: [
+      budgeted('Groceries', budget: 40000, spent: 10000, remaining: 30000),
+      unbudgetedSpent('Travel', 8000),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    final slice = ring.segments.singleWhere((s) => s.label == 'Unbudgeted');
+    expect(slice.spent, 8000);
+    // Entirely over: there was no budget for any of it.
+    expect(slice.isOver, isTrue);
+    expect(slice.budgeted, slice.spent);
+  });
+
+  testWidgets('an unbudgeted category nobody spent on stays off the ring',
+      (tester) async {
+    // Having no budget is not itself news. Only spending against none is.
+    await pump(tester, budget: [
+      budgeted('Groceries', budget: 40000, spent: 10000, remaining: 30000),
+      unbudgetedSpent('Travel', 0),
+    ]);
+
+    final ring = tester.widget<BudgetRing>(find.byType(BudgetRing));
+    expect(ring.segments.where((s) => s.label == 'Unbudgeted'), isEmpty);
   });
 }

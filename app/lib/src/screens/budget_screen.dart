@@ -4,6 +4,7 @@ import '../api.dart';
 import '../breakpoints.dart';
 import '../dates.dart';
 import '../money.dart';
+import '../widgets/cents_field.dart';
 import '../widgets/money_text.dart';
 import 'set_budget_dialog.dart';
 
@@ -29,11 +30,17 @@ class BudgetScreen extends StatefulWidget {
     this.load = budgetStatus,
     this.loadCategories = listCategories,
     this.month,
+    this.record = recordContribution,
   });
 
   final BudgetLoader load;
   final CategoryLoader loadCategories;
   final String? month;
+  final Future<void> Function({
+    required int categoryId,
+    required String month,
+    required Cents amount,
+  }) record;
 
   @override
   State<BudgetScreen> createState() => _BudgetScreenState();
@@ -50,6 +57,35 @@ class _BudgetScreenState extends State<BudgetScreen> {
   }
 
   String? _note;
+
+  /// Record what was actually set aside for a sinking fund this month.
+  ///
+  /// Prefilled with the month's target and editable before it lands, because
+  /// saving exactly the planned amount is the normal case and a tight month is
+  /// the one worth being able to say out loud. Recording nothing at all is
+  /// already what an untouched month means, so there is no "skip" button.
+  Future<void> _recordSaved(BudgetRow row) async {
+    final Cents? amount = await showDialog<Cents>(
+      context: context,
+      builder: (context) => _SavedDialog(row: row, month: _month),
+    );
+    if (amount == null || !mounted) return;
+    try {
+      await widget.record(
+        categoryId: row.categoryId,
+        month: _month,
+        amount: amount,
+      );
+    } catch (error) {
+      if (mounted) setState(() => _note = 'Could not record it: $error');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _note = '${row.categoryName}: ${formatMoney(amount)} set aside.';
+      _rows = widget.load(_month);
+    });
+  }
 
   /// Open the budget editor, and say what it did.
   ///
@@ -178,6 +214,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                       row: row,
                       wide: wide,
                       onEdit: () => _setBudget(row),
+                      onRecordSaved: () => _recordSaved(row),
                     ),
                   if (without > 0)
                     _Message(
@@ -200,11 +237,13 @@ class _BudgetLine extends StatelessWidget {
     required this.row,
     required this.wide,
     required this.onEdit,
+    required this.onRecordSaved,
   });
 
   final BudgetRow row;
   final bool wide;
   final VoidCallback onEdit;
+  final VoidCallback onRecordSaved;
 
   @override
   Widget build(BuildContext context) {
@@ -216,9 +255,20 @@ class _BudgetLine extends StatelessWidget {
         ? theme.colorScheme.errorContainer.withValues(alpha: 0.35)
         : null;
 
+    // "Behind" only means something where the money is owed. Rent budgeted and
+    // unpaid is $900 behind; groceries budgeted and unspent is $250 *left*, and
+    // calling that being behind reads as a telling-off for the good outcome.
+    // The core decides which kind of group this is, from the group, rather than
+    // each screen guessing from its name.
     final String funding = switch (row.funding) {
       'none' => '—',
-      'on track' => 'on track',
+      'on track' when row.groupIsObligation => 'on track',
+      // For a spending envelope there is nothing to be on track *against*: the
+      // useful sentence is simply what has gone out of it.
+      'on track' => 'spent ${formatMoney(row.spentThisMonth)}',
+      'behind' when !row.groupIsObligation =>
+        'spent ${formatMoney(row.spentThisMonth)}, ${formatMoney(row.fundingBy)} left',
+      'ahead' when !row.groupIsObligation => 'spent ${formatMoney(row.spentThisMonth)}',
       final other => '$other ${formatMoney(row.fundingBy)}',
     };
 
@@ -273,6 +323,32 @@ class _BudgetLine extends StatelessWidget {
                 ),
               ],
             ),
+            if (row.isSinkingFund)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  // A sinking fund is funded by what is recorded here and by
+                  // nothing else, so the row that reports it behind is also the
+                  // row that can fix it. Anywhere else and the two would be a
+                  // navigation apart.
+                  child: row.contributedThisMonth == null
+                      ? TextButton.icon(
+                          onPressed: onRecordSaved,
+                          icon: const Icon(Icons.savings_outlined, size: 18),
+                          label: Text(
+                            'Set aside ${formatMoney(row.perMonth ?? zero)}',
+                          ),
+                        )
+                      : TextButton.icon(
+                          onPressed: onRecordSaved,
+                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                          label: Text(
+                            '${formatMoney(row.contributedThisMonth!)} set aside',
+                          ),
+                        ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(
@@ -281,7 +357,11 @@ class _BudgetLine extends StatelessWidget {
                   // Behind gets a warning tone, never the error tone: an envelope
                   // spent exactly to plan is behind on funding and perfectly fine
                   // on spending.
-                  color: row.funding == 'behind'
+                  // The warning tone belongs to a bill that has not been paid.
+                  // An envelope with money still in it is not a warning, so it
+                  // reads in the ordinary colour however far "behind" the
+                  // funding arithmetic says it is.
+                  color: row.funding == 'behind' && row.groupIsObligation
                       ? theme.colorScheme.tertiary
                       : theme.colorScheme.onSurfaceVariant,
                 ),
@@ -336,10 +416,10 @@ class _Footnote extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Text(
-        'Funding asks whether the money will be there when the bill lands; '
-        'Over asks whether more has been spent than this cycle’s budget. '
-        'They disagree by design — an envelope spent exactly to plan is behind '
-        'on funding and fine on spending.',
+        'Bills and savings report whether the money is there yet — an unpaid '
+        'bill is behind by what it still owes. Spending categories just report '
+        'what has gone out, because an envelope with money left in it is not '
+        'behind on anything.',
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
         ),
@@ -367,6 +447,72 @@ class _Message extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// Asks what was actually set aside, prefilled with what was planned.
+class _SavedDialog extends StatefulWidget {
+  const _SavedDialog({required this.row, required this.month});
+
+  final BudgetRow row;
+  final String month;
+
+  @override
+  State<_SavedDialog> createState() => _SavedDialogState();
+}
+
+class _SavedDialogState extends State<_SavedDialog> {
+  late final TextEditingController _amount = TextEditingController(
+    // The plan, as the opening offer. Saving exactly the target is the normal
+    // case, and typing a figure the app already knows is the decision this
+    // form should not be asking for.
+    text: formatCents(
+      widget.row.contributedThisMonth ?? widget.row.perMonth ?? zero,
+    ),
+  );
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Cents? parsed = amountValue(_amount.text);
+    return AlertDialog(
+      title: Text('Set aside for ${widget.row.categoryName}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Money moved into this fund in ${widget.month}. It is not spending: '
+            'it will not count against the budget now, and it will not be '
+            'counted again when the bill is paid.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          CentsField(
+            controller: _amount,
+            autofocus: true,
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed:
+              parsed == null ? null : () => Navigator.of(context).pop(parsed),
+          child: const Text('Record'),
+        ),
+      ],
     );
   }
 }

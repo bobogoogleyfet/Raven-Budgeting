@@ -50,7 +50,7 @@ const SEED_VERSION_KEY: &str = "seed_version";
 /// The flag alone does not fix an upgraded install: it says which rate to
 /// reach for, and the *location* has to have one. Filling that in is
 /// `service::rates::ensure_installed`'s backfill.
-const SEED_VERSION: i64 = 4;
+const SEED_VERSION: i64 = 5;
 
 /// A seed category. `rollover` seeds [`budget_line.rollover`] for lines later
 /// created against it.
@@ -184,6 +184,12 @@ impl SeedCategory {
 struct SeedGroup {
     name: &'static str,
     hidden: bool,
+    /// Whether money budgeted here is *owed* rather than merely available.
+    ///
+    /// Decides one word on the budget screen and it is the difference between
+    /// sense and nonsense: rent budgeted and unpaid is $900 behind, groceries
+    /// budgeted and unspent is $250 left.
+    obligation: bool,
     categories: &'static [SeedCategory],
 }
 
@@ -196,6 +202,8 @@ static SEED_GROUPS: &[SeedGroup] = &[
         // bookkeeping rather than decision-making.
         name: "Bills",
         hidden: false,
+        // A bill not yet paid is a debt that has not gone away.
+        obligation: true,
         categories: &[
             // Every one of these is a bill, not a shop. See `billed`.
             SeedCategory::billed("Rent"),
@@ -212,6 +220,7 @@ static SEED_GROUPS: &[SeedGroup] = &[
         // entry screen should surface first.
         name: "Frequent",
         hidden: false,
+        obligation: false,
         categories: &[
             SeedCategory::groceries("Groceries"),
             SeedCategory::restaurant("Restaurants"),
@@ -228,6 +237,7 @@ static SEED_GROUPS: &[SeedGroup] = &[
         // is nine months of $100 finally being spent.
         name: "Occasional",
         hidden: false,
+        obligation: false,
         categories: &[
             // Utah taxes repair labour as well as parts, unlike most states.
             SeedCategory::sinking("Car Repair"),
@@ -246,6 +256,7 @@ static SEED_GROUPS: &[SeedGroup] = &[
     SeedGroup {
         name: "Quality of Life",
         hidden: false,
+        obligation: false,
         categories: &[
             SeedCategory::user("Entertainment"),
             SeedCategory::user("Hobbies"),
@@ -259,11 +270,15 @@ static SEED_GROUPS: &[SeedGroup] = &[
         // against. The group is what makes them easy to add.
         name: "Education",
         hidden: false,
+        obligation: false,
         categories: &[],
     },
     SeedGroup {
         name: "Savings",
         hidden: false,
+        // Money you owe your future self. Not putting it aside is falling
+        // behind in exactly the sense the word means.
+        obligation: true,
         // Rollover for the same reason as Non-Monthly, more obviously: an
         // emergency fund that resets each month is a chequing account.
         // Money moved into savings is not a purchase either.
@@ -275,6 +290,7 @@ static SEED_GROUPS: &[SeedGroup] = &[
         // may rename; the triggers only stop deletion and archiving.
         name: "System",
         hidden: true,
+        obligation: false,
         categories: &[
             SeedCategory::system("Uncategorized", SYSTEM_UNCATEGORIZED),
             // Money moved between the user's own accounts is not a purchase.
@@ -445,6 +461,14 @@ fn upsert_group(
         )
         .ok();
     if let Some(id) = existing {
+        // Re-applied to a group that already exists, like the category flags
+        // below: whether a group holds obligations is a fact about what it is,
+        // not a preference the user set, and an upgraded database would
+        // otherwise keep calling an unspent grocery envelope "behind" forever.
+        tx.execute(
+            "UPDATE category_group SET is_obligation = ?2 WHERE id = ?1",
+            params![id, i64::from(group.obligation)],
+        )?;
         return Ok(id);
     }
 
@@ -469,9 +493,15 @@ fn upsert_group(
     };
 
     tx.execute(
-        "INSERT INTO category_group (uuid, name, is_hidden, sort_order)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![new_uuid(), group.name, i64::from(group.hidden), sort_order],
+        "INSERT INTO category_group (uuid, name, is_hidden, is_obligation, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            new_uuid(),
+            group.name,
+            i64::from(group.hidden),
+            i64::from(group.obligation),
+            sort_order
+        ],
     )?;
     Ok(CategoryGroupId::new(tx.last_insert_rowid()))
 }

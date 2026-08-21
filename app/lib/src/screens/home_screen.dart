@@ -86,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return _Overview(
           month: _month,
           budget: budget.where((r) => r.isBudgeted).toList(),
-          unbudgeted: budget.where((r) => !r.isBudgeted).length,
+          unbudgeted: budget.where((r) => !r.isBudgeted).toList(),
           totals: totals,
           recent: recent,
           onSetBudget: widget.onSetBudget,
@@ -116,7 +116,9 @@ class _Overview extends StatefulWidget {
 
   final String month;
   final List<BudgetRow> budget;
-  final int unbudgeted;
+  /// Categories with no budget line this month. Kept as rows rather than a
+  /// count because the ones that have been *spent* on belong on the ring.
+  final List<BudgetRow> unbudgeted;
   final MonthTotals totals;
   final List<TxnSummary> recent;
 
@@ -164,6 +166,21 @@ class _OverviewState extends State<_Overview> {
           isOver: row.isOver,
           colour: _colourFor(context, row),
         ),
+      if (_unbudgetedSpend > 0)
+        RingSegment(
+          label: 'Unbudgeted',
+          // Sized by what was spent, because there is no budget to size it by.
+          // Equal to `spent` so the arc fills completely: money spent against
+          // no budget is entirely over, not partly.
+          budgeted: _unbudgetedSpend,
+          spent: _unbudgetedSpend,
+          // Spending with nothing budgeted for it *is* the over-budget case.
+          // It used to be filtered off the ring altogether, so the one kind of
+          // spending nobody had planned for was the one kind the picture of
+          // the month did not show.
+          isOver: true,
+          colour: Theme.of(context).colorScheme.error,
+        ),
       if (folded.isNotEmpty)
         RingSegment(
           // One left over is not a group. Calling a single category "Other"
@@ -176,6 +193,10 @@ class _OverviewState extends State<_Overview> {
         ),
     ];
   }
+
+  /// What has been spent this month on categories with no budget at all.
+  int get _unbudgetedSpend =>
+      widget.unbudgeted.fold(0, (sum, r) => sum + r.spentThisMonth.value);
 
   /// Which segment the user tapped, if any.
   int? _selected;
@@ -246,10 +267,10 @@ class _OverviewState extends State<_Overview> {
                   onSeeAll: widget.onOpenBudgets,
                   columns: wide ? 2 : 1,
                 ),
-                if (widget.unbudgeted > 0)
+                if (widget.unbudgeted.isNotEmpty)
                   EmptyNote(
-                    '${widget.unbudgeted} '
-                    '${widget.unbudgeted == 1 ? 'category has' : 'categories have'}'
+                    '${widget.unbudgeted.length} '
+                    '${widget.unbudgeted.length == 1 ? 'category has' : 'categories have'}'
                     ' no budget.',
                   ),
               ],

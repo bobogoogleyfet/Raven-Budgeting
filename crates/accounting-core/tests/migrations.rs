@@ -50,12 +50,20 @@ const MIGRATION_HASHES: &[(&str, &str)] = &[
         "005_restaurant_rate.sql",
         "2ec26bf7dbc32eb57424af6b9b32ddda6dbfbb9722b068d0a2fa83ccec8c9628",
     ),
+    (
+        "006_budget_contribution.sql",
+        "70ce72e96de216c3ff77c5e2cf2ac58058fe38d78ddb01f4ee0a97d5df0ba6d3",
+    ),
+    (
+        "007_group_obligation.sql",
+        "37f0640a50f70f75082f9d16987efaa7f72f71b2275c651095cfb2f2801b7a42",
+    ),
 ];
 
 /// `PRAGMA user_version` after `to_latest()`. `rusqlite_migration` sets it to
 /// the number of applied migrations, so this must track `MIGRATION_HASHES`.
 /// `pacc doctor` prints it.
-const EXPECTED_USER_VERSION: i64 = 5;
+const EXPECTED_USER_VERSION: i64 = 7;
 
 fn sha256_hex(bytes: &str) -> String {
     let digest = Sha256::digest(bytes.as_bytes());

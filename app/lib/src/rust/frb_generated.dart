@@ -74,7 +74,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 359984009;
+  int get rustContentHash => -1376462314;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -115,6 +115,11 @@ abstract class RustLibApi extends BaseApi {
 
   Future<FilterValuesDto> crateApiTransactionsFilterValues();
 
+  Future<void> crateApiBudgetForgetContribution({
+    required PlatformInt64 categoryId,
+    required String month,
+  });
+
   Future<LocationDto?> crateApiEntryHomeLocation();
 
   Future<void> crateApiInitInitApp();
@@ -148,6 +153,12 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<RateReleaseDto?> crateApiEntryRateRelease();
+
+  Future<void> crateApiBudgetRecordContribution({
+    required PlatformInt64 categoryId,
+    required String month,
+    required PlatformInt64 amountCents,
+  });
 
   Future<RefreshDto> crateApiRatesRefreshRates();
 
@@ -429,6 +440,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "filter_values", argNames: []);
 
   @override
+  Future<void> crateApiBudgetForgetContribution({
+    required PlatformInt64 categoryId,
+    required String month,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(categoryId, serializer);
+          sse_encode_String(month, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiBudgetForgetContributionConstMeta,
+        argValues: [categoryId, month],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiBudgetForgetContributionConstMeta =>
+      const TaskConstMeta(
+        debugName: "forget_contribution",
+        argNames: ["categoryId", "month"],
+      );
+
+  @override
   Future<LocationDto?> crateApiEntryHomeLocation() {
     return handler.executeNormal(
       NormalTask(
@@ -437,7 +483,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -464,7 +510,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -491,7 +537,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -518,7 +564,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },
@@ -545,7 +591,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -572,7 +618,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -599,7 +645,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -637,7 +683,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -674,7 +720,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -701,7 +747,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -729,7 +775,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -759,7 +805,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -786,7 +832,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -805,6 +851,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "rate_release", argNames: []);
 
   @override
+  Future<void> crateApiBudgetRecordContribution({
+    required PlatformInt64 categoryId,
+    required String month,
+    required PlatformInt64 amountCents,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(categoryId, serializer);
+          sse_encode_String(month, serializer);
+          sse_encode_i_64(amountCents, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 23,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiBudgetRecordContributionConstMeta,
+        argValues: [categoryId, month, amountCents],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiBudgetRecordContributionConstMeta =>
+      const TaskConstMeta(
+        debugName: "record_contribution",
+        argNames: ["categoryId", "month", "amountCents"],
+      );
+
+  @override
   Future<RefreshDto> crateApiRatesRefreshRates() {
     return handler.executeNormal(
       NormalTask(
@@ -813,7 +896,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 24,
             port: port_,
           );
         },
@@ -843,7 +926,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 25,
             port: port_,
           );
         },
@@ -883,7 +966,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 26,
             port: port_,
           );
         },
@@ -937,7 +1020,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 27,
             port: port_,
           );
         },
@@ -971,7 +1054,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_list_prim_i_64_strict(parts, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 26)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 28)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_i_64,
@@ -1054,8 +1137,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BudgetRowDto dco_decode_budget_row_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return BudgetRowDto(
       categoryId: dco_decode_i_64(arr[0]),
       categoryName: dco_decode_String(arr[1]),
@@ -1067,9 +1150,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       remaining: dco_decode_opt_box_autoadd_i_64(arr[7]),
       overspentBy: dco_decode_opt_box_autoadd_i_64(arr[8]),
       spentThisMonth: dco_decode_i_64(arr[9]),
-      funding: dco_decode_String(arr[10]),
-      fundingBy: dco_decode_i_64(arr[11]),
-      monthsRemaining: dco_decode_opt_box_autoadd_u_32(arr[12]),
+      groupIsObligation: dco_decode_bool(arr[10]),
+      contributedThisMonth: dco_decode_opt_box_autoadd_i_64(arr[11]),
+      isSinkingFund: dco_decode_bool(arr[12]),
+      funding: dco_decode_String(arr[13]),
+      fundingBy: dco_decode_i_64(arr[14]),
+      monthsRemaining: dco_decode_opt_box_autoadd_u_32(arr[15]),
     );
   }
 
@@ -1574,6 +1660,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_remaining = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_overspentBy = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_spentThisMonth = sse_decode_i_64(deserializer);
+    var var_groupIsObligation = sse_decode_bool(deserializer);
+    var var_contributedThisMonth = sse_decode_opt_box_autoadd_i_64(
+      deserializer,
+    );
+    var var_isSinkingFund = sse_decode_bool(deserializer);
     var var_funding = sse_decode_String(deserializer);
     var var_fundingBy = sse_decode_i_64(deserializer);
     var var_monthsRemaining = sse_decode_opt_box_autoadd_u_32(deserializer);
@@ -1588,6 +1679,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       remaining: var_remaining,
       overspentBy: var_overspentBy,
       spentThisMonth: var_spentThisMonth,
+      groupIsObligation: var_groupIsObligation,
+      contributedThisMonth: var_contributedThisMonth,
+      isSinkingFund: var_isSinkingFund,
       funding: var_funding,
       fundingBy: var_fundingBy,
       monthsRemaining: var_monthsRemaining,
@@ -2245,6 +2339,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_i_64(self.remaining, serializer);
     sse_encode_opt_box_autoadd_i_64(self.overspentBy, serializer);
     sse_encode_i_64(self.spentThisMonth, serializer);
+    sse_encode_bool(self.groupIsObligation, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.contributedThisMonth, serializer);
+    sse_encode_bool(self.isSinkingFund, serializer);
     sse_encode_String(self.funding, serializer);
     sse_encode_i_64(self.fundingBy, serializer);
     sse_encode_opt_box_autoadd_u_32(self.monthsRemaining, serializer);

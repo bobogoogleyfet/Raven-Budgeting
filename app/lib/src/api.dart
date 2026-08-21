@@ -61,6 +61,9 @@ class BudgetRow {
     required this.remaining,
     required this.overspentBy,
     required this.spentThisMonth,
+    required this.groupIsObligation,
+    required this.contributedThisMonth,
+    required this.isSinkingFund,
     required this.funding,
     required this.fundingBy,
     required this.monthsRemaining,
@@ -81,6 +84,22 @@ class BudgetRow {
   final Cents? overspentBy;
 
   final Cents spentThisMonth;
+
+  /// Money budgeted in this category's group is owed, not merely available.
+  ///
+  /// Rent unpaid is being behind; groceries unspent is having money left. The
+  /// core decides this from the group rather than each screen guessing from a
+  /// name.
+  final bool groupIsObligation;
+
+  /// What was actually set aside this month. `null` means nothing has been
+  /// recorded, which a sinking fund counts as nothing saved — distinct from a
+  /// recorded zero, which is somebody saying so out loud.
+  final Cents? contributedThisMonth;
+
+  /// Saved into rather than paid out of: a yearly premium, a car-repair fund.
+  /// Only these take contributions.
+  final bool isSinkingFund;
 
   /// `"ahead" | "on track" | "behind" | "none"`.
   final String funding;
@@ -246,6 +265,9 @@ Future<List<BudgetRow>> budgetStatus(String month) async {
           remaining: cents(r.remaining),
           overspentBy: cents(r.overspentBy),
           spentThisMonth: fromCore(r.spentThisMonth),
+          groupIsObligation: r.groupIsObligation,
+          contributedThisMonth: cents(r.contributedThisMonth),
+          isSinkingFund: r.isSinkingFund,
           funding: r.funding,
           fundingBy: fromCore(r.fundingBy),
           monthsRemaining: r.monthsRemaining,
@@ -253,6 +275,29 @@ Future<List<BudgetRow>> budgetStatus(String month) async {
       )
       .toList();
 }
+
+/// Record what was actually set aside for a category in one month.
+///
+/// Not an expense: money moved into a sinking fund has not been spent, and
+/// filing it as spending would count it against the budget now and again when
+/// the bill it is for is finally paid.
+Future<void> recordContribution({
+  required int categoryId,
+  required String month,
+  required Cents amount,
+}) =>
+    rust_budget.recordContribution(
+      categoryId: categoryId,
+      month: month,
+      amountCents: amount.value,
+    );
+
+/// Forget a recorded contribution, returning the month to "nothing recorded".
+Future<void> forgetContribution({
+  required int categoryId,
+  required String month,
+}) =>
+    rust_budget.forgetContribution(categoryId: categoryId, month: month);
 
 /// One category's line on the receipt being entered.
 class DraftRow {

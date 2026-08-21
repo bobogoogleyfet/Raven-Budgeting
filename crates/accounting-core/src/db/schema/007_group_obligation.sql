@@ -1,0 +1,39 @@
+-- 007_group_obligation.sql — not spending the grocery budget is not a problem.
+--
+-- SHIPPED MIGRATIONS ARE IMMUTABLE. See 001_init.sql.
+--
+-- # Why this exists
+--
+-- `FundedStatus::on_track` reports a monthly line as `Behind` by whatever has
+-- not been spent yet. For rent that is exactly right: $900 budgeted and nothing
+-- paid means the month is $900 short of where it needs to be. For groceries the
+-- same sentence is nonsense — $400 budgeted and $150 spent is not being behind,
+-- it is having $250 left, which is the good outcome.
+--
+-- The difference is not the cadence. Both are monthly lines with a target and
+-- spending against it. The difference is whether the money is *owed*: an
+-- unpaid bill is a debt that has not gone away, while an unspent envelope is
+-- simply money still in hand. Nothing in the schema said which was which, so
+-- every screen had to guess, and the honest guess for a mixed set is the wrong
+-- word for half of it.
+--
+-- # Why on the group rather than the category
+--
+-- Because that is the level at which it is actually true, and the level the
+-- user thinks at: "Bills" is a group of obligations, "Quality of Life" is a
+-- group of choices, and no member of either is the exception. Putting it on
+-- the category would mean setting the same answer on every category in a group
+-- and keeping them in step by hand forever.
+--
+-- # Not the same question as `rollover`
+--
+-- A sinking fund also carries a balance forward, but its funding measure is
+-- about money set aside (006) rather than money owed this month. This column
+-- only decides how a *monthly* line's shortfall is worded.
+
+-- Whether money budgeted here is owed rather than merely available.
+--
+-- Defaults to 0 — the safe reading for a group nobody has classified, because
+-- "you have money left" is never alarming and "you are behind" is.
+ALTER TABLE category_group ADD COLUMN is_obligation INTEGER NOT NULL DEFAULT 0
+    CHECK (is_obligation IN (0, 1));

@@ -51,30 +51,41 @@ pub struct BudgetLine {
     pub rollover: bool,
 }
 
-/// How a funded balance compares with where it should be by now.
+/// How a line's funding compares with where it should be by now.
 ///
 /// This is a **funding** measure — "will the money be there when the bill
-/// arrives?" — and it is the right question for a sinking fund. It is *not* an
-/// overspending warning: see [`SpendStatus`], which answers the separate
-/// question "have I spent more than I budgeted?". A UI must not render
-/// [`OnTrack::Behind`] as "over budget"; a grocery envelope spent exactly to
-/// plan is legitimately `Behind` on funding and perfectly fine on spending.
+/// arrives?" — and what makes an honest answer depends on the cadence. A
+/// sinking fund is saved for, so it is read as its recorded balance against the
+/// schedule banked so far, and it can run ahead, level or behind. A monthly
+/// bill is not saved for, it is *paid*, so the same question becomes "how much
+/// of this month is still unpaid": rent of $900 paid in full is `OnTrack`,
+/// untouched is `Behind($900)`. It never reads `Ahead` for a monthly line,
+/// because paying past the budget is an overspend rather than a funding
+/// surplus.
+///
+/// Either way it is *not* an overspending warning: see [`SpendStatus`], which
+/// answers the separate question "have I spent more than I budgeted?". A UI
+/// must not render [`OnTrack::Behind`] as "over budget" — on a monthly line it
+/// fires on the bill nobody has paid yet, which is the opposite complaint.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum OnTrack {
-    /// Funded ahead of schedule by this much.
+    /// A sinking fund holding this much more than its schedule so far. Never
+    /// reported for a [`Period::Monthly`] line.
     Ahead(Money),
-    /// Exactly on schedule.
+    /// Level with the schedule, or — for a monthly line — nothing left owing.
     OnTrack,
-    /// Short of schedule by this much.
+    /// Short by this much: not banked for a sinking fund, not paid for a
+    /// monthly line.
     Behind(Money),
 }
 
 /// Spending against the budget for the **current cycle**.
 ///
 /// Deliberately separate from [`OnTrack`]. The two answer different questions
-/// and disagree in normal use: a $400/mo grocery envelope with $400 spent is
-/// `OnTrack::Behind($400)` on funding (the schedule says that money should be
-/// banked, and it is not) while being exactly on budget here.
+/// and disagree in normal use, and only this one is entitled to say "over
+/// budget": a $400/mo grocery envelope with $500 spent is `OnTrack` on funding
+/// — the bill is more than settled — while overspent by $100 here, and the same
+/// envelope untouched is `OnTrack::Behind($400)` while spending nothing at all.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SpendStatus {
     /// The line's budget for one full cycle.
@@ -93,9 +104,11 @@ pub struct SpendStatus {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct FundedStatus {
     pub category_id: CategoryId,
-    /// The contribution for `as_of` itself.
+    /// What the schedule calls for in `as_of` itself, whether or not that
+    /// money was ever set aside.
     pub monthly_contribution: Money,
-    /// Contributions from `period_start` through `as_of`.
+    /// Contributions counted from `period_start` through `as_of`: the ones
+    /// actually recorded for a sinking fund, the schedule for a monthly line.
     pub contributed_to_date: Money,
     /// Spending from `period_start` through `as_of`.
     pub spent_to_date: Money,
@@ -107,7 +120,8 @@ pub struct FundedStatus {
     /// the first month of a yearly line, `1` in its last. Together with the
     /// elapsed months it always adds up to the cycle length.
     pub months_remaining: u32,
-    /// Funding progress against the contribution schedule.
+    /// How the funding stands: banked against the schedule for a sinking
+    /// fund, still owing for a monthly one. See [`OnTrack`].
     pub on_track: OnTrack,
     /// Spending against this cycle's budget. Separate from `on_track` — see
     /// [`SpendStatus`].
@@ -238,11 +252,27 @@ pub fn contributions(line: &BudgetLine, range: MonthRange) -> BTreeMap<YearMonth
 /// while a `Yearly` line still accumulates across its twelve months toward the
 /// bill and starts fresh on the anniversary.
 ///
-/// `spend_by_month` and `adjustments` are read only for months inside the
-/// `period_start..=as_of` window; entries outside it are ignored.
+/// `contributions`, `spend_by_month` and `adjustments` are read only for months
+/// inside the `period_start..=as_of` window; entries outside it are ignored.
+///
+/// # Where `contribution[m]` comes from
+///
+/// For a [`Period::Monthly`] line it is the schedule, unchanged: a monthly
+/// envelope is funded by being paid this month, not by anybody moving money
+/// into it, and there is nothing to record.
+///
+/// For every other cadence it is what `contributions` actually records for that
+/// month, and **zero when nothing is recorded**. This is the difference between
+/// a plan and a fact. A yearly premium saved for at $100 a month used to report
+/// itself funded on schedule whether or not a cent had been set aside, because
+/// the schedule was the only thing it could read — so the one question the
+/// feature exists to answer, "will the money be there when the bill lands", was
+/// answered from the plan. A skipped month now shows as `Behind`, which is the
+/// answer that was always true and never said.
 #[must_use]
 pub fn funded_balance(
     line: &BudgetLine,
+    contributions: &BTreeMap<YearMonth, Money>,
     spend_by_month: &BTreeMap<YearMonth, Money>,
     adjustments: &BTreeMap<YearMonth, Money>,
     as_of: YearMonth,
@@ -254,7 +284,13 @@ pub fn funded_balance(
     let mut spent = Money::ZERO;
 
     for ym in range.iter() {
-        let contribution = monthly_contribution(line, ym);
+        let contribution = match line.period {
+            // Nothing to record: the cycle is one month, so the schedule and
+            // the fact are the same statement.
+            Period::Monthly => monthly_contribution(line, ym),
+            // A sinking fund. Unrecorded means unsaved, not on-plan.
+            _ => contributions.get(&ym).copied().unwrap_or(Money::ZERO),
+        };
         let spend = spend_by_month.get(&ym).copied().unwrap_or(Money::ZERO);
         let adjustment = adjustments.get(&ym).copied().unwrap_or(Money::ZERO);
 
@@ -286,9 +322,9 @@ pub fn funded_balance(
     // as remaining (its money is still there to spend), so within a line's
     // first cycle `expected == contributed_to_date`.
     //
-    // Consequence worth stating: an envelope spent exactly to plan reports
-    // `Behind(target)`, because the schedule says the money should be banked
-    // and it is not. That is a funding measure, not an overspending warning.
+    // What "should be there by now" means differs by cadence, and reading it
+    // one way for both is what made a paid bill report itself behind — see the
+    // `on_track` match below.
     let (expected, months_remaining) = match cycle_position(line, as_of) {
         Some((len, idx)) => {
             let schedule = cycle_schedule(line.amount, len);
@@ -327,10 +363,32 @@ pub fn funded_balance(
         },
     };
 
-    let on_track = match balance.cmp(&expected) {
-        std::cmp::Ordering::Greater => OnTrack::Ahead(balance.saturating_sub(expected)),
-        std::cmp::Ordering::Equal => OnTrack::OnTrack,
-        std::cmp::Ordering::Less => OnTrack::Behind(expected.saturating_sub(balance)),
+    // Two cadences, two questions, and conflating them is a bug this reported
+    // for a long time.
+    //
+    // A monthly bill is not saved for, it is *paid*. Rent of $900 paid in full
+    // leaves a funded balance of zero — contributed $900, spent $900 — and
+    // comparing that balance against the $900 schedule said `Behind($900)` on
+    // the month it was correctly settled. Read the other way it says what the
+    // user means: behind by whatever has not been paid yet, $900 if nothing
+    // has, nothing once it has. Paying more than the budget is an overspend and
+    // `SpendStatus` already carries it, so this measure stops at "on track"
+    // rather than calling it ahead.
+    //
+    // A sinking fund *is* saved for, so its balance against the schedule is
+    // exactly the question — and now that `contributions` records what was
+    // actually set aside, "behind" finally means the money is not there rather
+    // than that the plan says it should be.
+    let on_track = match line.period {
+        Period::Monthly => match spend.spent.cmp(&expected) {
+            std::cmp::Ordering::Less => OnTrack::Behind(expected.saturating_sub(spend.spent)),
+            _ => OnTrack::OnTrack,
+        },
+        _ => match balance.cmp(&expected) {
+            std::cmp::Ordering::Greater => OnTrack::Ahead(balance.saturating_sub(expected)),
+            std::cmp::Ordering::Equal => OnTrack::OnTrack,
+            std::cmp::Ordering::Less => OnTrack::Behind(expected.saturating_sub(balance)),
+        },
     };
 
     FundedStatus {
@@ -368,6 +426,22 @@ mod tests {
             amount: m(amount),
             rollover,
         }
+    }
+
+    /// Nothing set aside. The honest state of a sinking fund nobody has paid
+    /// into, and the only sensible input for a `Monthly` line, which is funded
+    /// by the schedule rather than by anything recorded.
+    fn nothing() -> BTreeMap<YearMonth, Money> {
+        BTreeMap::new()
+    }
+
+    /// Every scheduled contribution, recorded as actually made.
+    ///
+    /// Tests whose subject is cycle and rollover arithmetic want this rather
+    /// than [`nothing`]: they ask where money lands once it has been set aside,
+    /// and an empty map would quietly turn that into "was it set aside at all".
+    fn on_plan(l: &BudgetLine, as_of: YearMonth) -> BTreeMap<YearMonth, Money> {
+        contributions(l, MonthRange::new(l.period_start, as_of))
     }
 
     #[test]
@@ -459,12 +533,12 @@ mod tests {
         let adj = BTreeMap::new();
 
         let rolling = line(Period::Monthly, 10_000, true);
-        let s = funded_balance(&rolling, &spend, &adj, ym(2026, 3));
+        let s = funded_balance(&rolling, &nothing(), &spend, &adj, ym(2026, 3));
         assert_eq!(s.funded_balance, m(30_000));
         assert_eq!(s.contributed_to_date, m(30_000));
 
         let spending = line(Period::Monthly, 10_000, false);
-        let s = funded_balance(&spending, &spend, &adj, ym(2026, 3));
+        let s = funded_balance(&spending, &nothing(), &spend, &adj, ym(2026, 3));
         assert_eq!(s.funded_balance, m(10_000));
         assert_eq!(s.contributed_to_date, m(30_000));
     }
@@ -474,18 +548,20 @@ mod tests {
         let l = line(Period::Monthly, 10_000, true);
         let spend = BTreeMap::from([(ym(2026, 2), m(4_000))]);
         let adj = BTreeMap::from([(ym(2026, 3), m(500))]);
-        let s = funded_balance(&l, &spend, &adj, ym(2026, 3));
+        let s = funded_balance(&l, &nothing(), &spend, &adj, ym(2026, 3));
         assert_eq!(s.spent_to_date, m(4_000));
         assert_eq!(s.funded_balance, m(30_000 - 4_000 + 500));
     }
 
     #[test]
-    fn on_track_measures_the_balance_against_the_schedule_so_far() {
+    fn a_sinking_funds_on_track_measures_its_balance_against_the_schedule_so_far() {
+        // A fund kept exactly on plan, so the question under test is where the
+        // banked money stands rather than whether any was banked at all.
         let l = line(Period::Yearly, 120_000, true);
         let empty = BTreeMap::new();
 
         // Six months in, six months banked: exactly on schedule.
-        let s = funded_balance(&l, &empty, &empty, ym(2026, 6));
+        let s = funded_balance(&l, &on_plan(&l, ym(2026, 6)), &empty, &empty, ym(2026, 6));
         assert_eq!(s.funded_balance, m(60_000));
         assert_eq!(s.on_track, OnTrack::OnTrack);
         assert_eq!(s.months_remaining, 7);
@@ -493,31 +569,41 @@ mod tests {
 
         // Anything spent out of the sinking fund is a shortfall...
         let spend = BTreeMap::from([(ym(2026, 3), m(1_000))]);
-        let s = funded_balance(&l, &spend, &empty, ym(2026, 6));
+        let s = funded_balance(&l, &on_plan(&l, ym(2026, 6)), &spend, &empty, ym(2026, 6));
         assert_eq!(s.on_track, OnTrack::Behind(m(1_000)));
 
         // ...and an extra contribution is a surplus.
         let adj = BTreeMap::from([(ym(2026, 3), m(5_000))]);
-        let s = funded_balance(&l, &empty, &adj, ym(2026, 6));
+        let s = funded_balance(&l, &on_plan(&l, ym(2026, 6)), &empty, &adj, ym(2026, 6));
         assert_eq!(s.on_track, OnTrack::Ahead(m(5_000)));
 
-        // The countdown always spans the cycle.
+        // The countdown always spans the cycle. It is cycle geometry, so it
+        // reads the same however little has been set aside.
         for month in 1..=12 {
-            let s = funded_balance(&l, &empty, &empty, ym(2026, month));
+            let s = funded_balance(&l, &nothing(), &empty, &empty, ym(2026, month));
             assert_eq!(month + s.months_remaining, 13);
         }
     }
 
     #[test]
-    fn an_envelope_spent_to_plan_reads_as_behind() {
-        // Documented consequence of the schedule-relative definition: a
-        // monthly envelope spent exactly to plan is empty, so it is behind by
-        // the whole budget. A UI must not render this as overspending.
+    fn a_monthly_envelope_spent_to_plan_is_on_track() {
+        // A monthly line is measured by what it still owes, not by what it
+        // still holds. Spending the budget empties the envelope *and* settles
+        // the month, so the empty envelope is no longer a shortfall — reading
+        // it as one fired the warning precisely when nothing was wrong.
         let l = line(Period::Monthly, 10_000, true);
+        let empty = BTreeMap::new();
         let spend = BTreeMap::from([(ym(2026, 1), m(10_000))]);
-        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 1));
+        let s = funded_balance(&l, &nothing(), &spend, &empty, ym(2026, 1));
         assert!(s.funded_balance.is_zero());
-        assert_eq!(s.on_track, OnTrack::Behind(m(10_000)));
+        assert_eq!(s.on_track, OnTrack::OnTrack);
+
+        // Only what is still unpaid counts as behind.
+        let half = BTreeMap::from([(ym(2026, 1), m(4_000))]);
+        let s = funded_balance(&l, &nothing(), &half, &empty, ym(2026, 1));
+        assert_eq!(s.on_track, OnTrack::Behind(m(6_000)));
+        let untouched = funded_balance(&l, &nothing(), &empty, &empty, ym(2026, 1));
+        assert_eq!(untouched.on_track, OnTrack::Behind(m(10_000)));
     }
 
     #[test]
@@ -529,11 +615,12 @@ mod tests {
         let l = line(Period::Yearly, 120_000, false);
         let empty = BTreeMap::new();
         for (month, expected) in [(1, 10_000), (6, 60_000), (12, 120_000)] {
-            let s = funded_balance(&l, &empty, &empty, ym(2026, month));
+            let as_of = ym(2026, month);
+            let s = funded_balance(&l, &on_plan(&l, as_of), &empty, &empty, as_of);
             assert_eq!(s.funded_balance, m(expected), "month {month}");
         }
         // The anniversary starts the next cycle from zero.
-        let s = funded_balance(&l, &empty, &empty, ym(2027, 1));
+        let s = funded_balance(&l, &on_plan(&l, ym(2027, 1)), &empty, &empty, ym(2027, 1));
         assert_eq!(s.funded_balance, m(10_000));
     }
 
@@ -543,20 +630,22 @@ mod tests {
         // lose-it envelope falls out of the same rule.
         let l = line(Period::Monthly, 40_000, false);
         let spend = BTreeMap::from([(ym(2026, 1), m(40_000))]);
-        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 2));
+        let s = funded_balance(&l, &nothing(), &spend, &BTreeMap::new(), ym(2026, 2));
         assert_eq!(s.funded_balance, m(40_000));
     }
 
     #[test]
     fn spending_status_is_reported_separately_from_funding_status() {
-        // The case that drove splitting these apart: a grocery envelope spent
-        // exactly to plan is `Behind` on *funding* while being exactly on
-        // budget on *spending*. Only the latter may be shown as "over budget".
+        // Two questions, still two answers: "is this month settled" and "did
+        // more go out than was budgeted". Spending to plan is simply the case
+        // where they agree; the untouched envelope below is where they part,
+        // and only the spending side may ever be shown as "over budget".
         let l = line(Period::Monthly, 40_000, false);
+        let empty = BTreeMap::new();
         let spend = BTreeMap::from([(ym(2026, 1), m(40_000))]);
-        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 1));
+        let s = funded_balance(&l, &nothing(), &spend, &empty, ym(2026, 1));
 
-        assert_eq!(s.on_track, OnTrack::Behind(m(40_000)));
+        assert_eq!(s.on_track, OnTrack::OnTrack);
         assert_eq!(s.spend.budgeted, m(40_000));
         assert_eq!(s.spend.spent, m(40_000));
         assert_eq!(s.spend.remaining, Money::ZERO);
@@ -565,17 +654,30 @@ mod tests {
             Money::ZERO,
             "spending to plan is not overspending"
         );
+
+        let untouched = funded_balance(&l, &nothing(), &empty, &empty, ym(2026, 1));
+        assert_eq!(untouched.on_track, OnTrack::Behind(m(40_000)));
+        assert_eq!(
+            untouched.spend.overspent_by,
+            Money::ZERO,
+            "and an unpaid bill is not overspending either"
+        );
     }
 
     #[test]
     fn overspending_is_reported_only_by_spend_status() {
         let l = line(Period::Monthly, 40_000, false);
         let spend = BTreeMap::from([(ym(2026, 1), m(45_000))]);
-        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2026, 1));
+        let s = funded_balance(&l, &nothing(), &spend, &BTreeMap::new(), ym(2026, 1));
 
         assert_eq!(s.spend.spent, m(45_000));
         assert_eq!(s.spend.remaining, m(-5_000));
         assert_eq!(s.spend.overspent_by, m(5_000));
+        assert_eq!(
+            s.on_track,
+            OnTrack::OnTrack,
+            "an overspend settles the bill; it is not a funding surplus"
+        );
     }
 
     #[test]
@@ -584,7 +686,7 @@ mod tests {
         // does not count against this year's budget.
         let l = line(Period::Yearly, 120_000, true);
         let spend = BTreeMap::from([(ym(2026, 3), m(120_000)), (ym(2027, 3), m(30_000))]);
-        let s = funded_balance(&l, &spend, &BTreeMap::new(), ym(2027, 6));
+        let s = funded_balance(&l, &nothing(), &spend, &BTreeMap::new(), ym(2027, 6));
         assert_eq!(s.spend.spent, m(30_000));
         assert_eq!(s.spend.overspent_by, Money::ZERO);
     }
@@ -592,7 +694,13 @@ mod tests {
     #[test]
     fn as_of_before_the_start_is_all_zeroes() {
         let l = line(Period::Monthly, 10_000, true);
-        let s = funded_balance(&l, &BTreeMap::new(), &BTreeMap::new(), ym(2025, 12));
+        let s = funded_balance(
+            &l,
+            &nothing(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            ym(2025, 12),
+        );
         assert_eq!(s.funded_balance, Money::ZERO);
         assert_eq!(s.contributed_to_date, Money::ZERO);
         assert_eq!(s.on_track, OnTrack::OnTrack);

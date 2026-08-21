@@ -13,6 +13,9 @@ BudgetRow row(
   int? overspentBy = 0,
   String funding = 'on track',
   int fundingBy = 0,
+  bool groupIsObligation = false,
+  int? contributedThisMonth,
+  bool isSinkingFund = false,
 }) =>
     BudgetRow(
       categoryId: 1,
@@ -25,6 +28,10 @@ BudgetRow row(
       remaining: remaining == null ? null : fromCore(remaining),
       overspentBy: overspentBy == null ? null : fromCore(overspentBy),
       spentThisMonth: fromCore(spentCycle ?? 0),
+      groupIsObligation: groupIsObligation,
+      contributedThisMonth:
+          contributedThisMonth == null ? null : fromCore(contributedThisMonth),
+      isSinkingFund: isSinkingFund,
       funding: funding,
       fundingBy: fromCore(fundingBy),
       monthsRemaining: 1,
@@ -41,6 +48,9 @@ const BudgetRow unbudgeted = BudgetRow(
   remaining: null,
   overspentBy: null,
   spentThisMonth: zero,
+  groupIsObligation: false,
+  contributedThisMonth: null,
+  isSinkingFund: false,
   funding: 'none',
   fundingBy: zero,
   monthsRemaining: null,
@@ -72,6 +82,19 @@ Future<List<String>> pump(
   await tester.pumpAndSettle();
   return asked;
 }
+
+/// A sinking fund: saved into rather than paid out of.
+BudgetRow fund({
+  String name = 'Car Repair',
+  int perMonth = 10000,
+  int? contributed,
+}) =>
+    row(
+      name,
+      perMonth: perMonth,
+      contributedThisMonth: contributed,
+      isSinkingFund: true,
+    );
 
 void main() {
   testWidgets('lists the month asked for', (tester) async {
@@ -107,13 +130,31 @@ void main() {
     expect(find.text('January 2027'), findsOneWidget);
   });
 
-  testWidgets('behind on funding is not over budget', (tester) async {
+  testWidgets('an unpaid bill is behind; an unspent envelope is not',
+      (tester) async {
+    // Same funding arithmetic, two different sentences, because "behind" only
+    // means something where the money is owed. Rent budgeted and unpaid is a
+    // debt; groceries budgeted and unspent is money still in hand, and calling
+    // that being behind is a telling-off for the good outcome.
+    await pump(tester, rows: [
+      row('Rent',
+          funding: 'behind',
+          fundingBy: 49537,
+          overspentBy: 0,
+          groupIsObligation: true),
+    ]);
+    expect(find.text(r'behind $495.37'), findsOneWidget);
+  });
+
+  testWidgets('a spending envelope reports what went out, not a shortfall',
+      (tester) async {
     await pump(tester, rows: [
       row('Groceries', funding: 'behind', fundingBy: 49537, overspentBy: 0),
     ]);
 
-    // The funding column says it in words; the Over column stays an em dash.
-    expect(find.text(r'behind $495.37'), findsOneWidget);
+    // The footnote still uses the word, explaining why this row does not.
+    expect(find.text(r'behind $495.37'), findsNothing);
+    expect(find.textContaining(r'$495.37 left'), findsOneWidget);
     expect(find.text('—'), findsOneWidget);
   });
 
@@ -166,6 +207,35 @@ void main() {
   testWidgets('the footnote explains why the two disagree', (tester) async {
     await pump(tester, rows: [row('Groceries')]);
 
-    expect(find.textContaining('They disagree by design'), findsOneWidget);
+    expect(
+      find.textContaining('not behind on anything'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a sinking fund offers to record what was set aside',
+      (tester) async {
+    // The row that reports a fund behind is the row that can fix it. Anywhere
+    // else and the two would be a navigation apart.
+    await pump(tester, rows: [fund(perMonth: 10000)]);
+
+    expect(find.textContaining('Set aside \$100.00'), findsOneWidget);
+  });
+
+  testWidgets('a recorded month says so instead of offering again',
+      (tester) async {
+    await pump(tester, rows: [fund(perMonth: 10000, contributed: 7500)]);
+
+    expect(find.textContaining('\$75.00 set aside'), findsOneWidget);
+    expect(find.textContaining('Set aside \$100.00'), findsNothing);
+  });
+
+  testWidgets('a monthly envelope is not offered a contribution',
+      (tester) async {
+    // You do not save into groceries; you spend out of them.
+    await pump(tester, rows: [row('Groceries')]);
+
+    expect(find.textContaining('set aside'), findsNothing);
   });
 }
+
