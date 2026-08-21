@@ -110,9 +110,9 @@ class BudgetRow {
   bool get isBudgeted => perMonth != null;
 
   /// Over budget — which is **not** the same question as behind on funding.
-  /// An envelope spent exactly to plan is behind on funding and perfectly fine
-  /// on spending, and labelling that "over budget" would flag every well-run
-  /// category.
+  /// A $900 rent line nobody has paid yet is behind on funding while having
+  /// spent nothing at all, and labelling that "over budget" would flag every
+  /// bill that is merely still due.
   bool get isOver => (overspentBy?.value ?? 0) != 0;
 
   /// A cycle longer than one month, so "left" is left of a year's bill rather
@@ -173,17 +173,59 @@ enum TxnSort {
 class TxnQuery {
   const TxnQuery({
     required this.limit,
+    this.offset = 0,
     this.categoryIds,
     this.merchantIds,
     this.includeNoMerchant = false,
     this.sort = TxnSort.dateDesc,
   });
 
+  /// How many rows one page holds.
   final int limit;
+
+  /// How many matching rows to skip: page 3 of 50 asks for `offset: 100`.
+  ///
+  /// Paging is done in SQL rather than by loading everything and slicing it
+  /// here, so the app never holds a table it is not showing.
+  final int offset;
+
   final List<int>? categoryIds;
   final List<int>? merchantIds;
   final bool includeNoMerchant;
   final TxnSort sort;
+
+  /// The same filter, pointed at a different page.
+  TxnQuery atOffset(int offset) => TxnQuery(
+        limit: limit,
+        offset: offset,
+        categoryIds: categoryIds,
+        merchantIds: merchantIds,
+        includeNoMerchant: includeNoMerchant,
+        sort: sort,
+      );
+}
+
+/// The expense list's bottom line: the money columns of the whole filtered
+/// set, added up, and how many expenses that was.
+///
+/// **The whole filtered set, not the page on screen.** The useful figure is
+/// "everything matching this filter", and it must not move as the reader
+/// presses Next — a total that changed per page would read as an arithmetic
+/// bug, because that is what it would look like.
+class TxnTotals {
+  const TxnTotals({
+    required this.subtotal,
+    required this.tax,
+    required this.total,
+    required this.expenses,
+  });
+
+  final Cents subtotal;
+  final Cents tax;
+  final Cents total;
+
+  /// Expenses in the sum. Also the number the pager counts through.
+  final int expenses;
 }
 
 /// `flutter_rust_bridge`'s own `Int64List`, not `dart:typed_data`'s.
@@ -203,6 +245,7 @@ Future<List<rust_categories.CategoryDto>> listCategories() =>
 Future<List<TxnSummary>> listTransactions(TxnQuery query) async {
   final rows = await rust_txn.listTransactions(
     limit: query.limit,
+    offset: query.offset,
     categoryIds: _ids(query.categoryIds),
     merchantIds: _ids(query.merchantIds),
     includeNoMerchant: query.includeNoMerchant,
@@ -221,6 +264,27 @@ Future<List<TxnSummary>> listTransactions(TxnQuery query) async {
         ),
       )
       .toList();
+}
+
+/// Add up every expense a filter matches, however the list is paged.
+///
+/// `limit` and `offset` are deliberately not sent: a page total would change
+/// under a reader who only pressed Next. Summed in the core, from the same
+/// filter the list is built from, so the row of totals can never describe a
+/// different set from the rows above it. Not here — [Cents] makes arithmetic a
+/// compile error on purpose, so a total is never a figure this layer invented.
+Future<TxnTotals> transactionTotals(TxnQuery query) async {
+  final t = await rust_txn.transactionTotals(
+    categoryIds: _ids(query.categoryIds),
+    merchantIds: _ids(query.merchantIds),
+    includeNoMerchant: query.includeNoMerchant,
+  );
+  return TxnTotals(
+    subtotal: fromCore(t.subtotal),
+    tax: fromCore(t.tax),
+    total: fromCore(t.total),
+    expenses: t.expenses,
+  );
 }
 
 /// The values the filter menus are built from.
@@ -274,6 +338,44 @@ Future<List<BudgetRow>> budgetStatus(String month) async {
         ),
       )
       .toList();
+}
+
+/// The budget screen's bottom line: every column of the table, added up.
+class BudgetTotals {
+  const BudgetTotals({
+    required this.perMonth,
+    required this.funded,
+    required this.spentCycle,
+    required this.remaining,
+    required this.overspentBy,
+    required this.categories,
+  });
+
+  final Cents perMonth;
+  final Cents funded;
+  final Cents spentCycle;
+  final Cents remaining;
+  final Cents overspentBy;
+
+  /// Budgeted categories in the total, so it can be checked against the table.
+  final int categories;
+}
+
+/// Add up a month's budget table.
+///
+/// Summed in the core, from the same rows [budgetStatus] returns. Not here:
+/// [Cents] makes arithmetic a compile error on purpose, so a total is never a
+/// figure this layer invented.
+Future<BudgetTotals> budgetTotals(String month) async {
+  final t = await rust_budget.budgetTotals(month: month);
+  return BudgetTotals(
+    perMonth: fromCore(t.perMonth),
+    funded: fromCore(t.funded),
+    spentCycle: fromCore(t.spentCycle),
+    remaining: fromCore(t.remaining),
+    overspentBy: fromCore(t.overspentBy),
+    categories: t.categories,
+  );
 }
 
 /// Record what was actually set aside for a category in one month.

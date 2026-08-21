@@ -149,7 +149,9 @@ fn shared_strings(xml: &str) -> Result<Vec<String>> {
     let mut current: Option<String> = None;
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) if e.local_name().as_ref() == b"si" => current = Some(String::new()),
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"si" => {
+                current = Some(String::new())
+            }
             Ok(Event::End(e)) if e.local_name().as_ref() == b"si" => {
                 strings.push(current.take().unwrap_or_default());
             }

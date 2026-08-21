@@ -43,26 +43,19 @@ pub struct FilterValuesDto {
     pub any_without_merchant: bool,
 }
 
-/// The expense list.
+/// Everything a filter says, minus the page it asks for.
 ///
-/// `None` for either id list means "every one of them", which is not the same
-/// as a list naming every one: an expense at a shop that did not exist when
-/// the menu was built would fail the explicit list. Untouched has to mean
-/// untouched.
-///
-/// The filtering, the ordering and the limit are all done in SQL. A limit
-/// applied before a sort would order whichever two hundred happened to come
-/// back, which is a different list from the first two hundred of the ordered
-/// set.
-pub fn list_transactions(
-    limit: u32,
+/// Built once and shared by [`list_transactions`] and [`transaction_totals`],
+/// so the row of totals under the list can never describe a different set of
+/// expenses from the list itself. Two copies of this would drift the first time
+/// a filter was added to one of them.
+fn build_filter(
     category_ids: Option<Vec<i64>>,
     merchant_ids: Option<Vec<i64>>,
     include_no_merchant: Option<bool>,
     sort: Option<String>,
-) -> Result<Vec<TxnSummaryDto>, String> {
-    let filter = TxnFilter {
-        limit: Some(limit as usize),
+) -> Result<TxnFilter, String> {
+    Ok(TxnFilter {
         category_ids: category_ids
             .unwrap_or_default()
             .into_iter()
@@ -76,11 +69,82 @@ pub fn list_transactions(
         include_no_merchant: include_no_merchant.unwrap_or(false),
         sort: parse_sort(sort.as_deref())?,
         ..TxnFilter::default()
+    })
+}
+
+/// One page of the expense list.
+///
+/// `None` for either id list means "every one of them", which is not the same
+/// as a list naming every one: an expense at a shop that did not exist when
+/// the menu was built would fail the explicit list. Untouched has to mean
+/// untouched.
+///
+/// The filtering, the ordering and the paging are all done in SQL. A limit
+/// applied before a sort would order whichever fifty happened to come back,
+/// which is a different page from the first fifty of the ordered set — and an
+/// offset into that would be a page of nothing in particular.
+pub fn list_transactions(
+    limit: u32,
+    offset: Option<u32>,
+    category_ids: Option<Vec<i64>>,
+    merchant_ids: Option<Vec<i64>>,
+    include_no_merchant: Option<bool>,
+    sort: Option<String>,
+) -> Result<Vec<TxnSummaryDto>, String> {
+    let filter = TxnFilter {
+        limit: Some(limit as usize),
+        // Absent and zero are the same page, so the first page need not say so.
+        offset: offset.map(|n| n as usize),
+        ..build_filter(category_ids, merchant_ids, include_no_merchant, sort)?
     };
 
     let db = db::locked()?;
     let rows = transactions::list(&db, &filter).map_err(to_message)?;
     Ok(rows.iter().map(summarise).collect())
+}
+
+/// The expense list's bottom line: every money column, added up.
+///
+/// Deliberately takes no `limit` or `offset`. The number worth printing is
+/// "everything matching this filter", and it must not change as the reader
+/// pages — a per-page total would move under someone who only pressed Next,
+/// which reads as an arithmetic bug rather than as a feature.
+///
+/// Summed by the core in SQL, from the same filter the list is built from, so
+/// the total covers rows no page ever loaded. Never in Dart: money there is a
+/// type that makes arithmetic a compile error, on purpose.
+pub struct TxnTotalsDto {
+    pub subtotal: i64,
+    pub tax: i64,
+    pub total: i64,
+    /// Expenses in the sum — the size of the whole filtered set, which is also
+    /// what the pager counts through.
+    ///
+    /// `u32` rather than `usize`: the bridge renders a `usize` as a Dart
+    /// `BigInt`, which is a heavyweight number for a row count and a nuisance
+    /// at every call site.
+    pub expenses: u32,
+}
+
+/// Add up every expense the filter matches, however the list is paged.
+pub fn transaction_totals(
+    category_ids: Option<Vec<i64>>,
+    merchant_ids: Option<Vec<i64>>,
+    include_no_merchant: Option<bool>,
+) -> Result<TxnTotalsDto, String> {
+    // Sort left at its default: the order of rows cannot change what they add
+    // up to, and asking the screen for one it does not need would be a
+    // parameter that could only ever be wrong.
+    let filter = build_filter(category_ids, merchant_ids, include_no_merchant, None)?;
+
+    let db = db::locked()?;
+    let totals = transactions::totals(&db, &filter).map_err(to_message)?;
+    Ok(TxnTotalsDto {
+        subtotal: totals.subtotal.cents(),
+        tax: totals.tax.cents(),
+        total: totals.total.cents(),
+        expenses: u32::try_from(totals.rows).unwrap_or(u32::MAX),
+    })
 }
 
 /// The values the filter menus are built from.

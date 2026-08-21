@@ -6,12 +6,13 @@ import '../breakpoints.dart';
 import '../widgets/filter_menu.dart';
 import '../widgets/money_text.dart';
 
-/// How many expenses the list asks for.
+/// How many expenses one page holds.
 ///
-/// A hard cap with no pagination, as in the TypeScript UI. The 201st expense
-/// is simply absent, and the list says so rather than pretending otherwise —
-/// see [_Footnote].
-const int _howMany = 200;
+/// Paged in SQL rather than capped: the list used to ask for the most recent
+/// two hundred and admit in a footnote that the two hundred and first was
+/// simply absent. Fifty is about a screenful and a half at desktop widths, so
+/// Next is a deliberate press rather than the only way to see anything.
+const int _pageSize = 50;
 
 /// Stands for expenses with no store, which is what quick-add leaves behind.
 ///
@@ -21,6 +22,7 @@ const int _howMany = 200;
 const String _noStore = 'none';
 
 typedef ExpenseLoader = Future<List<TxnSummary>> Function(TxnQuery query);
+typedef ExpenseTotalsLoader = Future<TxnTotals> Function(TxnQuery query);
 typedef FilterValuesLoader = Future<FilterValues> Function();
 typedef ExpenseDeleter = Future<void> Function(int id);
 
@@ -29,11 +31,13 @@ class ExpensesScreen extends StatefulWidget {
   const ExpensesScreen({
     super.key,
     this.load = listTransactions,
+    this.loadTotals = transactionTotals,
     this.loadFilterValues = filterValues,
     this.delete = deleteTransaction,
   });
 
   final ExpenseLoader load;
+  final ExpenseTotalsLoader loadTotals;
   final FilterValuesLoader loadFilterValues;
   final ExpenseDeleter delete;
 
@@ -55,6 +59,25 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Set<String> _hiddenCategories = <String>{};
 
   List<TxnSummary> _rows = const [];
+
+  /// Which page is on screen, counting from zero.
+  ///
+  /// Reset to zero by anything that changes what the filter matches. Keeping
+  /// it would leave the reader on page 4 of a filter with one page in it,
+  /// looking at nothing and with no clue why.
+  int _page = 0;
+
+  /// The whole filtered set, added up by the core. `null` until it arrives,
+  /// and while the filter matches nothing.
+  TxnTotals? _totals;
+
+  /// Which load is the current one.
+  ///
+  /// Pressing Next twice quickly puts two requests in flight, and the slower
+  /// one may land last. Without this the screen would settle on the page the
+  /// user has already left.
+  int _request = 0;
+
   bool _loading = true;
   String? _message;
 
@@ -79,7 +102,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     if (stores?.isEmpty == true || categories?.isEmpty == true) return null;
 
     return TxnQuery(
-      limit: _howMany,
+      limit: _pageSize,
+      offset: _page * _pageSize,
       merchantIds: stores
           ?.where((value) => value != _noStore)
           .map(int.parse)
@@ -97,18 +121,28 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     if (asked == null) {
       setState(() {
         _rows = const [];
+        _totals = null;
         _loading = false;
         _message = 'No expenses match those filters.';
       });
       return;
     }
 
+    final int mine = ++_request;
     setState(() => _loading = true);
     try {
-      final rows = await widget.load(asked);
-      if (!mounted) return;
+      // Both at once: the page and the figure under it describe the same
+      // filter, and fetching them one after the other would show a total for
+      // the previous filter for as long as the second call took.
+      final results = await Future.wait([
+        widget.load(asked),
+        widget.loadTotals(asked),
+      ]);
+      if (!mounted || mine != _request) return;
+      final rows = results[0] as List<TxnSummary>;
       setState(() {
         _rows = rows;
+        _totals = results[1] as TxnTotals;
         _loading = false;
         _message = rows.isEmpty
             ? (_filtered
@@ -120,13 +154,51 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             : null;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || mine != _request) return;
       // The rows that were there stay there. Replacing a list you were reading
       // with an error page loses the thing you were reading.
       setState(() {
         _loading = false;
         _message = 'Could not load expenses: $error';
       });
+    }
+  }
+
+  /// Go to a page, from zero. Out-of-range presses are not possible: the
+  /// controls that would ask for one are disabled instead.
+  void _goToPage(int page) {
+    if (page == _page) return;
+    setState(() => _page = page);
+    _load();
+  }
+
+  /// Back to the first page, because the filter now matches something else.
+  ///
+  /// Every filter and sort change goes through here. Narrowing to one shop
+  /// while on page 4 would otherwise land on a page past the end of the new
+  /// result — an empty screen that looks like the filter matched nothing.
+  void _refilter(VoidCallback change) {
+    setState(() {
+      change();
+      _page = 0;
+    });
+    _load();
+  }
+
+  /// Ask the core for the bottom line again, leaving the rows alone.
+  ///
+  /// Used after a delete, which changes what the filter sums without changing
+  /// which page is on screen.
+  Future<void> _reloadTotals() async {
+    final asked = _query();
+    if (asked == null) return;
+    try {
+      final totals = await widget.loadTotals(asked);
+      if (!mounted) return;
+      setState(() => _totals = totals);
+    } catch (_) {
+      // Left as it was rather than blanked. The list is still readable, and
+      // the delete it followed has already been reported on its own terms.
     }
   }
 
@@ -163,10 +235,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   }
 
   void _flipSort() {
-    setState(() {
+    // Back to page 1: page 4 of newest-first and page 4 of oldest-first hold
+    // different receipts, and staying put would look like the sort had
+    // scrambled the list rather than reversed it.
+    _refilter(() {
       _sort = _sort == TxnSort.dateDesc ? TxnSort.dateAsc : TxnSort.dateDesc;
     });
-    _load();
   }
 
   Future<void> _confirmDelete(TxnSummary txn) async {
@@ -181,13 +255,27 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       await widget.delete(txn.id);
       if (!mounted) return;
       // Removed from the list rather than reloading it: a reload would scroll
-      // the user back to the top of two hundred rows to show them one that is
-      // gone.
+      // the user back to the top of the page to show them a row that is gone.
       setState(() => _rows = _rows.where((r) => r.id != txn.id).toList());
+      // The totals are reloaded even though the page is not. They are the sum
+      // of the whole filter, so a deleted expense is still in them until they
+      // are asked again — a bottom line that quietly disagrees with the rows
+      // above it is worse than a moment of loading.
+      await _reloadTotals();
       await _loadMenus();
-      // Except when it was the last one — then the list has something new to
-      // say, and only a reload knows which message it is.
-      if (mounted && _rows.isEmpty) await _load();
+      if (!mounted) return;
+      if (_rows.isEmpty) {
+        // The page has nothing left on it. On page 1 that is a list with
+        // something new to say, and only a reload knows which message it is;
+        // later on it means the last row of the last page went, so step back
+        // rather than leaving the reader staring at an empty page they cannot
+        // tell from a broken one.
+        if (_page > 0) {
+          _goToPage(_page - 1);
+        } else {
+          await _load();
+        }
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() => _message = 'Could not delete that expense: $error');
@@ -198,6 +286,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Widget build(BuildContext context) {
     final sizeClass = WindowSizeClass.of(MediaQuery.sizeOf(context).width);
     final bool table = sizeClass != WindowSizeClass.compact;
+    final TxnTotals? totals = _totals;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -209,14 +298,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           categories: _categories,
           hiddenStores: _hiddenStores,
           hiddenCategories: _hiddenCategories,
-          onStoresChanged: (hidden) {
-            setState(() => _hiddenStores = hidden);
-            _load();
-          },
-          onCategoriesChanged: (hidden) {
-            setState(() => _hiddenCategories = hidden);
-            _load();
-          },
+          onStoresChanged: (hidden) =>
+              _refilter(() => _hiddenStores = hidden),
+          onCategoriesChanged: (hidden) =>
+              _refilter(() => _hiddenCategories = hidden),
           table: table,
         ),
         const Divider(height: 1),
@@ -251,26 +336,147 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               ),
             ),
           ),
-        if (_rows.length == _howMany) const _Footnote(),
+        // Pinned under the list rather than scrolled with it: a bottom line
+        // you have to reach the end of the rows to see is one nobody reads.
+        // Hidden entirely when nothing matched — a row of zeroes under a
+        // message saying there is nothing is the same news twice.
+        if (totals != null && totals.expenses > 0) ...[
+          const Divider(height: 1),
+          _TotalsRow(totals: totals, table: table),
+          _Pager(
+            first: _page * _pageSize + 1,
+            last: _page * _pageSize + _rows.length,
+            of: totals.expenses,
+            onPrevious: _page == 0 ? null : () => _goToPage(_page - 1),
+            // Disabled rather than hidden at the last page: a control that
+            // disappears moves the one next to it under the pointer.
+            onNext: _page * _pageSize + _rows.length >= totals.expenses
+                ? null
+                : () => _goToPage(_page + 1),
+          ),
+        ],
       ],
     );
   }
 }
 
-/// Says that the list stops, because a list that silently stops is one you
-/// trust wrongly.
-class _Footnote extends StatelessWidget {
-  const _Footnote();
+/// The bottom line: what the filter comes to, and over how many expenses.
+///
+/// **This totals the whole filtered set, not the page on screen.** That is the
+/// useful number — "what have I spent at these shops" — and it deliberately
+/// does not move when the reader presses Next. A per-page total would change
+/// with the page size, which is an implementation detail of this screen, and it
+/// would look for all the world like a bug in the arithmetic.
+///
+/// The figure is the core's, summed in SQL over every matching row. Nothing
+/// here adds money: [Cents] makes that a compile error on purpose.
+class _TotalsRow extends StatelessWidget {
+  const _TotalsRow({required this.totals, required this.table});
+
+  final TxnTotals totals;
+  final bool table;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Said in full, because "Total" alone over a paged list is ambiguous in
+    // exactly the way that matters: the reader cannot tell whether it means
+    // this page or all of it.
+    final String label = totals.expenses == 1
+        ? 'Total of 1 expense'
+        : 'Total of all ${totals.expenses} expenses';
+
+    final Widget money = MoneyText(
+      totals.total,
+      textAlign: TextAlign.right,
+      style: theme.textTheme.titleMedium
+          ?.copyWith(fontWeight: FontWeight.w600),
+    );
+
+    return Container(
+      // A container tone rather than a border: M3 separates a summary from the
+      // rows it summarises by elevation, and the Divider above already draws
+      // the line.
+      color: theme.colorScheme.surfaceContainerHigh,
+      padding: EdgeInsets.symmetric(horizontal: table ? 8 : 16, vertical: 12),
+      child: Semantics(
+        container: true,
+        child: table
+            ? Row(
+                children: [
+                  // Spans the date, store and category columns: none of them
+                  // has a total, and three empty cells before the label would
+                  // read as missing figures.
+                  Expanded(
+                    child: Text(label, style: theme.textTheme.labelLarge),
+                  ),
+                  // The same 140 as the rows above, so the money lines up
+                  // under the money it adds up.
+                  SizedBox(width: 140, child: money),
+                  // Matches the delete column, which has nothing to total.
+                  const SizedBox(width: 48),
+                ],
+              )
+            : Row(
+                children: [
+                  Expanded(
+                    child: Text(label, style: theme.textTheme.labelLarge),
+                  ),
+                  money,
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+/// Which slice of the result is on screen, and the way to the next one.
+///
+/// The range is spelled out rather than left as a page number: "showing 51-100
+/// of 199" answers both "where am I" and "how much is there", and a bare "page
+/// 2" answers neither.
+class _Pager extends StatelessWidget {
+  const _Pager({
+    required this.first,
+    required this.last,
+    required this.of,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int first;
+  final int last;
+  final int of;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: Text(
-        'Showing the most recent $_howMany.',
-        style: theme.textTheme.bodySmall
-            ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              // An en dash, and no spaces around it: it is a range, not a
+              // subtraction.
+              'Showing $first\u2013$last of $of',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+          IconButton(
+            onPressed: onPrevious,
+            icon: const Icon(Icons.chevron_left),
+            tooltip: 'Previous page',
+          ),
+          IconButton(
+            onPressed: onNext,
+            icon: const Icon(Icons.chevron_right),
+            tooltip: 'Next page',
+          ),
+        ],
       ),
     );
   }

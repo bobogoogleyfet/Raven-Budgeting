@@ -15,11 +15,12 @@ typedef CategoryLoader = Future<List<CategoryDto>> Function();
 ///
 /// # Funding and overspending are different columns on purpose
 ///
-/// They answer different questions and disagree in normal use. A $400/month
-/// grocery envelope with $400 spent is *behind on funding* — the schedule says
-/// that money should be banked and it is not — while being exactly on budget
-/// on spending. Rendering "behind" as "over budget" would flag every well-run
-/// category and train the user to ignore the screen.
+/// They answer different questions and disagree in normal use. A $900 rent
+/// line nobody has paid yet is *behind on funding* — the bill is still due —
+/// while having spent nothing at all, and a yearly premium reads behind by
+/// whatever was never actually set aside rather than by what the plan said.
+/// Rendering "behind" as "over budget" would flag every bill still waiting to
+/// be paid and train the user to ignore the screen.
 ///
 /// So funding is its own column, and the over-budget highlight keys strictly on
 /// the core's `overspentBy`, which it sets only when spending has actually
@@ -354,9 +355,8 @@ class _BudgetLine extends StatelessWidget {
               child: Text(
                 funding,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  // Behind gets a warning tone, never the error tone: an envelope
-                  // spent exactly to plan is behind on funding and perfectly fine
-                  // on spending.
+                  // Behind gets a warning tone, never the error tone: a bill
+                  // still due is not the same news as money already overspent.
                   // The warning tone belongs to a bill that has not been paid.
                   // An envelope with money still in it is not a warning, so it
                   // reads in the ordinary colour however far "behind" the

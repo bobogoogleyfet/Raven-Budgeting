@@ -5,16 +5,15 @@
 //! — and the same $1200, paid in March, does not wreck March in the amortized
 //! report.
 //!
-//! # What this binary cannot do yet
+//! # A funded fund is set up through the front door
 //!
 //! A sinking fund's balance is what was actually set aside, not what the
-//! schedule planned, and `pacc budget` offers `set`, `list`, `status` and
-//! `adjust` — no command records a contribution. So through this front door a
-//! yearly line reads $0.00 funded and behind by its whole schedule forever, and
-//! the tests below say so rather than reaching past the CLI to
-//! `budgets::set_contribution` and asserting a state no user can produce. The
-//! funded-on-plan arithmetic is pinned in the core suite, which can record
-//! contributions; what is missing here is a `pacc budget contribute`.
+//! schedule planned, so getting one to $800.00 takes eight recorded
+//! contributions and `pacc budget contribute` is what records them. The tests
+//! below fund the envelope by running that command, never by reaching past the
+//! CLI to `budgets::set_contribution`: a test that seeds a state no user can
+//! produce would keep passing on the day the command stopped existing, which is
+//! exactly the regression this file is here to catch.
 //!
 //! These tests drive the real binary against a real database file, so they
 //! cover the parts nothing else does: clap's wiring for the `--period` family
@@ -128,6 +127,33 @@ impl Fixture {
             "--rollover",
         ])
         .expect_ok("budget set");
+    }
+
+    /// Save exactly the plan into that line, month by month, through the CLI.
+    ///
+    /// A bare `contribute` is the whole point of the default: this is what a
+    /// person who paid in on schedule actually types, so it is what the tests
+    /// type. Eight of these is what turns "behind by the whole schedule" into
+    /// the $800.00 the milestone promises by August.
+    fn contribute_on_plan(&self, months: &[&str]) {
+        for month in months {
+            self.run(&[
+                "budget",
+                "contribute",
+                "--category",
+                "Car Insurance",
+                "--month",
+                month,
+            ])
+            .expect_ok("budget contribute");
+        }
+    }
+
+    /// January through August 2026, the milestone's window.
+    fn fund_through_august(&self) {
+        self.contribute_on_plan(&[
+            "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08",
+        ]);
     }
 }
 
@@ -377,37 +403,54 @@ fn an_every_n_line_with_its_interval_is_accepted() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn budget_status_shows_a_hundred_a_month_and_nothing_funded_until_money_is_set_aside() {
-    // $1200 a year from January, nothing spent — and nothing set aside, because
-    // no `pacc budget` command can set anything aside. The schedule is still
-    // $100.00 a month, and the balance is $0.00: a sinking fund holds what was
-    // paid into it, not what the plan hoped for. By August that is a shortfall
-    // of the full 8 x $100.00 = $800.00, and reporting it is the point — the
-    // old reading answered "will the $1,200 be there in December" out of the
-    // schedule that asked the question.
+fn budget_status_shows_a_hundred_a_month_and_eight_hundred_funded_by_august() {
+    // The milestone's headline sentence, end to end through the binary: $1200 a
+    // year from January is $100.00 a month, and eight months of paying in on
+    // plan is $800.00 sitting in the fund by August.
+    //
+    // Both halves are asserted, because the interesting thing is that they are
+    // no longer the same statement. Before a single contribution is recorded
+    // the same line reads $0.00 funded and behind by the full $800.00 — a
+    // sinking fund holds what was paid into it, not what the plan hoped for,
+    // and the old reading answered "will the $1,200 be there in December" out
+    // of the schedule that asked the question.
     let f = Fixture::new();
     f.set_yearly_insurance();
+
+    let unfunded = f
+        .run(&["budget", "status", "--month", "2026-08"])
+        .expect_ok("budget status before anything is set aside");
+    assert!(
+        unfunded.contains("Car Insurance"),
+        "the status must name the category; got:\n{unfunded}"
+    );
+    assert_shows(
+        &unfunded,
+        "800.00",
+        "the shortfall against eight months of schedule",
+    );
+    // The funding cell itself, not merely the word somewhere on screen: the
+    // footer explains what `behind` means and so contains it either way.
+    assert!(
+        unfunded.contains("behind $800.00"),
+        "a fund nobody has paid into must read as behind by the whole schedule; got:\n{unfunded}"
+    );
+
+    f.fund_through_august();
 
     let out = f
         .run(&["budget", "status", "--month", "2026-08"])
         .expect_ok("budget status --month 2026-08");
-    assert!(
-        out.contains("Car Insurance"),
-        "the status must name the category; got:\n{out}"
-    );
     assert_shows(
         &out,
         "100.00",
         "the monthly contribution the schedule calls for",
     );
-    assert_shows(
-        &out,
-        "800.00",
-        "the shortfall against eight months of schedule",
-    );
+    assert_shows(&out, "800.00", "eight months of contributions, banked");
     assert!(
-        out.to_lowercase().contains("behind"),
-        "an unfunded sinking fund must read as behind, not as quietly fine; got:\n{out}"
+        out.contains("on track") && !out.contains("behind $"),
+        "a fund paid into exactly on plan is level with its schedule, not behind \
+         anything; got:\n{out}"
     );
 
     // The figures themselves, where the table layout cannot get in the way.
@@ -416,14 +459,127 @@ fn budget_status_shows_a_hundred_a_month_and_nothing_funded_until_money_is_set_a
     let status =
         budget_service::budget_status_for(&db, insurance, ym(2026, 8)).expect("budget_status_for");
     let funded = status.status.as_ref().expect("a line means a status");
+    assert_eq!(funded.monthly_contribution, Money::from_cents(10_000));
+    assert_eq!(funded.contributed_to_date, Money::from_cents(80_000));
+    assert_eq!(funded.funded_balance, Money::from_cents(80_000));
     assert_eq!(
-        funded.monthly_contribution,
-        Money::from_cents(10_000),
-        "the schedule is still the schedule; only the balance stopped assuming it"
+        funded.on_track,
+        OnTrack::OnTrack,
+        "level with the schedule, because every month of it was actually saved"
     );
-    assert_eq!(funded.contributed_to_date, Money::ZERO);
-    assert_eq!(funded.funded_balance, Money::ZERO);
-    assert_eq!(funded.on_track, OnTrack::Behind(Money::from_cents(80_000)));
+    assert_clean(&db);
+}
+
+#[test]
+fn a_bare_contribution_records_the_plan_and_clear_takes_the_month_back() {
+    // The two things `contribute` has to get right beyond writing a number.
+    //
+    // A bare invocation means "saved exactly the plan", which is the month a
+    // person should not have to type an amount for — eleven of those a year is
+    // how a fund goes unrecorded and reads `behind` forever.
+    //
+    // And `--clear` returns a month to *nothing recorded*, which is not the
+    // same as a recorded $0.00 even though both leave the balance alone: one
+    // says nobody has answered yet, the other says the answer was nothing, and
+    // only the first is something a screen should offer to fill in.
+    let f = Fixture::new();
+    f.set_yearly_insurance();
+
+    let out = f
+        .run(&[
+            "budget",
+            "contribute",
+            "--category",
+            "Car Insurance",
+            "--month",
+            "2026-03",
+        ])
+        .expect_ok("budget contribute with no --amount");
+    assert_shows(&out, "100.00", "a bare contribution records the plan");
+
+    // A short month is said out loud instead.
+    f.run(&[
+        "budget",
+        "contribute",
+        "--category",
+        "Car Insurance",
+        "--month",
+        "2026-04",
+        "--amount",
+        "40",
+    ])
+    .expect_ok("budget contribute --amount 40");
+
+    let db = f.open();
+    let insurance = category(&db, "Car Insurance");
+    let march = budget_service::budget_status_for(&db, insurance, ym(2026, 3))
+        .expect("budget_status_for March");
+    assert_eq!(
+        march.contributed_this_month,
+        Some(Money::from_cents(10_000)),
+        "a bare contribution defaults to the month's planned amount"
+    );
+    let april = budget_service::budget_status_for(&db, insurance, ym(2026, 4))
+        .expect("budget_status_for April");
+    assert_eq!(april.contributed_this_month, Some(Money::from_cents(4_000)));
+    assert_eq!(
+        april.status.as_ref().expect("status").funded_balance,
+        Money::from_cents(14_000),
+        "the fund holds the two figures that were recorded and nothing else"
+    );
+    drop(db);
+
+    // A second figure for a month already recorded is a correction, not a
+    // second deposit.
+    f.run(&[
+        "budget",
+        "contribute",
+        "--category",
+        "Car Insurance",
+        "--month",
+        "2026-03",
+        "--amount",
+        "60",
+    ])
+    .expect_ok("budget contribute over an existing month");
+    let db = f.open();
+    assert_eq!(
+        budget_service::budget_status_for(&db, insurance, ym(2026, 3))
+            .expect("budget_status_for March again")
+            .contributed_this_month,
+        Some(Money::from_cents(6_000)),
+        "recording twice corrects the month rather than adding to it"
+    );
+    drop(db);
+
+    f.run(&[
+        "budget",
+        "contribute",
+        "--category",
+        "Car Insurance",
+        "--month",
+        "2026-03",
+        "--clear",
+    ])
+    .expect_ok("budget contribute --clear");
+
+    let db = f.open();
+    let march = budget_service::budget_status_for(&db, insurance, ym(2026, 3))
+        .expect("budget_status_for March after clearing");
+    assert_eq!(
+        march.contributed_this_month, None,
+        "--clear returns the month to nothing-recorded, not to a recorded zero"
+    );
+    assert_eq!(
+        budget_service::budget_status_for(&db, insurance, ym(2026, 4))
+            .expect("budget_status_for April after clearing March")
+            .status
+            .as_ref()
+            .expect("status")
+            .funded_balance,
+        Money::from_cents(4_000),
+        "clearing March takes March's money back out of the fund"
+    );
     assert_clean(&db);
 }
 
@@ -431,16 +587,17 @@ fn budget_status_shows_a_hundred_a_month_and_nothing_funded_until_money_is_set_a
 fn an_adjustment_changes_what_status_reports() {
     let f = Fixture::new();
     f.set_yearly_insurance();
+    f.fund_through_august();
 
-    // Nothing recorded, so the envelope is empty and $800.00 behind schedule.
-    // `budget adjust` is the only lever this binary has for putting money into
-    // one, and an adjustment is deliberately not a contribution: it moves the
-    // balance without claiming anybody paid in on plan.
+    // $800.00 banked and level with the schedule. An adjustment is deliberately
+    // not a contribution: it moves the balance without claiming anybody paid in
+    // on plan, which is what makes "moved from Gifts" tellable apart from
+    // "saved as scheduled" six months later.
     let before = f
         .run(&["budget", "status", "--month", "2026-08"])
         .expect_ok("budget status before the adjustment");
-    assert_shows(&before, "800.00", "the shortfall before any adjustment");
-    assert_does_not_show(&before, "750.00", "the shortfall the adjustment will leave");
+    assert_shows(&before, "800.00", "the balance before any adjustment");
+    assert_does_not_show(&before, "850.00", "the balance the adjustment will leave");
 
     f.run(&[
         "budget",
@@ -463,13 +620,10 @@ fn an_adjustment_changes_what_status_reports() {
         before, after,
         "an adjustment that changes nothing on screen is invisible to the user"
     );
-    // An empty envelope plus the $50.00 moved in: $50.00 held, and the gap to
-    // the schedule closes from $800.00 to $750.00.
-    assert_shows(&after, "750.00", "the shortfall left after the adjustment");
-    assert_does_not_show(
-        &after,
-        "800.00",
-        "the shortfall the adjustment closed part of",
+    assert_shows(&after, "850.00", "the balance after the adjustment");
+    assert!(
+        after.contains("ahead $50.00"),
+        "a fund holding more than the schedule asked for is ahead of it; got:\n{after}"
     );
 
     let db = f.open();
@@ -477,13 +631,13 @@ fn an_adjustment_changes_what_status_reports() {
     let status =
         budget_service::budget_status_for(&db, insurance, ym(2026, 8)).expect("budget_status_for");
     let funded = status.status.as_ref().expect("status");
-    assert_eq!(funded.funded_balance, Money::from_cents(5_000));
+    assert_eq!(funded.funded_balance, Money::from_cents(85_000));
     assert_eq!(
         funded.contributed_to_date,
-        Money::ZERO,
+        Money::from_cents(80_000),
         "an adjustment is not a contribution"
     );
-    assert_eq!(funded.on_track, OnTrack::Behind(Money::from_cents(75_000)));
+    assert_eq!(funded.on_track, OnTrack::Ahead(Money::from_cents(5_000)));
     assert_clean(&db);
 }
 
@@ -496,6 +650,7 @@ fn a_negative_adjustment_moves_money_out_of_an_envelope() {
     // flag, so it is worth spending a test on.
     let f = Fixture::new();
     f.set_yearly_insurance();
+    f.fund_through_august();
 
     f.run(&[
         "budget",
@@ -515,13 +670,12 @@ fn a_negative_adjustment_moves_money_out_of_an_envelope() {
     let insurance = category(&db, "Car Insurance");
     let status =
         budget_service::budget_status_for(&db, insurance, ym(2026, 8)).expect("budget_status_for");
-    // An envelope nobody has paid into, less the $25.00 moved out: the balance
-    // goes negative, which is the honest figure and the one that must keep
-    // rolling forward.
-    assert_eq!(
-        status.status.as_ref().expect("status").funded_balance,
-        Money::from_cents(-2_500)
-    );
+    let funded = status.status.as_ref().expect("status");
+    // Eight months paid in, less the $25.00 moved out — and the fund is now
+    // short of its own schedule by exactly that, which is the figure that must
+    // keep rolling forward rather than being quietly forgotten in September.
+    assert_eq!(funded.funded_balance, Money::from_cents(77_500));
+    assert_eq!(funded.on_track, OnTrack::Behind(Money::from_cents(2_500)));
     assert_clean(&db);
 }
 

@@ -11,12 +11,22 @@
 //! # Funding and overspending are different questions
 //!
 //! [`FundedStatus`] carries both, deliberately, and they disagree in normal
-//! use: a $400/month grocery envelope with $400 spent is
-//! [`OnTrack::Behind`]($400) on funding — the schedule says that money should
-//! be banked and it is not — and exactly on budget on spending. A UI must
-//! render them as separate columns and must never label `Behind` as "over
-//! budget"; only [`SpendStatus::overspent_by`] means that.
+//! use — though which way they disagree depends on the cadence. Funding asks
+//! whether the money will be there when the bill lands: a $900 rent line paid
+//! in full is [`OnTrack`], nothing left owing, and the same line untouched is
+//! [`OnTrack::Behind`]($900); a $1,200 yearly premium with no contribution
+//! recorded is behind by the whole schedule to date, because a month nobody
+//! recorded anything for saved nothing. Spending asks the other
+//! question entirely, and a $400/month grocery envelope with $500 spent is
+//! settled on funding while being $100 over on spending. A UI must render them
+//! as separate columns and must never label `Behind` as "over budget"; only
+//! [`SpendStatus::overspent_by`] means that.
 //!
+//! Whether "behind" is the right *word* is a third question, and
+//! [`CategoryBudgetStatus::group_is_obligation`] answers it: a shortfall is
+//! only a shortfall where the money is owed.
+//!
+//! [`OnTrack`]: crate::domain::budget_calc::OnTrack
 //! [`OnTrack::Behind`]: crate::domain::budget_calc::OnTrack::Behind
 //! [`SpendStatus::overspent_by`]: crate::domain::budget_calc::SpendStatus::overspent_by
 
@@ -231,6 +241,63 @@ pub fn budget_status_for(
             .map(|line| funded_balance(line, &saved, &spent, &adjusted, as_of)),
         line,
     })
+}
+
+/// The budget screen's bottom line: every column of the table, added up.
+///
+/// Derived from the rows the screen is already showing rather than from a
+/// second query, so the total and the lines above it cannot disagree — a
+/// footer that re-reads the database can be a month behind the table it sits
+/// under and there is nothing on screen to say so.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BudgetTotals {
+    /// How much is committed per month across every budgeted category.
+    pub per_month: Money,
+    /// What is banked across every envelope right now.
+    pub funded: Money,
+    /// Spending within each line's current cycle.
+    ///
+    /// A sum across windows of different lengths, deliberately: a yearly line's
+    /// cycle-to-date can span eleven months while a monthly line's spans days.
+    /// It is the counterpart of [`Self::remaining`] and only means anything
+    /// beside it — "of what these envelopes hold, this much has gone".
+    pub spent_cycle: Money,
+    /// What is left across every envelope. Current balances, so this one adds
+    /// up cleanly however the cycles differ.
+    pub remaining: Money,
+    /// Total overspend, counting only the lines actually over. Overspending in
+    /// one envelope is not cancelled by another having room.
+    pub overspent_by: Money,
+    /// How many budgeted categories are in the total.
+    pub categories: usize,
+}
+
+/// Add up a set of budget rows.
+///
+/// Unbudgeted categories are skipped: they have no figure in any column, and
+/// counting them would make the row count disagree with the table.
+#[must_use]
+pub fn totals(rows: &[CategoryBudgetStatus]) -> BudgetTotals {
+    let mut out = BudgetTotals {
+        per_month: Money::ZERO,
+        funded: Money::ZERO,
+        spent_cycle: Money::ZERO,
+        remaining: Money::ZERO,
+        overspent_by: Money::ZERO,
+        categories: 0,
+    };
+    for row in rows {
+        let Some(status) = row.status.as_ref() else {
+            continue;
+        };
+        out.categories += 1;
+        out.per_month = out.per_month.saturating_add(status.monthly_contribution);
+        out.funded = out.funded.saturating_add(status.funded_balance);
+        out.spent_cycle = out.spent_cycle.saturating_add(status.spend.spent);
+        out.remaining = out.remaining.saturating_add(status.spend.remaining);
+        out.overspent_by = out.overspent_by.saturating_add(status.spend.overspent_by);
+    }
+    out
 }
 
 /// Record what was actually set aside for a category in one month.

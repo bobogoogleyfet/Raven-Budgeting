@@ -7,31 +7,44 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `parse_sort`, `summarise`
+// These functions are ignored because they are not marked as `pub`: `build_filter`, `parse_sort`, `summarise`
 
-/// The expense list.
+/// One page of the expense list.
 ///
 /// `None` for either id list means "every one of them", which is not the same
 /// as a list naming every one: an expense at a shop that did not exist when
 /// the menu was built would fail the explicit list. Untouched has to mean
 /// untouched.
 ///
-/// The filtering, the ordering and the limit are all done in SQL. A limit
-/// applied before a sort would order whichever two hundred happened to come
-/// back, which is a different list from the first two hundred of the ordered
-/// set.
+/// The filtering, the ordering and the paging are all done in SQL. A limit
+/// applied before a sort would order whichever fifty happened to come back,
+/// which is a different page from the first fifty of the ordered set — and an
+/// offset into that would be a page of nothing in particular.
 Future<List<TxnSummaryDto>> listTransactions({
   required int limit,
+  int? offset,
   Int64List? categoryIds,
   Int64List? merchantIds,
   bool? includeNoMerchant,
   String? sort,
 }) => RustLib.instance.api.crateApiTransactionsListTransactions(
   limit: limit,
+  offset: offset,
   categoryIds: categoryIds,
   merchantIds: merchantIds,
   includeNoMerchant: includeNoMerchant,
   sort: sort,
+);
+
+/// Add up every expense the filter matches, however the list is paged.
+Future<TxnTotalsDto> transactionTotals({
+  Int64List? categoryIds,
+  Int64List? merchantIds,
+  bool? includeNoMerchant,
+}) => RustLib.instance.api.crateApiTransactionsTransactionTotals(
+  categoryIds: categoryIds,
+  merchantIds: merchantIds,
+  includeNoMerchant: includeNoMerchant,
 );
 
 /// The values the filter menus are built from.
@@ -153,4 +166,49 @@ class TxnSummaryDto {
           taxIsEstimated == other.taxIsEstimated &&
           needsReview == other.needsReview &&
           categories == other.categories;
+}
+
+/// The expense list's bottom line: every money column, added up.
+///
+/// Deliberately takes no `limit` or `offset`. The number worth printing is
+/// "everything matching this filter", and it must not change as the reader
+/// pages — a per-page total would move under someone who only pressed Next,
+/// which reads as an arithmetic bug rather than as a feature.
+///
+/// Summed by the core in SQL, from the same filter the list is built from, so
+/// the total covers rows no page ever loaded. Never in Dart: money there is a
+/// type that makes arithmetic a compile error, on purpose.
+class TxnTotalsDto {
+  final PlatformInt64 subtotal;
+  final PlatformInt64 tax;
+  final PlatformInt64 total;
+
+  /// Expenses in the sum — the size of the whole filtered set, which is also
+  /// what the pager counts through.
+  ///
+  /// `u32` rather than `usize`: the bridge renders a `usize` as a Dart
+  /// `BigInt`, which is a heavyweight number for a row count and a nuisance
+  /// at every call site.
+  final int expenses;
+
+  const TxnTotalsDto({
+    required this.subtotal,
+    required this.tax,
+    required this.total,
+    required this.expenses,
+  });
+
+  @override
+  int get hashCode =>
+      subtotal.hashCode ^ tax.hashCode ^ total.hashCode ^ expenses.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TxnTotalsDto &&
+          runtimeType == other.runtimeType &&
+          subtotal == other.subtotal &&
+          tax == other.tax &&
+          total == other.total &&
+          expenses == other.expenses;
 }

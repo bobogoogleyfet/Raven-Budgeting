@@ -57,6 +57,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BudgetRowDto dco_decode_budget_row_dto(dynamic raw);
 
   @protected
+  BudgetTotalsDto dco_decode_budget_totals_dto(dynamic raw);
+
+  @protected
   CategoryDto dco_decode_category_dto(dynamic raw);
 
   @protected
@@ -180,6 +183,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TxnSummaryDto dco_decode_txn_summary_dto(dynamic raw);
 
   @protected
+  TxnTotalsDto dco_decode_txn_totals_dto(dynamic raw);
+
+  @protected
   int dco_decode_u_32(dynamic raw);
 
   @protected
@@ -221,6 +227,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BudgetRowDto sse_decode_budget_row_dto(SseDeserializer deserializer);
+
+  @protected
+  BudgetTotalsDto sse_decode_budget_totals_dto(SseDeserializer deserializer);
 
   @protected
   CategoryDto sse_decode_category_dto(SseDeserializer deserializer);
@@ -364,6 +373,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TxnSummaryDto sse_decode_txn_summary_dto(SseDeserializer deserializer);
 
   @protected
+  TxnTotalsDto sse_decode_txn_totals_dto(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer);
 
   @protected
@@ -416,6 +428,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_budget_row_dto(BudgetRowDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_budget_totals_dto(
+    BudgetTotalsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_category_dto(CategoryDto self, SseSerializer serializer);
@@ -614,6 +632,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_txn_summary_dto(TxnSummaryDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_txn_totals_dto(TxnTotalsDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

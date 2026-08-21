@@ -34,27 +34,58 @@ const FilterValues someValues = FilterValues(
   anyWithoutMerchant: false,
 );
 
+/// A whole table of expenses, paged by the harness the way the core pages it.
+///
+/// Built as one list rather than per-page fixtures so the tests can assert that
+/// a page is a window onto a stable order — the property paging exists to have.
+List<TxnSummary> manyExpenses(int n) => [
+      for (int i = 1; i <= n; i++)
+        expense(i, merchant: 'Shop $i', total: i * 100),
+    ];
+
 class Harness {
   Harness({
     this.rows = const [],
     this.values = someValues,
     this.deleteFails = false,
     this.loadFails = false,
+    this.totalsFail = false,
   });
 
   List<TxnSummary> rows;
   FilterValues values;
   bool deleteFails;
   bool loadFails;
+  bool totalsFail;
 
   final List<TxnQuery> queries = [];
+  final List<TxnQuery> totalsQueries = [];
   final List<int> deleted = [];
   int filterValueLoads = 0;
 
+  /// Slices [rows] the way SQL would, so `limit`/`offset` are exercised rather
+  /// than assumed: a screen that asked for the right page and then rendered the
+  /// wrong one would still pass a stub that ignored them.
   Future<List<TxnSummary>> load(TxnQuery query) async {
     queries.add(query);
     if (loadFails) throw Exception('the database is not open yet');
-    return rows;
+    if (query.offset >= rows.length) return const [];
+    final int end = query.offset + query.limit;
+    return rows.sublist(query.offset, end > rows.length ? rows.length : end);
+  }
+
+  /// Deliberately ignores `limit` and `offset`, exactly as the core does. The
+  /// totals row is the whole filtered set, and a stub that paged them would
+  /// hide the bug where the screen expects a page total.
+  Future<TxnTotals> loadTotals(TxnQuery query) async {
+    totalsQueries.add(query);
+    if (totalsFail) throw Exception('the database is not open yet');
+    return TxnTotals(
+      subtotal: fromCore(rows.length * 100),
+      tax: fromCore(rows.length * 7),
+      total: fromCore(rows.length * 107),
+      expenses: rows.length,
+    );
   }
 
   Future<FilterValues> loadValues() async {
@@ -82,6 +113,7 @@ Future<void> pump(WidgetTester tester, Harness harness,
       home: Scaffold(
         body: ExpensesScreen(
           load: harness.load,
+          loadTotals: harness.loadTotals,
           loadFilterValues: harness.loadValues,
           delete: harness.delete,
         ),
@@ -102,7 +134,8 @@ void main() {
     await pump(tester, harness);
 
     expect(harness.lastQuery.sort, TxnSort.dateDesc);
-    expect(harness.lastQuery.limit, 200);
+    expect(harness.lastQuery.limit, 50);
+    expect(harness.lastQuery.offset, 0);
     expect(find.text("Macey's"), findsOneWidget);
     expect(find.text(r'$118.40'), findsOneWidget);
   });
@@ -302,6 +335,148 @@ void main() {
 
     expect(find.textContaining('Could not delete that expense'), findsOneWidget);
     expect(find.text("Macey's"), findsOneWidget);
+  });
+
+  testWidgets('a page is fifty rows, and Next asks for the next fifty',
+      (tester) async {
+    final harness = Harness(rows: manyExpenses(120));
+    await pump(tester, harness);
+
+    expect(find.text('Showing 1\u201350 of 120'), findsOneWidget);
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.pumpAndSettle();
+
+    expect(harness.lastQuery.offset, 50);
+    expect(harness.lastQuery.limit, 50);
+    expect(find.text('Showing 51\u2013100 of 120'), findsOneWidget);
+
+    // The last page is what is left of one, not a full one padded out.
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.pumpAndSettle();
+    expect(find.text('Showing 101\u2013120 of 120'), findsOneWidget);
+  });
+
+  testWidgets('page two does not repeat page one', (tester) async {
+    final harness = Harness(rows: manyExpenses(120));
+    await pump(tester, harness);
+    expect(find.text('Shop 1'), findsOneWidget);
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.pumpAndSettle();
+
+    // The offset is the whole of the mechanism, and an off-by-one in it shows
+    // one receipt twice and hides another for good — the reader has no way to
+    // notice, because both pages still look like pages.
+    expect(find.text('Shop 1'), findsNothing);
+    expect(find.text('Shop 51'), findsOneWidget);
+  });
+
+  testWidgets('the ends of the list disable the control that would leave them',
+      (tester) async {
+    final harness = Harness(rows: manyExpenses(60));
+    await pump(tester, harness);
+
+    IconButton button(IconData icon) =>
+        tester.widget<IconButton>(find.widgetWithIcon(IconButton, icon));
+
+    // Disabled rather than hidden: a control that vanishes moves the one next
+    // to it under a pointer that was aiming at something else.
+    expect(button(Icons.chevron_left).onPressed, isNull);
+    expect(button(Icons.chevron_right).onPressed, isNotNull);
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.pumpAndSettle();
+
+    expect(button(Icons.chevron_left).onPressed, isNotNull);
+    expect(button(Icons.chevron_right).onPressed, isNull);
+  });
+
+  testWidgets('the totals row adds up the whole filter, not the page shown',
+      (tester) async {
+    final harness = Harness(rows: manyExpenses(120));
+    await pump(tester, harness);
+
+    // 120 expenses, of which only 50 are on screen. The useful number is what
+    // the filter comes to, and a total that changed every time the reader
+    // pressed Next would read as an arithmetic bug rather than as a page.
+    expect(find.text('Total of all 120 expenses'), findsOneWidget);
+    expect(find.text(r'$128.40'), findsOneWidget);
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Total of all 120 expenses'), findsOneWidget);
+    expect(find.text(r'$128.40'), findsOneWidget);
+    // And the core is asked for the whole set, never for a page of it: the
+    // screen must not be able to sum a page even by accident.
+    expect(harness.totalsQueries, isNotEmpty);
+  });
+
+  testWidgets('changing a filter goes back to the first page', (tester) async {
+    final harness = Harness(rows: manyExpenses(120));
+    await pump(tester, harness);
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.pumpAndSettle();
+    expect(harness.lastQuery.offset, 50);
+
+    await openMenu(tester, 'Store');
+    await tester.tap(find.text('Chevron'));
+    await tester.pumpAndSettle();
+
+    // Otherwise a narrowed filter lands on a page past the end of its own
+    // result: an empty screen that is indistinguishable from a filter that
+    // matched nothing.
+    expect(harness.lastQuery.offset, 0);
+    expect(harness.lastQuery.merchantIds, [2]);
+  });
+
+  testWidgets('flipping the sort goes back to the first page', (tester) async {
+    final harness = Harness(rows: manyExpenses(120));
+    await pump(tester, harness);
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Date'));
+    await tester.pumpAndSettle();
+
+    // Page 2 of newest-first and page 2 of oldest-first hold different
+    // receipts. Staying put would look like the sort had scrambled the list.
+    expect(harness.lastQuery.offset, 0);
+    expect(harness.lastQuery.sort, TxnSort.dateAsc);
+  });
+
+  testWidgets('an empty result has no pager and no row of zeroes',
+      (tester) async {
+    final harness = Harness();
+    await pump(tester, harness);
+
+    expect(find.widgetWithIcon(IconButton, Icons.chevron_right), findsNothing);
+    expect(find.textContaining('Showing'), findsNothing);
+    // A total of $0.00 under "no expenses yet" is the same news twice.
+    expect(find.textContaining('Total of'), findsNothing);
+  });
+
+  testWidgets('deleting refreshes the bottom line without reloading the page',
+      (tester) async {
+    final harness = Harness(rows: manyExpenses(3));
+    await pump(tester, harness);
+    final listLoads = harness.queries.length;
+    final totalsLoads = harness.totalsQueries.length;
+
+    await tester.tap(find.byTooltip('Delete this expense').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete Expense'));
+    await tester.pumpAndSettle();
+
+    // The rows stay where they are, but the total must not: it sums the whole
+    // filter, so until it is asked again it still contains money that is gone,
+    // and a bottom line that disagrees with the rows above it is worse than a
+    // moment of loading.
+    expect(harness.queries.length, listLoads);
+    expect(harness.totalsQueries.length, greaterThan(totalsLoads));
+    expect(find.text('Total of all 2 expenses'), findsOneWidget);
   });
 
   testWidgets('a phone gets a list rather than a table', (tester) async {

@@ -37,11 +37,11 @@ use accounting_core::repo::budgets::{self, BudgetLineRecord, StoredBudgetLine};
 use accounting_core::repo::transactions::{Txn, TxnFilter, TxnSort};
 use accounting_core::repo::{categories, locations, merchants, tax_areas, transactions};
 use accounting_core::service::budgets as budget_service;
-use accounting_core::service::rates as rates_service;
 use accounting_core::service::entry::{
     TransactionDraft, TransactionPreview, categorize, needs_categorizing,
     preview_transaction_with_rate, quick_add, repeat_last, save_transaction_with_rate,
 };
+use accounting_core::service::rates as rates_service;
 use accounting_core::service::reports::{MonthlyMatrix, ReportBasis, monthly_matrix};
 use accounting_core::time::{MonthRange, month_short_name};
 use accounting_core::{CategoryBudgetStatus, DetailLevel, Money, TxnId, YearMonth};
@@ -240,6 +240,19 @@ enum BudgetCommand {
     /// takes money out, e.g. to move it to another envelope.
     #[command(verbatim_doc_comment)]
     Adjust(BudgetAdjustArgs),
+    /// Record what was actually set aside for a sinking fund in a month.
+    ///
+    /// A non-monthly line is funded by what this records and by nothing else,
+    /// so a month nobody records is a month nothing was saved. Given no
+    /// `--amount` it records the month's planned contribution, because saving
+    /// exactly the plan is the ordinary case and a tight month is the one worth
+    /// typing a number for.
+    ///
+    /// Not a transaction: moving $100 into savings for a yearly premium is not
+    /// spending $100, and filing it as spending would count it against the
+    /// category's budget now and again when the premium is finally paid.
+    #[command(verbatim_doc_comment)]
+    Contribute(BudgetContributeArgs),
 }
 
 #[derive(Args)]
@@ -330,6 +343,29 @@ struct BudgetAdjustArgs {
     /// a mistake six months later.
     #[arg(long, value_name = "TEXT")]
     reason: Option<String>,
+}
+
+#[derive(Args)]
+struct BudgetContributeArgs {
+    /// Category name, a unique prefix, or Group/Name.
+    #[arg(long, value_name = "NAME")]
+    category: String,
+
+    /// The month the money was set aside in.
+    #[arg(long, value_name = "YYYY-MM")]
+    month: YearMonth,
+
+    /// How much went in. Defaults to what the schedule asks for that month, so
+    /// a bare `contribute` means "saved exactly the plan". A short month is
+    /// said out loud: `--amount 40`.
+    #[arg(long, value_parser = parse_money, allow_hyphen_values = true)]
+    amount: Option<Money>,
+
+    /// Forget the month's contribution instead of recording one, returning it
+    /// to nothing-recorded — which a sinking fund reads as nothing saved, not
+    /// as a recorded zero.
+    #[arg(long, conflicts_with = "amount")]
+    clear: bool,
 }
 
 #[derive(Args)]
@@ -725,16 +761,20 @@ fn run_rates(path: &Path, args: &RatesArgs) -> anyhow::Result<()> {
     let today = Local::now().date_naive();
 
     if let Some(file) = &args.file {
-        let quarter = args.quarter.unwrap_or_else(|| rates_service::wanted_quarter(today));
-        let bytes = std::fs::read(file)
-            .with_context(|| format!("could not read {}", file.display()))?;
+        let quarter = args
+            .quarter
+            .unwrap_or_else(|| rates_service::wanted_quarter(today));
+        let bytes =
+            std::fs::read(file).with_context(|| format!("could not read {}", file.display()))?;
         let installed = rates_service::install_workbook(&db, &bytes, quarter)?;
         report_installed(quarter, installed);
         return Ok(());
     }
 
     if args.update {
-        let quarter = args.quarter.unwrap_or_else(|| rates_service::wanted_quarter(today));
+        let quarter = args
+            .quarter
+            .unwrap_or_else(|| rates_service::wanted_quarter(today));
         let url = accounting_core::rates::workbook_url(quarter);
         outln!("fetching {url}");
         // Recorded before the result is known: an attempt that failed is still
@@ -774,15 +814,16 @@ fn run_rates(path: &Path, args: &RatesArgs) -> anyhow::Result<()> {
 }
 
 fn report_installed(quarter: accounting_core::Quarter, installed: rates_service::Installed) {
-    outln!(
-        "installed {quarter}: {} jurisdictions",
-        installed.areas
-    );
+    outln!("installed {quarter}: {} jurisdictions", installed.areas);
     if installed.locations_updated > 0 {
         outln!(
             "  {} location{} moved to the new rates",
             installed.locations_updated,
-            if installed.locations_updated == 1 { "" } else { "s" }
+            if installed.locations_updated == 1 {
+                ""
+            } else {
+                "s"
+            }
         );
     }
 }
@@ -1132,6 +1173,9 @@ fn run_list(path: &Path, args: &ListArgs) -> anyhow::Result<()> {
         // terminal reader wants at the top.
         sort: TxnSort::default(),
         limit: (args.limit > 0).then_some(args.limit),
+        // The terminal reads from the top: `--limit` is "show me the newest
+        // few", not a page in a sequence, so there is nothing to skip past.
+        offset: None,
     };
 
     let txns = transactions::list(&db, &filter)?;
@@ -1418,6 +1462,7 @@ fn run_budget(path: &Path, command: &BudgetCommand) -> anyhow::Result<()> {
         BudgetCommand::List(args) => run_budget_list(path, args),
         BudgetCommand::Status(args) => run_budget_status(path, args),
         BudgetCommand::Adjust(args) => run_budget_adjust(path, args),
+        BudgetCommand::Contribute(args) => run_budget_contribute(path, args),
     }
 }
 
@@ -1575,12 +1620,16 @@ fn run_budget_list(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> {
 ///
 /// # Funding and overspending get their own columns
 ///
-/// They answer different questions and disagree in ordinary use: a $400/month
-/// grocery envelope with $400 spent is `behind $400.00` on **funding** — the
-/// schedule says that money should be sitting there and it is not — and exactly
-/// on budget on **spending**. Collapsing them into one "status" column, or
-/// labelling `behind` as "over budget", turns the most normal month of the year
-/// into a false alarm.
+/// They answer different questions and disagree in ordinary use, and what
+/// makes them disagree depends on the cadence. **Funding** asks whether the
+/// money will be there when the bill lands: for rent it is what is still
+/// unpaid, so an untouched $900 line reads `behind $900.00` while the same line
+/// settled in full reads `on track`; for a yearly premium it is whether the
+/// month's money was really set aside, so a fund nobody has paid into reads
+/// `behind` however faithfully the schedule was written. **Spending** asks only
+/// whether more has gone out than this cycle's budget. Collapsing them into one
+/// "status" column, or labelling `behind` as "over budget", turns the bill
+/// nobody has paid yet into an overspending alarm — the opposite complaint.
 fn run_budget_status(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> {
     let db = open_existing(path)?;
     let month = args.month.unwrap_or_else(current_month);
@@ -1664,8 +1713,10 @@ fn run_budget_status(path: &Path, args: &BudgetMonthArgs) -> anyhow::Result<()> 
     outln!();
     outln!(
         "funding asks whether the money will be there when the bill lands; over asks whether\n\
-         more has been spent than this cycle's budget. They disagree by design — an envelope\n\
-         spent exactly to plan is behind on funding and perfectly fine on spending."
+         more has been spent than this cycle's budget. They are different questions, and\n\
+         funding asks a monthly line what is still unpaid — rent settled in full is on track,\n\
+         untouched it is behind by the whole month — while a sinking fund is behind until the\n\
+         money is recorded as set aside: pacc budget contribute --category NAME --month YYYY-MM."
     );
     Ok(())
 }
@@ -1690,6 +1741,73 @@ fn run_budget_adjust(path: &Path, args: &BudgetAdjustArgs) -> anyhow::Result<()>
 
     // Reported as of the later of the adjusted month and today, because what
     // the user wants to know is where the envelope stands *now*.
+    let as_of = args.month.max(current_month());
+    let status = budget_service::budget_status_for(&db, category.id, as_of)?;
+    match &status.status {
+        Some(funded) => outln!(
+            "  {as_of}  funded {}  ({})",
+            funded.funded_balance.to_display_string(),
+            format_funding(funded.on_track)
+        ),
+        None => outln!("  {} has no budget line in {as_of}", category.name),
+    }
+    Ok(())
+}
+
+/// Record what really went into a sinking fund in one month.
+///
+/// # Why the amount is optional
+///
+/// A non-monthly line is funded by recorded contributions and by nothing else,
+/// so every month on plan has to be *said*, and the overwhelming majority of
+/// those months are exactly the plan. Making the user retype $100.00 eleven
+/// times a year to mean "yes, as scheduled" is the kind of friction that ends
+/// with nobody recording anything and every fund reading `behind` forever.
+/// Defaulting to [`monthly_contribution`] turns the ordinary case into
+/// `pacc budget contribute --category "Car Insurance" --month 2026-08` and
+/// leaves `--amount` for the month that was short — which is the month worth
+/// spending keystrokes on.
+///
+/// Without a line in force there is no schedule to default to, so the amount
+/// stops being optional and the refusal says which of the two is missing.
+fn run_budget_contribute(path: &Path, args: &BudgetContributeArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let category = categories::resolve(&db, &args.category)?;
+
+    if args.clear {
+        budget_service::forget_contribution(&db, category.id, args.month)?;
+        outln!(
+            "cleared the contribution for {} in {}",
+            category.qualified_name(),
+            args.month
+        );
+    } else {
+        let amount = match args.amount {
+            Some(amount) => amount,
+            None => {
+                let stored = budgets::for_category(&db, category.id, args.month)?;
+                let Some(stored) = stored else {
+                    anyhow::bail!(
+                        "{} has no budget line in {}, so there is no planned amount to \
+                         default to — give --amount, or set a budget first",
+                        category.qualified_name(),
+                        args.month
+                    );
+                };
+                monthly_contribution(&stored.line, args.month)
+            }
+        };
+        budget_service::record_contribution(&db, category.id, args.month, amount)?;
+        outln!(
+            "set aside {} for {} in {}",
+            amount.to_display_string(),
+            category.qualified_name(),
+            args.month
+        );
+    }
+
+    // Reported as of the later of the recorded month and today, because what
+    // the user wants to know is where the fund stands *now*.
     let as_of = args.month.max(current_month());
     let status = budget_service::budget_status_for(&db, category.id, as_of)?;
     match &status.status {
@@ -1753,7 +1871,8 @@ fn format_months(start: YearMonth, end: Option<YearMonth>) -> String {
 }
 
 /// Never the words "over budget": this is a funding measure, and
-/// [`OnTrack::Behind`] on a spent-to-plan envelope is normal.
+/// [`OnTrack::Behind`] fires on the bill nobody has paid yet and on the fund
+/// nobody has paid into — neither of which is money going out the door.
 fn format_funding(on_track: OnTrack) -> String {
     match on_track {
         OnTrack::Ahead(by) => format!("ahead {}", by.to_display_string()),
@@ -2028,8 +2147,10 @@ impl ExportArgs {
             include_archived: self.all,
             sort: TxnSort::default(),
             // An export is the whole set by definition; a page limit here
-            // would silently truncate a year's accounts.
+            // would silently truncate a year's accounts, and an offset would
+            // silently drop the front of it.
             limit: None,
+            offset: None,
         })
     }
 }

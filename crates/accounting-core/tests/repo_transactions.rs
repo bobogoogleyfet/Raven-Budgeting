@@ -1010,6 +1010,219 @@ fn count_agrees_with_the_list_it_describes() {
 }
 
 #[test]
+fn offset_pages_through_the_list_without_repeating_a_row() {
+    let f = listing();
+    let page = |n: usize| {
+        transactions::list(
+            &f.db,
+            &TxnFilter {
+                limit: Some(2),
+                offset: Some(n * 2),
+                ..Default::default()
+            },
+        )
+        .expect("list")
+    };
+
+    let whole = ids(&transactions::list(&f.db, &TxnFilter::default()).expect("list"));
+    let paged: Vec<TxnId> = (0..3).flat_map(|n| ids(&page(n))).collect();
+
+    // The point of paging is that the reader sees each receipt exactly once.
+    // An offset into a partly-decided order would silently repeat some rows and
+    // drop others, and the user would have no way to tell — every page would
+    // still look like a plausible page. That the concatenation is the unpaged
+    // list, in order, is the whole guarantee.
+    assert_eq!(
+        paged, whole,
+        "the pages, laid end to end, must be exactly the unpaged list"
+    );
+
+    let first = ids(&page(0));
+    let second = ids(&page(1));
+    assert!(
+        second.iter().all(|id| !first.contains(id)),
+        "page 2 repeats a row from page 1: {first:?} then {second:?}"
+    );
+}
+
+#[test]
+fn a_page_past_the_end_is_empty_rather_than_an_error() {
+    let f = listing();
+    let rows = transactions::list(
+        &f.db,
+        &TxnFilter {
+            limit: Some(50),
+            offset: Some(500),
+            ..Default::default()
+        },
+    )
+    .expect("list");
+
+    // Deleting the only row on the last page leaves a screen asking for a page
+    // that is no longer there. That is an ordinary thing to ask, and the honest
+    // answer is "nothing", not a failure the UI has to word an apology for.
+    assert!(rows.is_empty());
+    assert_eq!(
+        transactions::count(
+            &f.db,
+            &TxnFilter {
+                limit: Some(50),
+                offset: Some(500),
+                ..Default::default()
+            }
+        )
+        .expect("count"),
+        0
+    );
+}
+
+#[test]
+fn an_offset_with_no_limit_skips_the_first_rows_and_keeps_the_rest() {
+    let f = listing();
+    let whole = ids(&transactions::list(&f.db, &TxnFilter::default()).expect("list"));
+    let skipped = ids(&transactions::list(
+        &f.db,
+        &TxnFilter {
+            offset: Some(2),
+            ..Default::default()
+        },
+    )
+    .expect("list"));
+
+    // SQLite has no bare OFFSET — it only exists as a suffix of LIMIT — so this
+    // path has to say `LIMIT -1`. Written the obvious way it is a syntax error
+    // at runtime, which no type checks for.
+    assert_eq!(skipped, whole[2..], "an offset alone must not also cap");
+}
+
+#[test]
+fn count_describes_the_page_its_filter_asks_for() {
+    let f = listing();
+    let filter = TxnFilter {
+        limit: Some(2),
+        offset: Some(4),
+        ..Default::default()
+    };
+
+    let listed = transactions::list(&f.db, &filter).expect("list").len();
+    // Five live rows, so the third page holds one. `count` promises the size of
+    // the page `list` returns, and a pager that trusted it for anything else
+    // would draw a full last page over a single row.
+    assert_eq!(listed, 1);
+    assert_eq!(transactions::count(&f.db, &filter).expect("count"), listed);
+}
+
+#[test]
+fn totals_cover_the_whole_filter_rather_than_the_page() {
+    let f = listing();
+    let whole = transactions::totals(&f.db, &TxnFilter::default()).expect("totals");
+    let while_paging = transactions::totals(
+        &f.db,
+        &TxnFilter {
+            limit: Some(2),
+            offset: Some(2),
+            ..Default::default()
+        },
+    )
+    .expect("totals");
+
+    // The number worth printing is "everything matching this filter", and it
+    // must not move as the reader presses Next. A total that changed per page
+    // would read as a bug in the arithmetic, because that is what it looks
+    // like — and it would answer a question nobody asked, since the size of a
+    // page is an implementation detail of the screen.
+    assert_eq!(
+        while_paging, whole,
+        "limit and offset must not reach totals"
+    );
+
+    // The five live receipts, and not the archived $60 one.
+    assert_eq!(whole.total, m(15000));
+    assert_eq!(whole.rows, 5);
+}
+
+#[test]
+fn totals_and_count_never_describe_different_sets() {
+    let f = listing();
+    for filter in [
+        TxnFilter::default(),
+        TxnFilter {
+            merchant_ids: vec![f.costco],
+            ..Default::default()
+        },
+        TxnFilter {
+            category_ids: vec![f.fuel],
+            ..Default::default()
+        },
+        TxnFilter {
+            include_archived: true,
+            ..Default::default()
+        },
+        TxnFilter {
+            needs_review: Some(true),
+            ..Default::default()
+        },
+    ] {
+        let counted = transactions::count(&f.db, &filter).expect("count");
+        let totalled = transactions::totals(&f.db, &filter).expect("totals");
+        // Both are built from the same `where_clause`, and this is the test
+        // that keeps it that way: a totals row that summed a different set from
+        // the list under it is wrong in the way nobody checks, because both
+        // halves look reasonable on their own.
+        assert_eq!(
+            totalled.rows, counted,
+            "totals and count disagree; {filter:?}"
+        );
+    }
+}
+
+#[test]
+fn totals_add_the_money_columns_up_separately() {
+    let db = seeded_db();
+    let groceries = cat(&db, "Groceries");
+    for (subtotal, tax) in [(1000, 30), (2500, 75)] {
+        let new = txn(
+            day("2026-08-01"),
+            amounts(subtotal, tax),
+            vec![split(groceries, subtotal, tax)],
+        );
+        transactions::save(&db, &new).expect("save");
+    }
+
+    let totals = transactions::totals(&db, &TxnFilter::default()).expect("totals");
+    // Three columns, not one derived from the others: tax is a figure the user
+    // checks against a receipt, and a screen that showed total minus subtotal
+    // would be doing money arithmetic outside the core — which is the whole
+    // thing this crate exists to keep hold of.
+    assert_eq!(totals.subtotal, m(3500));
+    assert_eq!(totals.tax, m(105));
+    assert_eq!(totals.total, m(3605));
+    assert_eq!(totals.rows, 2);
+
+    assert_clean(&db);
+}
+
+#[test]
+fn totals_of_a_filter_that_matches_nothing_are_zero() {
+    let f = listing();
+    let totals = transactions::totals(
+        &f.db,
+        &TxnFilter {
+            from: Some(day("2030-01-01")),
+            ..Default::default()
+        },
+    )
+    .expect("totals");
+
+    // `sum()` over no rows is NULL in SQL, and a filter matching nothing is an
+    // ordinary thing to ask about. It totals zero; it does not fail, and it
+    // does not come back as an absent value every caller has to word.
+    assert_eq!(totals, Default::default());
+    assert_eq!(totals.total, m(0));
+    assert_eq!(totals.rows, 0);
+}
+
+#[test]
 fn last_for_merchant_returns_the_most_recent_live_transaction() {
     let f = listing();
 

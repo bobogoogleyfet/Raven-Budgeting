@@ -250,6 +250,14 @@ pub struct TxnFilter {
     pub needs_review: Option<bool>,
     pub include_archived: bool,
     pub limit: Option<usize>,
+    /// How many matching rows to skip before the first one returned.
+    ///
+    /// Paired with `limit` this is one page: page 3 of 50 is
+    /// `limit: 50, offset: 100`. Meaningless without the total order
+    /// [`TxnSort`] guarantees — an offset into a partly-decided order would
+    /// repeat some rows across pages and skip others, which is why every sort
+    /// variant ends with `id DESC`.
+    pub offset: Option<usize>,
 }
 
 /// How a list of transactions is ordered.
@@ -351,6 +359,37 @@ impl TxnFilter {
             clauses.push("1 = 1".to_string());
         }
         (clauses.join(" AND "), values)
+    }
+}
+
+/// Append `LIMIT`/`OFFSET` for one page, binding both as values.
+///
+/// Shared by [`list`] and [`count`] so a page and its count can never be cut
+/// at different places.
+///
+/// SQLite has no bare `OFFSET`: it is only ever a suffix of `LIMIT`, so an
+/// offset with no limit has to say `LIMIT -1`, which means "no limit" rather
+/// than "minus one row". Writing the offset alone parses as a syntax error, so
+/// this is not a nicety.
+fn push_window(sql: &mut String, values: &mut Vec<Value>, filter: &TxnFilter) {
+    let cap = |n: usize| Value::Integer(i64::try_from(n).unwrap_or(i64::MAX));
+    match (filter.limit, filter.offset) {
+        (Some(limit), None) => {
+            values.push(cap(limit));
+            sql.push_str(&format!(" LIMIT ?{}", values.len()));
+        }
+        (limit, Some(offset)) => {
+            match limit {
+                Some(limit) => {
+                    values.push(cap(limit));
+                    sql.push_str(&format!(" LIMIT ?{}", values.len()));
+                }
+                None => sql.push_str(" LIMIT -1"),
+            }
+            values.push(cap(offset));
+            sql.push_str(&format!(" OFFSET ?{}", values.len()));
+        }
+        (None, None) => {}
     }
 }
 
@@ -829,10 +868,7 @@ pub fn list(db: &Db, filter: &TxnFilter) -> Result<Vec<Txn>> {
         "{SELECT_TXN} WHERE {where_sql} ORDER BY {}",
         filter.sort.order_by()
     );
-    if let Some(limit) = filter.limit {
-        values.push(Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
-        sql.push_str(&format!(" LIMIT ?{}", values.len()));
-    }
+    push_window(&mut sql, &mut values, filter);
 
     let mut stmt = db.conn().prepare(&sql)?;
     let mut txns = stmt
@@ -845,14 +881,14 @@ pub fn list(db: &Db, filter: &TxnFilter) -> Result<Vec<Txn>> {
 }
 
 /// How many transactions [`list`] would return — **including** the effect of
-/// `limit`, so the two never disagree about the size of a page.
+/// `limit` and `offset`, so the two never disagree about the size of a page.
+///
+/// This is the size of one page, not the size of the filter. For the latter,
+/// and for the money that goes with it, see [`totals`].
 pub fn count(db: &Db, filter: &TxnFilter) -> Result<usize> {
     let (where_sql, mut values) = filter.where_clause();
     let mut inner = format!("SELECT t.id FROM txn t WHERE {where_sql}");
-    if let Some(limit) = filter.limit {
-        values.push(Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
-        inner.push_str(&format!(" LIMIT ?{}", values.len()));
-    }
+    push_window(&mut inner, &mut values, filter);
 
     let n: i64 = db.conn().query_row(
         &format!("SELECT count(*) FROM ({inner})"),
@@ -860,6 +896,64 @@ pub fn count(db: &Db, filter: &TxnFilter) -> Result<usize> {
         |r| r.get(0),
     )?;
     Ok(usize::try_from(n).unwrap_or(0))
+}
+
+/// What a filtered set of transactions comes to, and how many there are.
+///
+/// The money columns of the expense list, added up. Never a page: see
+/// [`totals`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxnTotals {
+    pub subtotal: Money,
+    pub tax: Money,
+    pub total: Money,
+    /// Transactions in the sum, so a total can be checked against the count of
+    /// the thing it totals.
+    pub rows: usize,
+}
+
+/// Add up every transaction the filter matches.
+///
+/// # Why `limit` and `offset` are ignored
+///
+/// Because the useful number is "everything matching this filter", and it must
+/// not change as the user pages. A per-page total would move under a reader who
+/// only pressed Next, which looks exactly like a bug — and it answers a
+/// question nobody asked, since "what did the fifty receipts I happen to be
+/// looking at come to" is an artefact of the page size.
+///
+/// # Why in SQL
+///
+/// Adding money is arithmetic, so it belongs to the core rather than to each
+/// frontend, and doing it here rather than over the rows [`list`] returns means
+/// the sum covers rows no page ever loads. It runs off the same
+/// `where_clause` [`count`] uses, so the total and the count can never
+/// describe different sets.
+pub fn totals(db: &Db, filter: &TxnFilter) -> Result<TxnTotals> {
+    let (where_sql, values) = filter.where_clause();
+    // `coalesce` because `sum()` over no rows is NULL, and an empty filter is
+    // an ordinary thing to ask about — it totals zero, it does not fail.
+    let sql = format!(
+        "SELECT coalesce(sum(t.subtotal_cents), 0),
+                coalesce(sum(t.tax_cents), 0),
+                coalesce(sum(t.total_cents), 0),
+                count(*)
+           FROM txn t
+          WHERE {where_sql}"
+    );
+
+    let (subtotal, tax, total, rows): (i64, i64, i64, i64) =
+        db.conn()
+            .query_row(&sql, params_from_iter(values.iter()), |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?;
+
+    Ok(TxnTotals {
+        subtotal: Money::from_cents(subtotal),
+        tax: Money::from_cents(tax),
+        total: Money::from_cents(total),
+        rows: usize::try_from(rows).unwrap_or(0),
+    })
 }
 
 /// One value a column actually holds, for a filter menu to offer.

@@ -20,11 +20,12 @@ use crate::error::to_message;
 /// bridge instead.
 ///
 /// `funding` and `overspent_by` answer different questions and disagree in
-/// normal use: an envelope spent exactly to plan is behind on *funding* — the
-/// money was meant to be banked and is not — while being perfectly fine on
-/// spending. Only a non-zero `overspent_by` means over budget. Rendering
-/// `behind` as over budget would make the screen cry wolf on every well-run
-/// category.
+/// normal use: a $900 rent line nobody has paid yet is behind on *funding* —
+/// the bill is still due — while having spent nothing at all, and a yearly
+/// premium is behind by whatever was never set aside rather than by what the
+/// plan said. Only a non-zero `overspent_by` means over budget. Rendering
+/// `behind` as over budget would make the screen cry wolf on every bill that is
+/// merely still waiting to be paid.
 pub struct BudgetRowDto {
     pub category_id: i64,
     pub category_name: String,
@@ -127,6 +128,43 @@ pub fn budget_status(month: String) -> Result<Vec<BudgetRowDto>, String> {
             }
         })
         .collect())
+}
+
+/// Every column of the budget table, added up.
+#[derive(Clone, Copy)]
+pub struct BudgetTotalsDto {
+    pub per_month: i64,
+    pub funded: i64,
+    pub spent_cycle: i64,
+    pub remaining: i64,
+    pub overspent_by: i64,
+    /// Budgeted categories in the total. Unbudgeted ones have no figure in any
+    /// column and are left out, so this can be checked against the table.
+    ///
+    /// `u32` rather than `usize`: the bridge renders a `usize` as a Dart
+    /// `BigInt`, which is a heavyweight number for a row count and a nuisance
+    /// at every call site.
+    pub categories: u32,
+}
+
+/// The budget screen's bottom line, for one month.
+///
+/// Added up in the core, from the same rows `budget_status` returns. Not in the
+/// UI: money there is a type that makes arithmetic a compile error, on purpose,
+/// so that a total can never be a frontend's own idea of one.
+pub fn budget_totals(month: String) -> Result<BudgetTotalsDto, String> {
+    let as_of: YearMonth = month.parse().map_err(to_message)?;
+    let db = db::locked()?;
+    let rows = budgets::budget_status(&db, as_of).map_err(to_message)?;
+    let totals = budgets::totals(&rows);
+    Ok(BudgetTotalsDto {
+        per_month: totals.per_month.cents(),
+        funded: totals.funded.cents(),
+        spent_cycle: totals.spent_cycle.cents(),
+        remaining: totals.remaining.cents(),
+        overspent_by: totals.overspent_by.cents(),
+        categories: u32::try_from(totals.categories).unwrap_or(u32::MAX),
+    })
 }
 
 /// Record what was actually set aside for a category in one month.

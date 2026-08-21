@@ -160,9 +160,10 @@ void main() {
   });
 
   testWidgets('behind on funding is not over budget', (tester) async {
-    // The distinction the core insists on: an envelope spent exactly to plan
-    // is behind on funding and perfectly fine on spending. Calling that "over"
-    // would flag every well-run category.
+    // The distinction the core insists on: a sinking fund is behind by what
+    // was never actually set aside, and a bill is behind by what is still
+    // unpaid — neither is money that has gone out the door. Calling either
+    // "over" would flag a category for the sin of still being owed.
     await pump(tester, budget: [
       budgeted(
         'Groceries',

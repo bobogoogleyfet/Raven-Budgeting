@@ -7,6 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
+
 /// The month's totals, for the figure the overview leads with.
 Future<MonthTotalsDto> monthTotals({required String month}) =>
     RustLib.instance.api.crateApiBudgetMonthTotals(month: month);
@@ -18,6 +20,14 @@ Future<MonthTotalsDto> monthTotals({required String month}) =>
 /// missing cannot make that offer.
 Future<List<BudgetRowDto>> budgetStatus({required String month}) =>
     RustLib.instance.api.crateApiBudgetBudgetStatus(month: month);
+
+/// The budget screen's bottom line, for one month.
+///
+/// Added up in the core, from the same rows `budget_status` returns. Not in the
+/// UI: money there is a type that makes arithmetic a compile error, on purpose,
+/// so that a total can never be a frontend's own idea of one.
+Future<BudgetTotalsDto> budgetTotals({required String month}) =>
+    RustLib.instance.api.crateApiBudgetBudgetTotals(month: month);
 
 /// Record what was actually set aside for a category in one month.
 ///
@@ -86,11 +96,12 @@ Future<SupersededDto> setBudget({
 /// bridge instead.
 ///
 /// `funding` and `overspent_by` answer different questions and disagree in
-/// normal use: an envelope spent exactly to plan is behind on *funding* — the
-/// money was meant to be banked and is not — while being perfectly fine on
-/// spending. Only a non-zero `overspent_by` means over budget. Rendering
-/// `behind` as over budget would make the screen cry wolf on every well-run
-/// category.
+/// normal use: a $900 rent line nobody has paid yet is behind on *funding* —
+/// the bill is still due — while having spent nothing at all, and a yearly
+/// premium is behind by whatever was never set aside rather than by what the
+/// plan said. Only a non-zero `overspent_by` means over budget. Rendering
+/// `behind` as over budget would make the screen cry wolf on every bill that is
+/// merely still waiting to be paid.
 class BudgetRowDto {
   final PlatformInt64 categoryId;
   final String categoryName;
@@ -201,6 +212,53 @@ class BudgetRowDto {
           funding == other.funding &&
           fundingBy == other.fundingBy &&
           monthsRemaining == other.monthsRemaining;
+}
+
+/// Every column of the budget table, added up.
+class BudgetTotalsDto {
+  final PlatformInt64 perMonth;
+  final PlatformInt64 funded;
+  final PlatformInt64 spentCycle;
+  final PlatformInt64 remaining;
+  final PlatformInt64 overspentBy;
+
+  /// Budgeted categories in the total. Unbudgeted ones have no figure in any
+  /// column and are left out, so this can be checked against the table.
+  ///
+  /// `u32` rather than `usize`: the bridge renders a `usize` as a Dart
+  /// `BigInt`, which is a heavyweight number for a row count and a nuisance
+  /// at every call site.
+  final int categories;
+
+  const BudgetTotalsDto({
+    required this.perMonth,
+    required this.funded,
+    required this.spentCycle,
+    required this.remaining,
+    required this.overspentBy,
+    required this.categories,
+  });
+
+  @override
+  int get hashCode =>
+      perMonth.hashCode ^
+      funded.hashCode ^
+      spentCycle.hashCode ^
+      remaining.hashCode ^
+      overspentBy.hashCode ^
+      categories.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BudgetTotalsDto &&
+          runtimeType == other.runtimeType &&
+          perMonth == other.perMonth &&
+          funded == other.funded &&
+          spentCycle == other.spentCycle &&
+          remaining == other.remaining &&
+          overspentBy == other.overspentBy &&
+          categories == other.categories;
 }
 
 /// What is budgeted this month, and what has been spent against it.

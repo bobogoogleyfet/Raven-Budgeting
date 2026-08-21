@@ -499,8 +499,9 @@ class _Legend extends StatelessWidget {
     final parts = [
       if (row.isMultiMonth) '${row.monthsRemaining} mo cycle',
       // Funding is a different question from over-budget and keeps different
-      // words and no colour: an envelope spent exactly to plan is behind on
-      // funding and perfectly fine on spending.
+      // words and no colour: rent still unpaid is behind on funding with
+      // nothing spent at all, and a sinking fund is behind by what was never
+      // set aside.
       if (row.funding == 'behind') 'behind ${formatMoney(row.fundingBy)}',
       if (row.funding == 'ahead') 'ahead ${formatMoney(row.fundingBy)}',
     ];
