@@ -855,3 +855,70 @@ Future<Applied> importBundle({
     unknownKinds: result.unknownKinds,
   );
 }
+
+/// Adopt another device's data wholesale, from a bundle it wrote.
+///
+/// The first handshake of a pairing, and the only destructive step in the
+/// whole of sync: two devices that have each been opened have each seeded the
+/// same chart of accounts under uuids of their own, and merging those yields
+/// two of everything. This throws away what is here and takes the other
+/// device's copy instead — which is why [joinRefusal] is asked first and why
+/// nothing calls this without a person pressing a button that says so.
+Future<Applied> joinBundle({
+  required Uint8List bytes,
+  required String phrase,
+}) async {
+  final result = await rust_sync.joinBundle(bytes: bytes, phrase: phrase);
+  return Applied(
+    applied: result.applied,
+    ignored: result.ignored,
+    conflicts: result.conflicts,
+    deferred: result.deferred_,
+    unknownKinds: result.unknownKinds,
+  );
+}
+
+/// Why this device cannot join another one's sync group — null when it can.
+///
+/// A sentence rather than a boolean, because the answer a device with work of
+/// its own needs is *what joining would cost it*, and no screen can phrase
+/// that from a `false`.
+Future<String?> joinRefusal() => rust_sync.canJoin();
+
+/// Whether this device syncs over the local network, and the phrase it does it
+/// with.
+class LanSettings {
+  const LanSettings({required this.enabled, required this.phrase});
+
+  /// Off until somebody turns it on. Discovery announces this device to every
+  /// machine on the Wi-Fi, which is not a thing to start on a user's behalf.
+  final bool enabled;
+
+  /// Empty until a pairing phrase has been set.
+  final String phrase;
+
+  /// Whether there is enough here to actually exchange anything.
+  bool get isRunnable => enabled && phrase.isNotEmpty;
+}
+
+/// What this device has been told about syncing over the local network.
+Future<LanSettings> lanSettings() async {
+  final settings = await rust_sync.lanSync();
+  return LanSettings(enabled: settings.enabled, phrase: settings.phrase);
+}
+
+/// Remember whether to sync over the local network, and with what phrase.
+///
+/// The phrase is stored — the one place in this app where it is. Everywhere
+/// else a human is present at the moment a bundle is written and can type it;
+/// an automatic exchange has nobody to ask, and a phrase held only in memory
+/// would have to be re-typed on both devices after every restart, which is the
+/// same as the feature not existing. It goes in the core's `app_setting`
+/// table: the same file as the ledger it protects, which gives an attacker who
+/// can read it nothing they could not already read, and which is not a synced
+/// entity, so it cannot travel to the other device.
+Future<void> saveLanSettings({
+  required bool enabled,
+  required String phrase,
+}) =>
+    rust_sync.setLanSync(enabled: enabled, phrase: phrase);

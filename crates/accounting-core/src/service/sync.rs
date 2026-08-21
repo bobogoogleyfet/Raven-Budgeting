@@ -42,6 +42,26 @@ pub fn import_file(db: &Db, bytes: &[u8], phrase: &str, now_millis: u64) -> Resu
     merge::import(db, &bundle, now_millis)
 }
 
+/// Adopt another device's data wholesale, from a sealed bundle.
+///
+/// The first handshake, and the only one that is destructive. Two devices that
+/// have each been opened have each seeded the same chart of accounts under
+/// different uuids; merging them yields two of everything. See
+/// [`crate::sync::merge::join`].
+pub fn join_file(db: &Db, bytes: &[u8], phrase: &str, now_millis: u64) -> Result<Applied> {
+    let plain = crypto::open(bytes, phrase)?;
+    let bundle = bundle::parse(&plain).map_err(|e| CoreError::Invalid(e.to_string()))?;
+    merge::join(db, &bundle, now_millis)
+}
+
+/// Whether this device could join somebody else's sync group, and why not.
+///
+/// Asked before offering the button, so a device holding real work is told
+/// what it would lose rather than discovering it afterwards.
+pub fn can_join(db: &Db) -> Result<std::result::Result<(), merge::JoinRefused>> {
+    merge::can_join(db)
+}
+
 /// This device's name, minting one if it has never had one.
 pub fn this_device(db: &Db) -> Result<String> {
     device::id(db)

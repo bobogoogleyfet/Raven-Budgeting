@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../api.dart';
+import '../sync/lan_sync.dart';
 import 'home_area_form.dart';
 
 typedef SyncStatusLoader = Future<SyncStatus> Function();
@@ -37,9 +38,14 @@ typedef DirectoryFinder = Future<String> Function();
 /// inside a scroller, because a section you cannot reach is a section that
 /// does not exist.
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key, this.databasePath});
+  const SettingsScreen({super.key, this.databasePath, this.lan});
 
   final String? databasePath;
+
+  /// The running local-network service, when there is one. Null in a test that
+  /// is only interested in the rest of the page: the app itself always has one,
+  /// because the switch that turns it on has to have something to turn on.
+  final LanSync? lan;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +63,11 @@ class SettingsScreen extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: SyncSection(),
         ),
+        if (lan != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: LanSyncSection(lan: lan!),
+          ),
         if (databasePath != null) ...[
           const Divider(height: 32),
           Padding(
@@ -395,7 +406,7 @@ class _SyncSectionState extends State<SyncSection> {
           ),
           const SizedBox(height: 12),
         ],
-        _phraseField(
+        phraseField(
           // Keyed because the two phrase boxes are deliberately labelled the
           // same — it is the same phrase — and a test has to be able to say
           // which one it means.
@@ -452,7 +463,7 @@ class _SyncSectionState extends State<SyncSection> {
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 12),
-        _phraseField(
+        phraseField(
           fieldKey: const Key('import-phrase'),
           controller: _importPhrase,
           label: 'Pairing phrase',
@@ -494,7 +505,7 @@ class _SyncSectionState extends State<SyncSection> {
             ),
           ),
         ],
-        if (_imported != null) ..._outcome(theme, _imported!),
+        if (_imported != null) ...importOutcome(theme, _imported!),
       ],
     );
   }
@@ -559,137 +570,142 @@ class _SyncSectionState extends State<SyncSection> {
     ];
   }
 
-  /// What the last import did.
-  ///
-  /// The three counts are the headline. Deferred changes and unknown kinds are
-  /// printed in full underneath rather than as a number, because both mean
-  /// *data did not arrive* and a count reads exactly like a clean import.
-  List<Widget> _outcome(ThemeData theme, Applied applied) {
-    final quiet =
-        theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
-    return [
-      const SizedBox(height: 12),
-      Text('Applied ${applied.applied}', style: theme.textTheme.bodyMedium),
-      Text('Changes taken, because they were newer than anything here.',
-          style: quiet),
-      const SizedBox(height: 8),
-      Text('Ignored ${applied.ignored}', style: theme.textTheme.bodyMedium),
-      Text('This device already had the same or newer. Nothing was lost.',
-          style: quiet),
-      const SizedBox(height: 8),
-      Text('Conflicts ${applied.conflicts}', style: theme.textTheme.bodyMedium),
-      Text(
-        applied.conflicts == 0
-            ? 'Nothing was edited on both devices at once.'
-            : 'Both devices had changed the same thing. The later edit is in '
-                'place and the earlier one was kept rather than dropped — '
-                'losing a conflict does not mean that version was wrong. The '
-                'receipts involved are back in the Inbox.',
-        style: quiet,
-      ),
-      const SizedBox(height: 8),
-      if (applied.deferred.isEmpty)
-        Text('Deferred 0', style: theme.textTheme.bodyMedium)
-      else
-        Card(
-          margin: EdgeInsets.zero,
-          color: theme.colorScheme.tertiaryContainer,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Deferred ${applied.deferred.length} — these did not arrive',
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Each one points at something that is not on this device, '
-                  'usually because an earlier file was never imported. Import '
-                  'that file if you still have it; otherwise export again from '
-                  'the other device once it has read this one’s reply.',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
-                ),
-                const SizedBox(height: 8),
-                for (final line in applied.deferred)
-                  Text(
-                    line,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      if (applied.unknownKinds.isNotEmpty) ...[
-        const SizedBox(height: 8),
-        Card(
-          margin: EdgeInsets.zero,
-          color: theme.colorScheme.tertiaryContainer,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'This version does not understand: '
-                  '${applied.unknownKinds.join(', ')}',
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'They were written by a newer release. Nothing was lost on '
-                  'the device that sent them — update this one and import the '
-                  'file again.',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    ];
-  }
+}
 
-  /// A phrase box, obscured, with a way to check what was typed.
-  ///
-  /// Obscured because the file it protects is a whole ledger and somebody is
-  /// often standing next to the screen while a pairing is set up. Revealable
-  /// because it is typed from memory on two devices, and an unreadable field
-  /// with no way to check it turns one typo into "the phrase does not match"
-  /// on the other machine an hour later.
-  Widget _phraseField({
-    required Key fieldKey,
-    required TextEditingController controller,
-    required String label,
-    required bool shown,
-    required VoidCallback onToggle,
-    required String helper,
-  }) {
-    return TextField(
-      key: fieldKey,
-      controller: controller,
-      obscureText: !shown,
-      autocorrect: false,
-      enableSuggestions: false,
-      decoration: InputDecoration(
-        labelText: label,
-        helperText: helper,
-        helperMaxLines: 4,
-        border: const OutlineInputBorder(),
-        suffixIcon: IconButton(
-          icon: Icon(shown ? Icons.visibility_off : Icons.visibility),
-          tooltip: shown ? 'Hide the phrase' : 'Show the phrase',
-          onPressed: onToggle,
+/// What an import did, in full.
+///
+/// The three counts are the headline. Deferred changes and unknown kinds are
+/// printed in full underneath rather than as a number, because both mean *data
+/// did not arrive* and a count reads exactly like a clean import.
+///
+/// Top-level because two things import bundles now — a file somebody chose and
+/// an exchange nobody watched — and the second one has more need of this than
+/// the first: there was no human present to notice.
+List<Widget> importOutcome(ThemeData theme, Applied applied) {
+  final quiet =
+      theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+  return [
+    const SizedBox(height: 12),
+    Text('Applied ${applied.applied}', style: theme.textTheme.bodyMedium),
+    Text('Changes taken, because they were newer than anything here.',
+        style: quiet),
+    const SizedBox(height: 8),
+    Text('Ignored ${applied.ignored}', style: theme.textTheme.bodyMedium),
+    Text('This device already had the same or newer. Nothing was lost.',
+        style: quiet),
+    const SizedBox(height: 8),
+    Text('Conflicts ${applied.conflicts}', style: theme.textTheme.bodyMedium),
+    Text(
+      applied.conflicts == 0
+          ? 'Nothing was edited on both devices at once.'
+          : 'Both devices had changed the same thing. The later edit is in '
+              'place and the earlier one was kept rather than dropped — '
+              'losing a conflict does not mean that version was wrong. The '
+              'receipts involved are back in the Inbox.',
+      style: quiet,
+    ),
+    const SizedBox(height: 8),
+    if (applied.deferred.isEmpty)
+      Text('Deferred 0', style: theme.textTheme.bodyMedium)
+    else
+      Card(
+        margin: EdgeInsets.zero,
+        color: theme.colorScheme.tertiaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Deferred ${applied.deferred.length} — these did not arrive',
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Each one points at something that is not on this device, '
+                'usually because an earlier file was never imported. Import '
+                'that file if you still have it; otherwise export again from '
+                'the other device once it has read this one’s reply.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+              ),
+              const SizedBox(height: 8),
+              for (final line in applied.deferred)
+                Text(
+                  line,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+                ),
+            ],
+          ),
         ),
       ),
-    );
-  }
+    if (applied.unknownKinds.isNotEmpty) ...[
+      const SizedBox(height: 8),
+      Card(
+        margin: EdgeInsets.zero,
+        color: theme.colorScheme.tertiaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This version does not understand: '
+                '${applied.unknownKinds.join(', ')}',
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'They were written by a newer release. Nothing was lost on '
+                'the device that sent them — update this one and import the '
+                'file again.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ],
+  ];
+}
+
+/// A phrase box, obscured, with a way to check what was typed.
+///
+/// Obscured because what it protects is a whole ledger and somebody is often
+/// standing next to the screen while a pairing is set up. Revealable because it
+/// is typed from memory on two devices, and an unreadable field with no way to
+/// check it turns one typo into "the phrase does not match" on the other
+/// machine an hour later.
+Widget phraseField({
+  required Key fieldKey,
+  required TextEditingController controller,
+  required String label,
+  required bool shown,
+  required VoidCallback onToggle,
+  required String helper,
+}) {
+  return TextField(
+    key: fieldKey,
+    controller: controller,
+    obscureText: !shown,
+    autocorrect: false,
+    enableSuggestions: false,
+    decoration: InputDecoration(
+      labelText: label,
+      helperText: helper,
+      helperMaxLines: 4,
+      border: const OutlineInputBorder(),
+      suffixIcon: IconButton(
+        icon: Icon(shown ? Icons.visibility_off : Icons.visibility),
+        tooltip: shown ? 'Hide the phrase' : 'Show the phrase',
+        onPressed: onToggle,
+      ),
+    ),
+  );
 }
 
 /// A size a person can read, for the "wrote it" message.
@@ -743,3 +759,303 @@ Future<void> writeNewFile(String path, Uint8List bytes) async {
 
 /// Read a bundle off disk.
 Future<Uint8List> readFileBytes(String path) => File(path).readAsBytes();
+
+/// Keeping up with the other device over Wi-Fi, with nobody moving a file.
+///
+/// # Why there is a switch at all
+///
+/// Turning this on makes the device announce itself to every machine on the
+/// network, several times a minute, and open a port that anything on that
+/// network can connect to. Both are reasonable on a household's Wi-Fi and
+/// neither is reasonable in a hotel, an office or a café — so it is a decision
+/// somebody makes, not a default, and it is off until they make it.
+///
+/// # Why the phrase is stored here and nowhere else in this screen
+///
+/// The file half of sync asks for the phrase every time, because a human is
+/// standing there each time a file is written. Nobody is standing there when a
+/// receipt entered on a phone reaches a laptop, so the phrase has to be kept.
+/// It is kept in the core's `app_setting` table — the same file as the ledger
+/// it protects, which gives anybody who can read it nothing they could not
+/// already read, and which never travels, because `app_setting` is not a
+/// synced entity.
+///
+/// It is still never *shown*. The field below sets a new phrase and starts
+/// empty even when one is saved: reading a stored secret back onto a screen is
+/// how it ends up in a screenshot.
+class LanSyncSection extends StatefulWidget {
+  const LanSyncSection({super.key, required this.lan});
+
+  /// The service itself, injected rather than reached for. It outlives this
+  /// widget — it has to keep exchanging while the user is on another screen —
+  /// so the section renders its state and never owns it.
+  final LanSync lan;
+
+  @override
+  State<LanSyncSection> createState() => _LanSyncSectionState();
+}
+
+class _LanSyncSectionState extends State<LanSyncSection> {
+  final TextEditingController _phrase = TextEditingController();
+  bool _showPhrase = false;
+
+  /// One control at a time while a setting is being written. Flicking the
+  /// switch twice before the first write lands would leave the stored answer
+  /// and the switch disagreeing about which won.
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The Save button turns on the moment there is something to save, which
+    // needs a rebuild per keystroke — cheap, and the alternative is a button
+    // that looks available and does nothing.
+    _phrase.addListener(_rebuild);
+  }
+
+  @override
+  void dispose() {
+    _phrase.removeListener(_rebuild);
+    _phrase.dispose();
+    super.dispose();
+  }
+
+  void _rebuild() => setState(() {});
+
+  Future<void> _run(Future<void> Function() work) async {
+    setState(() => _busy = true);
+    try {
+      await work();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return ValueListenableBuilder<LanSyncState>(
+      valueListenable: widget.lan.state,
+      builder: (context, state, _) {
+        final quiet = theme.textTheme.bodySmall
+            ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Over Wi-Fi', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              'The same exchange as the file above, done for you: while both '
+              'devices are on this network they find each other and pass '
+              'bundles back and forth, so an expense entered on one shows up '
+              'on the other in a second or two. What crosses the network is '
+              'the same sealed bundle, protected by the same phrase.',
+              style: quiet,
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              key: const Key('lan-switch'),
+              contentPadding: EdgeInsets.zero,
+              value: state.enabled,
+              title: const Text('Sync over the local network'),
+              subtitle: Text(_switchNote(state)),
+              onChanged: _busy
+                  ? null
+                  : (on) => _run(() async {
+                        if (!on) return widget.lan.turnOff();
+                        await widget.lan.turnOn(_phrase.text);
+                        // Saved now, so the field goes back to being a way to
+                        // *change* the phrase rather than a copy of it left
+                        // sitting on screen.
+                        _phrase.clear();
+                      }),
+            ),
+            const SizedBox(height: 8),
+            phraseField(
+              fieldKey: const Key('lan-phrase'),
+              controller: _phrase,
+              label: state.phraseIsSet ? 'New pairing phrase' : 'Pairing phrase',
+              shown: _showPhrase,
+              onToggle: () => setState(() => _showPhrase = !_showPhrase),
+              helper: state.phraseIsSet
+                  ? 'A phrase is already saved and is not shown. Type here only '
+                      'to replace it — and then set the same one on the other '
+                      'device, or they will stop understanding each other.'
+                  : 'The same phrase on both devices. It is what every bundle '
+                      'is encrypted with, and it is the only thing protecting '
+                      'them on the way over.',
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonal(
+              key: const Key('lan-save-phrase'),
+              onPressed: _busy || _phrase.text.isEmpty
+                  ? null
+                  : () => _run(() async {
+                        await widget.lan.changePhrase(_phrase.text);
+                        _phrase.clear();
+                      }),
+              child: Text(state.phraseIsSet ? 'Replace phrase' : 'Save phrase'),
+            ),
+            if (state.problem != null) ...[
+              const SizedBox(height: 12),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  state.problem!,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: theme.colorScheme.error),
+                ),
+              ),
+            ],
+            if (state.enabled) ...[
+              const SizedBox(height: 20),
+              Text('Devices on this network', style: theme.textTheme.labelMedium),
+              const SizedBox(height: 4),
+              if (state.peers.isEmpty)
+                Text(
+                  'Nothing heard yet. The other device needs to be on the same '
+                  'Wi-Fi with this switched on; some networks — guest Wi-Fi, '
+                  'most hotels — keep devices from seeing each other at all.',
+                  style: quiet,
+                )
+              else
+                for (final peer in state.peers)
+                  ListTile(
+                    key: Key('lan-peer-${peer.device}'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.devices),
+                    title: Text(peer.device),
+                    subtitle: Text('${peer.host}:${peer.port}', style: quiet),
+                    trailing: state.paired || state.joinRefusal != null
+                        ? null
+                        : TextButton(
+                            onPressed:
+                                _busy ? null : () => _askToJoin(context, peer),
+                            child: const Text('Join'),
+                          ),
+                  ),
+              if (!state.paired) ..._pairingNote(theme, state),
+            ],
+            if (state.lastResult != null) ...[
+              const SizedBox(height: 16),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  '${state.lastResult!}${_when(state.lastAt)}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: state.lastFailed
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+            // Only when something failed to land. A clean exchange has nothing
+            // to report that the sentence above has not already said, and an
+            // automatic sync that printed five counts every minute would train
+            // everybody to ignore the one that mattered.
+            if (state.lastApplied?.somethingIsMissing ?? false)
+              ...importOutcome(theme, state.lastApplied!),
+          ],
+        );
+      },
+    );
+  }
+
+  /// What the switch is currently doing, which is not always what it says.
+  String _switchNote(LanSyncState state) {
+    if (!state.enabled) {
+      return 'Off. This device announces nothing and answers nothing.';
+    }
+    if (!state.listening) {
+      return 'On, but not running — see below.';
+    }
+    return state.paired
+        ? 'Running. Changes go both ways as they happen.'
+        : 'Running, but not paired with anything yet.';
+  }
+
+  /// Why nothing is being exchanged, and what to do about it.
+  ///
+  /// An unpaired device deliberately exchanges nothing on its own. Two devices
+  /// that have each been opened have each invented their own ids for the same
+  /// chart of accounts, and merging those leaves two of every category with
+  /// the receipts split between them — which cannot be undone afterwards. So
+  /// the first handshake is a person's decision, once, and everything after it
+  /// is automatic.
+  List<Widget> _pairingNote(ThemeData theme, LanSyncState state) {
+    final refusal = state.joinRefusal;
+    return [
+      const SizedBox(height: 12),
+      Card(
+        margin: EdgeInsets.zero,
+        color: theme.colorScheme.tertiaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Not paired yet',
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                refusal == null
+                    ? 'Nothing is exchanged automatically until these two '
+                        'devices agree on one set of records. Press Join beside '
+                        'the device your expenses are on: this one takes its '
+                        'copy, and from then on they keep up with each other on '
+                        'their own.'
+                    : 'This device cannot take another’s copy: $refusal '
+                        'Pair them with the export and import above instead, '
+                        'and this section takes over once they have met.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Joining replaces everything here, so it asks first.
+  Future<void> _askToJoin(BuildContext context, LanPeer peer) async {
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Join ${peer.device}?'),
+        content: const Text(
+          'This device takes that one’s records and everything currently '
+          'here is replaced — categories, budgets and receipts alike. Do this '
+          'on the device that has nothing on it yet.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Join'),
+          ),
+        ],
+      ),
+    );
+    if (agreed ?? false) await _run(() => widget.lan.joinPeer(peer));
+  }
+
+  /// The clock time of the last exchange.
+  ///
+  /// A time rather than "3 minutes ago": nothing here ticks, so a relative
+  /// phrase would sit on screen going quietly stale.
+  String _when(DateTime? at) {
+    if (at == null) return '';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return ' (${two(at.hour)}:${two(at.minute)}:${two(at.second)})';
+  }
+}

@@ -1,4 +1,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Sockets. Sync over Wi-Fi is device-to-device on the local subnet and
+         never talks to a server, but Android gates every socket — LAN or not —
+         behind INTERNET, so this is what a UDP broadcast and a TCP connection
+         to the laptop in the next room both need. ACCESS_NETWORK_STATE is what
+         lets the app tell "no Wi-Fi" from "nothing answered", which is the
+         difference between a normal state and something worth reporting. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <!-- Android 13 split "find things on the Wi-Fi" out of location, and some
+         devices apply it to local-network discovery generally rather than only
+         to the Wi-Fi APIs it names. Declared with neverForLocation because
+         that is true of this app: it wants the other copy of itself, and it
+         never asks where either device is. -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"/>
     <application
         android:label="app"
         android:name="${applicationName}"

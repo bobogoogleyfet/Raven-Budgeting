@@ -17,6 +17,7 @@ import 'src/screens/inbox_screen.dart';
 import 'src/screens/settings_screen.dart';
 import 'src/screens/home_screen.dart';
 import 'src/shell.dart';
+import 'src/sync/lan_sync.dart';
 import 'src/theme.dart';
 
 Future<void> main() async {
@@ -66,7 +67,16 @@ Future<void> main() async {
     }
   }());
 
-  runApp(AccountingApp(databasePath: path, configured: configured));
+  // Started before the first frame so a device that was told to sync is
+  // already announcing itself by the time anybody looks at a screen, and so
+  // whatever the other device did while this one was closed is on its way in.
+  // Not awaited, for the same reason the rate refresh is not: a Wi-Fi that
+  // will not carry a broadcast must cost nothing at launch, and the settings
+  // screen reports whatever went wrong.
+  final lan = LanSync();
+  unawaited(lan.load());
+
+  runApp(AccountingApp(databasePath: path, configured: configured, lan: lan));
 }
 
 class AccountingApp extends StatefulWidget {
@@ -74,9 +84,15 @@ class AccountingApp extends StatefulWidget {
     super.key,
     required this.databasePath,
     required this.configured,
+    required this.lan,
   });
 
   final String databasePath;
+
+  /// Exchanging changes with the other device over Wi-Fi. Owned here rather
+  /// than by the settings screen: it has to keep running while the user is
+  /// entering an expense, which is precisely when it has something to send.
+  final LanSync lan;
 
   /// Whether the app has been told where home is. Until it has, there is
   /// nothing worth showing: every receipt entered would record no tax.
@@ -136,7 +152,8 @@ class _AccountingAppState extends State<AccountingApp> {
       Destination.expenses => const ExpensesScreen(),
       Destination.budget => const BudgetScreen(),
       Destination.inbox => const InboxScreen(),
-      Destination.settings => SettingsScreen(databasePath: widget.databasePath),
+      Destination.settings =>
+        SettingsScreen(databasePath: widget.databasePath, lan: widget.lan),
     };
   }
 
@@ -166,6 +183,10 @@ class _AccountingAppState extends State<AccountingApp> {
     // before it.
     if (saved) {
       setState(() => _dataVersion++);
+      // The same signal the screens reload on, sent to the other device. It
+      // waits a second before doing anything, so filing three receipts with
+      // "Save & New" is one exchange rather than three.
+      widget.lan.nudge();
     }
     // The form pops `true` when the user chose "Save & Home". Dismissing it any
     // other way — the close button, Back, the system gesture — returns null and

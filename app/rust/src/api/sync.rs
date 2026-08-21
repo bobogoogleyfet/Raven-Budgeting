@@ -11,6 +11,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use accounting_core::repo::settings;
 use accounting_core::service::sync as sync_service;
 
 use crate::api::db;
@@ -139,7 +140,106 @@ pub fn import_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, Strin
     let db = db::locked()?;
     let applied =
         sync_service::import_file(&db, &bytes, &phrase, now_millis()).map_err(to_message)?;
-    Ok(AppliedDto {
+    Ok(rendered(applied))
+}
+
+/// Adopt another device's data wholesale, from a sealed file it wrote.
+///
+/// The first handshake of a pairing, and the only destructive one. Two devices
+/// that have each been opened have each seeded the same chart of accounts
+/// under uuids of their own; sync matches on uuid, so merging them yields two
+/// of everything. Joining throws this device's copy away and takes the other's
+/// instead, which is why [`can_join`] is asked first and why nothing in the
+/// app reaches this without somebody pressing a button that says so.
+pub fn join_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, String> {
+    let phrase = checked_phrase(phrase)?;
+    let db = db::locked()?;
+    let applied =
+        sync_service::join_file(&db, &bytes, &phrase, now_millis()).map_err(to_message)?;
+    Ok(rendered(applied))
+}
+
+/// Why this device cannot join somebody else's sync group — `None` when it can.
+///
+/// A refusal rather than a boolean: a device holding work of its own has to be
+/// told what joining would cost it, and "false" is not something a screen can
+/// phrase for a user. `None` reads as "nothing stands in the way", which is
+/// the only case with nothing to say.
+pub fn can_join() -> Result<Option<String>, String> {
+    let db = db::locked()?;
+    Ok(sync_service::can_join(&db)
+        .map_err(to_message)?
+        .err()
+        .map(|refused| refused.to_string()))
+}
+
+/// Whether this device syncs over the local network, and the phrase it uses.
+pub struct LanSyncDto {
+    /// Off until somebody turns it on. Discovery broadcasts this device's
+    /// existence to every machine on the Wi-Fi, which is not something to
+    /// start on a user's behalf.
+    pub enabled: bool,
+    /// Empty until a pairing phrase has been set. Kept so the exchange can
+    /// happen without a human present — see [`set_lan_sync`].
+    pub phrase: String,
+}
+
+/// What this device has been told about syncing over the local network.
+pub fn lan_sync() -> Result<LanSyncDto, String> {
+    let db = db::locked()?;
+    let enabled = settings::get(&db, LAN_ENABLED_KEY).map_err(to_message)?;
+    let phrase = settings::get(&db, LAN_PHRASE_KEY).map_err(to_message)?;
+    Ok(LanSyncDto {
+        // Anything that is not exactly the stored "1" is off, including a row
+        // some future version wrote in another shape. Off is the safe reading
+        // of a value this release does not understand: it broadcasts nothing.
+        enabled: enabled.as_deref() == Some("1"),
+        phrase: phrase.unwrap_or_default(),
+    })
+}
+
+/// Remember whether to sync over the local network, and with what phrase.
+///
+/// # Why the phrase is stored at all
+///
+/// Everywhere else in this app the phrase is typed and forgotten, because
+/// everywhere else a human is present at the moment a file is written. An
+/// automatic exchange has nobody to ask: a receipt entered on the phone has to
+/// reach the laptop while the laptop's owner is asleep, and a phrase held only
+/// in memory would mean re-typing it on both devices after every restart —
+/// which is the same as the feature not existing.
+///
+/// It goes in `app_setting`, in the same database file as the ledger it
+/// protects. That sounds worse than it is: the phrase seals bundles *in
+/// transit*, and anybody who can read this table can already read every
+/// receipt in the file next to it, so storing it here gives an attacker
+/// nothing they did not already have. What it must never do is travel —
+/// `app_setting` is not a synced entity, so it cannot.
+///
+/// Enabling with an empty phrase is refused rather than saved: the switch
+/// would read as on while nothing could ever be sealed, and the failure would
+/// only show up as silence.
+pub fn set_lan_sync(enabled: bool, phrase: String) -> Result<(), String> {
+    if enabled {
+        checked_phrase(phrase.clone())?;
+    }
+    let db = db::locked()?;
+    settings::set(&db, LAN_ENABLED_KEY, if enabled { "1" } else { "0" }).map_err(to_message)?;
+    settings::set(&db, LAN_PHRASE_KEY, &phrase).map_err(to_message)
+}
+
+/// The `app_setting` key holding whether local-network sync is on.
+const LAN_ENABLED_KEY: &str = "sync.lan.enabled";
+
+/// The `app_setting` key holding the pairing phrase for automatic exchanges.
+const LAN_PHRASE_KEY: &str = "sync.lan.phrase";
+
+/// One merge outcome, in the shape a screen can read.
+///
+/// Shared by importing and joining because they differ in what they do to the
+/// database, not in what there is to say about it afterwards.
+fn rendered(applied: sync_service::Applied) -> AppliedDto {
+    AppliedDto {
         applied: u32::try_from(applied.applied).unwrap_or(u32::MAX),
         ignored: u32::try_from(applied.ignored).unwrap_or(u32::MAX),
         conflicts: u32::try_from(applied.conflicts).unwrap_or(u32::MAX),
@@ -154,7 +254,7 @@ pub fn import_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, Strin
             })
             .collect(),
         unknown_kinds: applied.unknown_kinds,
-    })
+    }
 }
 
 /// The peer to address a bundle to: the one named, else the only one known.

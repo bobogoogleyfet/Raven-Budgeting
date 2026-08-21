@@ -29,6 +29,7 @@ pub mod budgets;
 pub mod categories;
 pub mod locations;
 pub mod merchants;
+pub mod settings;
 pub mod tax_areas;
 pub mod transactions;
 

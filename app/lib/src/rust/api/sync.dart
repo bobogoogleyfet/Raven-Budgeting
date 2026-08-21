@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `checked_phrase`, `now_millis`, `resolve_peer`
+// These functions are ignored because they are not marked as `pub`: `checked_phrase`, `now_millis`, `rendered`, `resolve_peer`
 
 /// This device's name within the sync group, minting one if it has never had
 /// one.
@@ -62,6 +62,57 @@ Future<AppliedDto> importBundle({
 }) =>
     RustLib.instance.api.crateApiSyncImportBundle(bytes: bytes, phrase: phrase);
 
+/// Adopt another device's data wholesale, from a sealed file it wrote.
+///
+/// The first handshake of a pairing, and the only destructive one. Two devices
+/// that have each been opened have each seeded the same chart of accounts
+/// under uuids of their own; sync matches on uuid, so merging them yields two
+/// of everything. Joining throws this device's copy away and takes the other's
+/// instead, which is why [`can_join`] is asked first and why nothing in the
+/// app reaches this without somebody pressing a button that says so.
+Future<AppliedDto> joinBundle({
+  required List<int> bytes,
+  required String phrase,
+}) => RustLib.instance.api.crateApiSyncJoinBundle(bytes: bytes, phrase: phrase);
+
+/// Why this device cannot join somebody else's sync group — `None` when it can.
+///
+/// A refusal rather than a boolean: a device holding work of its own has to be
+/// told what joining would cost it, and "false" is not something a screen can
+/// phrase for a user. `None` reads as "nothing stands in the way", which is
+/// the only case with nothing to say.
+Future<String?> canJoin() => RustLib.instance.api.crateApiSyncCanJoin();
+
+/// What this device has been told about syncing over the local network.
+Future<LanSyncDto> lanSync() => RustLib.instance.api.crateApiSyncLanSync();
+
+/// Remember whether to sync over the local network, and with what phrase.
+///
+/// # Why the phrase is stored at all
+///
+/// Everywhere else in this app the phrase is typed and forgotten, because
+/// everywhere else a human is present at the moment a file is written. An
+/// automatic exchange has nobody to ask: a receipt entered on the phone has to
+/// reach the laptop while the laptop's owner is asleep, and a phrase held only
+/// in memory would mean re-typing it on both devices after every restart —
+/// which is the same as the feature not existing.
+///
+/// It goes in `app_setting`, in the same database file as the ledger it
+/// protects. That sounds worse than it is: the phrase seals bundles *in
+/// transit*, and anybody who can read this table can already read every
+/// receipt in the file next to it, so storing it here gives an attacker
+/// nothing they did not already have. What it must never do is travel —
+/// `app_setting` is not a synced entity, so it cannot.
+///
+/// Enabling with an empty phrase is refused rather than saved: the switch
+/// would read as on while nothing could ever be sealed, and the failure would
+/// only show up as silence.
+Future<void> setLanSync({required bool enabled, required String phrase}) =>
+    RustLib.instance.api.crateApiSyncSetLanSync(
+      enabled: enabled,
+      phrase: phrase,
+    );
+
 /// What importing a bundle did.
 ///
 /// The three counts are the headline; the two lists are the part that must not
@@ -114,6 +165,31 @@ class AppliedDto {
           conflicts == other.conflicts &&
           deferred_ == other.deferred_ &&
           unknownKinds == other.unknownKinds;
+}
+
+/// Whether this device syncs over the local network, and the phrase it uses.
+class LanSyncDto {
+  /// Off until somebody turns it on. Discovery broadcasts this device's
+  /// existence to every machine on the Wi-Fi, which is not something to
+  /// start on a user's behalf.
+  final bool enabled;
+
+  /// Empty until a pairing phrase has been set. Kept so the exchange can
+  /// happen without a human present — see [`set_lan_sync`].
+  final String phrase;
+
+  const LanSyncDto({required this.enabled, required this.phrase});
+
+  @override
+  int get hashCode => enabled.hashCode ^ phrase.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LanSyncDto &&
+          runtimeType == other.runtimeType &&
+          enabled == other.enabled &&
+          phrase == other.phrase;
 }
 
 /// Where this database has got to with the devices it syncs with.
