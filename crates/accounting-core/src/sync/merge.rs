@@ -21,7 +21,7 @@
 //! entity's recorded version stays the version the peer wrote.
 
 use crate::db::Db;
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 
 use super::bundle::{Bundle, Change};
 use super::entity::{self, MissingRef};
@@ -266,4 +266,142 @@ pub fn peers(db: &Db) -> Result<Vec<DeviceId>> {
         .query_map([], |r| r.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// Why a device cannot join a sync group.
+#[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
+pub enum JoinRefused {
+    /// It holds work of its own that joining would destroy.
+    #[error(
+        "this device already has {transactions} expense(s) and {budgets} budget line(s) of its \
+         own; joining replaces everything here with the other device's copy, so export or merge \
+         this work first"
+    )]
+    HasWork { transactions: usize, budgets: usize },
+
+    /// It has already joined, or has been synced with before.
+    #[error("this device is already syncing with {peer}; import its updates rather than joining")]
+    AlreadyPaired { peer: String },
+}
+
+/// Whether this database can safely be joined to somebody else's.
+///
+/// Joining is destructive by design, so the check is about *work*, not about
+/// emptiness: a device that has only ever seeded itself has nothing worth
+/// keeping — the chart of accounts it made is the same default list, differing
+/// only in uuids nobody has typed. A device with a single receipt on it is a
+/// different matter entirely.
+pub fn can_join(db: &Db) -> Result<std::result::Result<(), JoinRefused>> {
+    if let Some(peer) = peers(db)?.into_iter().next() {
+        return Ok(Err(JoinRefused::AlreadyPaired { peer }));
+    }
+    let transactions = crate::repo::transactions::count(
+        db,
+        &crate::repo::transactions::TxnFilter {
+            include_archived: true,
+            ..Default::default()
+        },
+    )?;
+    let budgets: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM budget_line", [], |r| r.get(0))?;
+    let budgets = usize::try_from(budgets).unwrap_or(0);
+    if transactions > 0 || budgets > 0 {
+        return Ok(Err(JoinRefused::HasWork {
+            transactions,
+            budgets,
+        }));
+    }
+    Ok(Ok(()))
+}
+
+/// Adopt another device's data wholesale.
+///
+/// # Why joining is not merging
+///
+/// Two devices that have each been opened have each seeded the same default
+/// chart of accounts — the same names, and entirely different uuids, because
+/// each minted its own. Sync matches on uuid, so merging them produces two of
+/// every category, two of every group, and two locations both claiming to be
+/// home, which the schema refuses outright. The names being identical is
+/// exactly what makes it look as though it should work.
+///
+/// So the joining device throws its own seed away and takes the other's. It is
+/// the same decision a new phone makes when it restores a backup: there was
+/// nothing on it worth keeping, and pretending otherwise creates a mess that
+/// has to be untangled by hand forever.
+///
+/// Everything is one SQLite transaction. A join that failed halfway would
+/// leave a device with neither its own chart of accounts nor the other's.
+pub fn join(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
+    if let Err(refused) = can_join(db)? {
+        return Err(CoreError::Invalid(refused.to_string()));
+    }
+
+    // The three rows the schema will not let go of, and the group they live
+    // in. `trg_category_system_no_delete` protects Uncategorized, Transfer and
+    // Reimbursable because quick-add and every report depend on them
+    // resolving; deleting them is refused outright, and importing the peer's
+    // copies alongside ours would collide on `UNIQUE(system_key)` anyway.
+    //
+    // So those few rows adopt the peer's identity instead of being replaced:
+    // same row, same protection, the uuid the rest of the bundle refers to.
+    // This is not name-matching by the back door — `system_key` is a real
+    // natural key, declared UNIQUE by the schema for exactly this reason.
+    let mut adopt: Vec<(String, String)> = Vec::new();
+    let mut adopt_group: Option<String> = None;
+    for change in &bundle.changes {
+        if change.entity != "category" {
+            continue;
+        }
+        let Some(key) = change.body.get("system_key").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        adopt.push((key.to_string(), change.uuid.clone()));
+        if adopt_group.is_none() {
+            adopt_group = change
+                .body
+                .get("group_uuid")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+        }
+    }
+
+    db.with_tx(|tx| {
+        for (key, uuid) in &adopt {
+            tx.execute(
+                "UPDATE category SET uuid = ?2 WHERE system_key = ?1",
+                rusqlite::params![key, uuid],
+            )?;
+        }
+        if let Some(group) = &adopt_group {
+            tx.execute(
+                "UPDATE category_group SET uuid = ?1
+                  WHERE id = (SELECT group_id FROM category
+                               WHERE system_key IS NOT NULL LIMIT 1)",
+                [group],
+            )?;
+        }
+
+        // Everything else goes, in reverse dependency order: a category cannot
+        // be removed while a budget line still points at it.
+        for spec in entity::ENTITIES.iter().rev() {
+            let sql = match spec.table {
+                "category" => "DELETE FROM category WHERE system_key IS NULL".to_string(),
+                "category_group" => "DELETE FROM category_group
+                                      WHERE id NOT IN (SELECT group_id FROM category)"
+                    .to_string(),
+                other => format!("DELETE FROM {other}"),
+            };
+            tx.execute(&sql, [])?;
+        }
+
+        // The change log goes too. Every entry in it describes a row that no
+        // longer exists, and keeping them would have this device offering the
+        // peer its own deleted seed back.
+        tx.execute("DELETE FROM sync_change", [])?;
+        Ok(())
+    })?;
+
+    import(db, bundle, now_millis)
 }

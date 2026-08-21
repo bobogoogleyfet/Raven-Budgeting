@@ -379,3 +379,137 @@ fn re_importing_your_own_bundle_does_not_make_you_your_own_peer() {
         "sync must still carry the whole database"
     );
 }
+
+#[test]
+fn a_freshly_seeded_device_can_join_and_adopts_the_other_chart_of_accounts() {
+    // The case every real pairing starts from: both devices have been opened,
+    // so both have seeded the same default categories under different uuids.
+    // Merging would give two of everything; joining throws this device's seed
+    // away and takes the other's.
+    use accounting_core::repo::categories;
+    use accounting_core::sync::merge;
+
+    let laptop = seeded_db();
+    let phone = seeded_db();
+
+    let mine_before = categories::resolve(&phone, "Groceries")
+        .expect("seeded")
+        .uuid;
+    let theirs = categories::resolve(&laptop, "Groceries")
+        .expect("seeded")
+        .uuid;
+    assert_ne!(mine_before, theirs, "independent seeds differ by uuid");
+
+    let bundle = merge::export(&laptop, "phone", 1_000).expect("export");
+    merge::join(&phone, &bundle, 1_000).expect("join");
+
+    // One Groceries, and it is the laptop's.
+    let all = categories::list_all(&phone).expect("list");
+    let groceries: Vec<&_> = all.iter().filter(|c| c.name == "Groceries").collect();
+    assert_eq!(groceries.len(), 1, "not two of everything");
+    assert_eq!(
+        groceries[0].uuid, theirs,
+        "and it is the other device's row"
+    );
+
+    // Only one location claims to be home, which the schema would refuse
+    // outright if the merge had doubled it.
+    let homes: i64 = phone
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM location WHERE is_home = 1 AND archived_at IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count");
+    assert_eq!(homes, 1);
+    assert!(
+        accounting_core::check_all(&phone)
+            .expect("check")
+            .is_empty()
+    );
+}
+
+#[test]
+fn joining_refuses_to_destroy_work_that_is_actually_on_the_device() {
+    // Joining is destructive on purpose, so the guard is about *work*, not
+    // emptiness. A device that has only seeded itself has nothing worth
+    // keeping; a device with one receipt on it is a different matter.
+    use accounting_core::repo::{categories, transactions};
+    use accounting_core::sync::merge;
+    use common::{amounts, day, split, txn};
+
+    let laptop = seeded_db();
+    let phone = seeded_db();
+    let groceries = categories::resolve(&phone, "Groceries")
+        .expect("resolve")
+        .id;
+    transactions::save(
+        &phone,
+        &txn(
+            day("2026-08-20"),
+            amounts(1_359, 0),
+            vec![split(groceries, 1_359, 0)],
+        ),
+    )
+    .expect("a receipt entered on this device");
+
+    let refused = merge::can_join(&phone)
+        .expect("check")
+        .expect_err("has work");
+    assert!(matches!(refused, merge::JoinRefused::HasWork { .. }));
+    // And the message tells the user what to do rather than just refusing.
+    assert!(
+        refused
+            .to_string()
+            .contains("export or merge this work first")
+    );
+
+    let bundle = merge::export(&laptop, "phone", 1_000).expect("export");
+    assert!(
+        merge::join(&phone, &bundle, 1_000).is_err(),
+        "must not wipe it"
+    );
+    assert_eq!(
+        transactions::count(&phone, &accounting_core::TxnFilter::default()).expect("count"),
+        1,
+        "the receipt is still here"
+    );
+}
+
+#[test]
+fn a_device_that_has_already_paired_does_not_join_again() {
+    // Joining twice would throw away everything since the first join.
+    use accounting_core::sync::merge;
+
+    let laptop = seeded_db();
+    let phone = empty_db();
+    sync(&laptop, &phone, 1_000);
+
+    let refused = merge::can_join(&phone).expect("check").expect_err("paired");
+    assert!(matches!(refused, merge::JoinRefused::AlreadyPaired { .. }));
+}
+
+#[test]
+fn a_joined_device_syncs_normally_afterwards() {
+    // The point of joining is to reach the state ordinary sync assumes.
+    use accounting_core::repo::categories;
+    use accounting_core::sync::merge;
+
+    let laptop = seeded_db();
+    let phone = seeded_db();
+    let bundle = merge::export(&laptop, "phone", 1_000).expect("export");
+    merge::join(&phone, &bundle, 1_000).expect("join");
+
+    // A later edit on the laptop reaches the phone by ordinary sync.
+    categories::create_group(&laptop, "Pantry").expect("create");
+    let applied = sync(&laptop, &phone, 2_000);
+    assert!(applied.applied > 0);
+    assert!(applied.deferred.is_empty(), "{:?}", applied.deferred);
+    assert!(
+        categories::list_groups(&phone)
+            .expect("groups")
+            .iter()
+            .any(|g| g.name == "Pantry")
+    );
+}
