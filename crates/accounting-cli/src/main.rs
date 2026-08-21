@@ -43,6 +43,7 @@ use accounting_core::service::entry::{
 };
 use accounting_core::service::rates as rates_service;
 use accounting_core::service::reports::{MonthlyMatrix, ReportBasis, monthly_matrix};
+use accounting_core::service::sync as sync_service;
 use accounting_core::time::{MonthRange, month_short_name};
 use accounting_core::{CategoryBudgetStatus, DetailLevel, Money, TxnId, YearMonth};
 use anyhow::Context;
@@ -182,6 +183,114 @@ enum Command {
     ///   pacc rates --file 26q4combined.xlsx
     #[command(verbatim_doc_comment)]
     Rates(RatesArgs),
+    /// Exchange changes with another device, through a file.
+    ///
+    /// There is no server. Each device writes what the other has not seen into
+    /// an encrypted file; how that file travels — a synced folder, a stick, a
+    /// cable — is deliberately not this program's business, which is what
+    /// makes any of them work.
+    ///
+    /// Examples:
+    ///   pacc sync id
+    ///   pacc sync export --out ~/Dropbox/pacc/laptop.paccsync
+    ///   pacc sync import ~/Dropbox/pacc/phone.paccsync
+    ///   pacc sync status
+    #[command(verbatim_doc_comment)]
+    Sync(SyncArgs),
+}
+
+#[derive(Args)]
+struct SyncArgs {
+    #[command(subcommand)]
+    command: SyncCommand,
+}
+
+#[derive(Subcommand)]
+enum SyncCommand {
+    /// This device's name within the sync group, and the peers it knows.
+    ///
+    /// The name identifies the *database*, not the hardware and not the
+    /// person: peers track how far along it is by that name, so a database
+    /// restored onto new hardware carries on as the same device.
+    Id,
+    /// Write everything a peer has not been sent into one sealed file.
+    Export(SyncExportArgs),
+    /// Apply a sealed file written by another device.
+    Import(SyncImportArgs),
+    /// Where each peer has got to, and anything waiting for a human.
+    Status,
+}
+
+#[derive(Args)]
+struct SyncExportArgs {
+    /// Destination file. Must not already exist.
+    #[arg(long = "out", value_name = "PATH")]
+    out: PathBuf,
+
+    /// Which device the bundle is for. Defaults to the only peer this
+    /// database syncs with; with several it refuses rather than guess, because
+    /// guessing sends one device's history to another. `pacc sync id` prints
+    /// the names.
+    #[arg(long, value_name = "DEVICE")]
+    peer: Option<String>,
+
+    #[command(flatten)]
+    phrase: PhraseArgs,
+}
+
+#[derive(Args)]
+struct SyncImportArgs {
+    /// The sealed file to apply.
+    #[arg(value_name = "FILE")]
+    file: PathBuf,
+
+    #[command(flatten)]
+    phrase: PhraseArgs,
+}
+
+/// The pairing phrase, shared by `sync export` and `sync import`.
+#[derive(Args)]
+struct PhraseArgs {
+    /// The pairing phrase, the same on both devices.
+    ///
+    /// Defaults to `$PACC_SYNC_PHRASE`, which is the better of the two: an
+    /// argument is visible in `ps` and lands in the shell's history file,
+    /// where a phrase that protects a household's whole ledger should not be.
+    ///
+    /// Never prompted for. The phrase is not stored anywhere, so nothing can
+    /// recover a file whose phrase has been lost — and nothing needs to be
+    /// revoked if one is: seal the next bundle with a different one.
+    #[arg(long, value_name = "PHRASE")]
+    phrase: Option<String>,
+}
+
+impl PhraseArgs {
+    /// `--phrase`, else the environment, else an error naming both.
+    ///
+    /// Deliberately not a prompt. This CLI is run non-interactively — from
+    /// scripts, and from its own test suite — and a hidden prompt turns a
+    /// missing phrase into a process that hangs forever with no output, which
+    /// is the least debuggable failure available here.
+    fn resolve(&self) -> anyhow::Result<String> {
+        if let Some(phrase) = self.phrase.as_deref().filter(|p| !p.is_empty()) {
+            return Ok(phrase.to_string());
+        }
+        // Never echoed, here or anywhere else: an error message is the last
+        // place a secret should turn up, because errors get pasted into bug
+        // reports.
+        let from_env = non_empty_env(SYNC_PHRASE_ENV).context(
+            "a sync file needs a pairing phrase, and none was given.\n\
+                 Pass --phrase, or set PACC_SYNC_PHRASE in the environment \
+                 (better: an argument is visible in `ps` and in your shell history).\n\
+                 It is the same phrase on both devices, and it is what the file is \
+                 encrypted with — nothing can read a bundle whose phrase is lost.",
+        )?;
+        from_env.into_string().map_err(|_| {
+            anyhow::anyhow!(
+                "PACC_SYNC_PHRASE is not valid UTF-8; set it to text both devices can type"
+            )
+        })
+    }
 }
 
 #[derive(Args)]
@@ -750,6 +859,7 @@ fn main() -> anyhow::Result<()> {
         Command::Budget(args) => run_budget(&cli.db_path()?, &args.command)?,
         Command::Report(args) => run_report(&cli.db_path()?, args)?,
         Command::Rates(args) => run_rates(&cli.db_path()?, args)?,
+        Command::Sync(args) => run_sync(&cli.db_path()?, &args.command)?,
     }
 
     Ok(())
@@ -853,6 +963,351 @@ fn download(url: &str) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// The environment variable that carries the pairing phrase.
+const SYNC_PHRASE_ENV: &str = "PACC_SYNC_PHRASE";
+
+/// Who a first bundle is addressed to, when there is nobody to address it to.
+///
+/// Exporting before either device has heard of the other is the ordinary way a
+/// pairing starts, and a bundle still has to name the peer it was built for —
+/// that name is what the watermark is kept against. Parenthesised so it cannot
+/// collide with a real device name, which is always a uuid.
+const UNPAIRED: &str = "(unpaired)";
+
+fn run_sync(path: &Path, command: &SyncCommand) -> anyhow::Result<()> {
+    match command {
+        SyncCommand::Id => run_sync_id(path),
+        SyncCommand::Export(args) => run_sync_export(path, args),
+        SyncCommand::Import(args) => run_sync_import(path, args),
+        SyncCommand::Status => run_sync_status(path),
+    }
+}
+
+fn run_sync_id(path: &Path) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let me = sync_service::this_device(&db)?;
+    let peers = sync_service::known_peers(&db)?;
+
+    outln!("device  {me}");
+    if peers.is_empty() {
+        outln!("peers   none — nothing has been exchanged with another device yet");
+        outln!();
+        outln!(
+            "Pair one by exporting a bundle and reading it there:\n  \
+             pacc sync export --out FILE"
+        );
+        return Ok(());
+    }
+
+    outln!("peers   {}", plural(peers.len(), "device", "devices"));
+    for peer in &peers {
+        // Named because it is what `--peer` takes, and what a watermark is
+        // kept against.
+        if peers.len() == 1 {
+            outln!("  {peer}  (the default for `pacc sync export`)");
+        } else {
+            outln!("  {peer}");
+        }
+    }
+    if peers.len() > 1 {
+        outln!();
+        outln!("With several, `pacc sync export` needs `--peer DEVICE`: guessing would send");
+        outln!("one device's history to another, which is worse than asking.");
+    }
+    Ok(())
+}
+
+/// Write a bundle, then record that it was handed over.
+///
+/// # Why the file is written before anything is marked
+///
+/// [`sync_service::export_file`] deliberately does not advance the watermark,
+/// because a bundle that was written but never reached the other device must
+/// not count as sent — everything in it would then never be sent again. From
+/// this side, writing the file *is* the delivery: the transport is a folder or
+/// a stick that this program cannot see the far end of, so the last moment it
+/// can honestly vouch for is the moment the bytes are on disk and flushed.
+fn run_sync_export(path: &Path, args: &SyncExportArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let phrase = args.phrase.resolve()?;
+
+    // Checked before the bundle is built, like `pacc export`: producing the
+    // whole thing and then refusing to write it wastes the user's time. There
+    // is no `--force` on purpose — `pacc backup` takes the same line, and for
+    // the same reason, that a file you cannot get back is data until its owner
+    // says otherwise. `create_new` below is what actually closes the race.
+    anyhow::ensure!(
+        !args.out.exists(),
+        "{} already exists, and a sync file is not overwritten — \
+         write this one somewhere else, or delete that one first",
+        args.out.display()
+    );
+
+    let peer = match &args.peer {
+        Some(peer) => Some(peer.clone()),
+        None => sync_service::default_peer(&db)?,
+    };
+    let addressed_to = peer.clone().unwrap_or_else(|| UNPAIRED.to_string());
+
+    let bytes = sync_service::export_file(&db, &addressed_to, &phrase, now_millis())
+        .context("could not build the sync file")?;
+
+    ensure_parent_dir(&args.out)?;
+    write_new_file(&args.out, &bytes)?;
+
+    outln!(
+        "wrote {} ({}) for {}",
+        args.out.display(),
+        format_bytes(bytes.len()),
+        match &peer {
+            Some(peer) => peer.clone(),
+            None => "a device that has not introduced itself yet".to_string(),
+        }
+    );
+
+    match &peer {
+        Some(peer) => {
+            // Only now, and only for a peer that exists: the file is on disk,
+            // so from here it is the other device's to read.
+            sync_service::mark_delivered(&db, peer, &phrase, &bytes)
+                .context("wrote the file, but could not record it as sent")?;
+            outln!("  marked as sent — the next bundle for this peer carries only what changes");
+            outln!("  from now on. If the file never reaches it, delete this record's effect by");
+            outln!("  re-exporting after the peer's own bundle comes back.");
+        }
+        None => {
+            // Nothing to mark it against. A watermark names a device, and
+            // inventing a row for `(unpaired)` would make it the "only peer"
+            // that `--peer`-less exports and `pacc sync status` then talk
+            // about forever, while the real device's watermark stayed empty.
+            outln!("  this is the first bundle of a pairing: nothing here knows the other");
+            outln!("  device yet, so nothing is recorded as sent and the next export will");
+            outln!("  carry the same history again. Import its reply and that settles.");
+        }
+    }
+
+    outln!();
+    outln!("Move it however you like — a synced folder, a stick, a cable. It is sealed");
+    outln!("with the pairing phrase, so it protects itself on the way.");
+    Ok(())
+}
+
+/// Create a file that did not exist a moment ago, and get the bytes onto the
+/// disk before saying so.
+///
+/// `create_new` rather than `File::create`: the `exists()` check above is a
+/// courtesy that produces a good message, and this is the part that is
+/// actually safe when something else wrote the file in between.
+///
+/// `sync_all` because the caller marks the bundle delivered on the strength of
+/// this returning — "the bytes are in the page cache" is not the same promise
+/// as "the bytes are on the stick you are about to pull out".
+fn write_new_file(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("could not create {}", path.display()))?;
+    file.write_all(bytes)
+        .with_context(|| format!("could not write {}", path.display()))?;
+    file.flush()
+        .with_context(|| format!("could not flush {}", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("could not flush {} to disk", path.display()))?;
+    Ok(())
+}
+
+fn run_sync_import(path: &Path, args: &SyncImportArgs) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let phrase = args.phrase.resolve()?;
+
+    let bytes = std::fs::read(&args.file)
+        .with_context(|| format!("could not read {}", args.file.display()))?;
+    // The error from here says "the phrase does not match, or the file has
+    // been altered" and names neither the phrase nor the file's contents.
+    let applied =
+        sync_service::import_file(&db, &bytes, &phrase, now_millis()).map_err(explain_import)?;
+
+    outln!("read {}", args.file.display());
+    outln!("  applied    {}", applied.applied);
+    outln!(
+        "  ignored    {}  (this device already had the same or newer)",
+        applied.ignored
+    );
+    outln!("  conflicts  {}", applied.conflicts);
+
+    // Deferred and unknown kinds are printed in full, never as a count alone.
+    // Both mean data did not arrive, and a number that scrolls past is
+    // indistinguishable from a clean import a minute later.
+    if applied.deferred.is_empty() {
+        outln!("  deferred   0");
+    } else {
+        outln!(
+            "  deferred   {} — these did NOT arrive:",
+            applied.deferred.len()
+        );
+        for missing in &applied.deferred {
+            outln!(
+                "    {} {} needs {} {}, which is not on this device",
+                missing.entity,
+                missing.uuid,
+                missing.wanted.0,
+                missing.wanted.1
+            );
+        }
+    }
+    if !applied.unknown_kinds.is_empty() {
+        outln!(
+            "  unknown    {} this version does not understand: {}",
+            plural(applied.unknown_kinds.len(), "kind", "kinds"),
+            applied.unknown_kinds.join(", ")
+        );
+    }
+
+    if applied.conflicts > 0 {
+        outln!();
+        outln!(
+            "{} where both devices had changed the same thing. The later edit is in place",
+            plural(applied.conflicts, "change", "changes")
+        );
+        outln!("and the earlier one is kept rather than dropped, because a ledger that silently");
+        outln!("drops somebody's correction is a ledger neither person trusts. Any receipt among");
+        outln!("them is flagged for review in `pacc inbox`.");
+    }
+    if !applied.deferred.is_empty() {
+        outln!();
+        outln!("A deferred change is data that is still only on the other device. It points at");
+        outln!("something that has not reached this one — usually an earlier bundle that was");
+        outln!("never imported. Import that file if you still have it; otherwise export from");
+        outln!("the other device again once this device's reply has been read there.");
+    }
+    if !applied.unknown_kinds.is_empty() {
+        outln!();
+        outln!("The kinds above were written by a newer release. Nothing was lost on the device");
+        outln!("that sent them — update this one and import the file again.");
+    }
+    Ok(())
+}
+
+/// Say what a constraint violation during an import almost always means.
+///
+/// A name collision here has one overwhelmingly likely cause, and the raw
+/// SQLite text ("UNIQUE constraint failed: category_group.name") describes the
+/// symptom rather than it. Two databases that were each created with
+/// `pacc init` have each seeded their own chart of accounts: same names,
+/// different uuids, so the arriving rows are new things that happen to be
+/// called what the local ones are called. A second device is meant to *start*
+/// from the first one's data rather than seed its own.
+fn explain_import(error: accounting_core::CoreError) -> anyhow::Error {
+    let collision = matches!(error, accounting_core::CoreError::Sqlite(_))
+        && error.to_string().contains("UNIQUE constraint failed");
+    let error = anyhow::Error::new(error);
+    if collision {
+        return error.context(
+            "this device already has a row named the same as one in the file, under a \
+             different identity. That is what two separately seeded databases look like \
+             to each other: `pacc init` installs its own chart of accounts, and two of \
+             them are two sets of rows with matching names. A second device has to begin \
+             from the first one's data, not from its own seed.",
+        );
+    }
+    error
+}
+
+fn run_sync_status(path: &Path) -> anyhow::Result<()> {
+    let db = open_existing(path)?;
+    let me = sync_service::this_device(&db)?;
+    let peers = read_sync_peers(&db)?;
+    let conflicts = sync_service::open_conflicts(&db)?;
+
+    outln!("device     {me}");
+    outln!();
+
+    if peers.is_empty() {
+        outln!("peers      none — nothing has been exchanged with another device yet");
+    } else {
+        outln!("peers      {}", plural(peers.len(), "device", "devices"));
+        for peer in &peers {
+            outln!();
+            outln!("  {}", peer.device);
+            // A watermark is a clock reading, not a count: everything up to
+            // and including it has been handed over, and it is what makes the
+            // next bundle carry only what changed.
+            outln!(
+                "    sent through  {}",
+                peer.sent_through.as_deref().unwrap_or("nothing yet")
+            );
+            outln!(
+                "    seen through  {}",
+                peer.seen_through.as_deref().unwrap_or("nothing yet")
+            );
+            outln!(
+                "    last exchange {}",
+                peer.synced_at.as_deref().unwrap_or("never")
+            );
+        }
+    }
+
+    outln!();
+    match conflicts {
+        0 => outln!("conflicts  none open"),
+        n => {
+            outln!("conflicts  {n} open");
+            outln!("  Both devices changed the same thing. The later edit is in place and the");
+            outln!("  earlier one is kept rather than dropped. Any receipt among them is flagged");
+            outln!("  for review in `pacc inbox`.");
+        }
+    }
+    Ok(())
+}
+
+/// One row of `sync_peer`.
+///
+/// Read here rather than through `service::sync`, which offers the peer names
+/// and nothing else: the watermarks and the last-exchange time are exactly
+/// what a status screen is for, and they exist nowhere else.
+struct PeerState {
+    device: String,
+    sent_through: Option<String>,
+    seen_through: Option<String>,
+    synced_at: Option<String>,
+}
+
+fn read_sync_peers(db: &Db) -> anyhow::Result<Vec<PeerState>> {
+    let mut stmt = db.conn().prepare(
+        "SELECT device, sent_through, seen_through, synced_at FROM sync_peer ORDER BY device",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(PeerState {
+            device: r.get(0)?,
+            sent_through: r.get(1)?,
+            seen_through: r.get(2)?,
+            synced_at: r.get(3)?,
+        })
+    })?;
+    // Collected by hand rather than with a turbofish: naming rusqlite's own
+    // `Result` here would mean depending on rusqlite from the CLI, and this
+    // binary talks to the database only through `accounting-core`.
+    let mut peers = Vec::new();
+    for row in rows {
+        peers.push(row?);
+    }
+    Ok(peers)
+}
+
+/// A file size a person can read at a glance. Bundles run from a few hundred
+/// bytes to a few megabytes.
+fn format_bytes(len: usize) -> String {
+    #[allow(clippy::cast_precision_loss)]
+    match len {
+        0..=1023 => format!("{len} bytes"),
+        1024..=1_048_575 => format!("{:.1} KB", len as f64 / 1024.0),
+        _ => format!("{:.1} MB", len as f64 / (1024.0 * 1024.0)),
+    }
+}
+
 /// An ISO-8601 UTC timestamp in the same shape as the schema's `strftime`
 /// default, so hand-written rows and app-written rows sort together.
 ///
@@ -861,6 +1316,14 @@ fn download(url: &str) -> anyhow::Result<Vec<u8>> {
 /// what time it is.
 fn now_iso() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+}
+
+/// Milliseconds since the epoch, for the sync clock.
+///
+/// Read here for the same reason [`now_iso`] is: the core is not allowed to
+/// ask what time it is, and a frontend is.
+fn now_millis() -> u64 {
+    u64::try_from(Utc::now().timestamp_millis()).unwrap_or(0)
 }
 
 impl Cli {
