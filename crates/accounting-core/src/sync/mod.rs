@@ -34,6 +34,8 @@
 //! each device already downloads them, and a device that has not can be told
 //! to rather than shipped 389 rows over a USB stick.
 
+pub mod bundle;
 pub mod hlc;
 
+pub use bundle::{Bundle, BundleError, Change};
 pub use hlc::{DeviceId, Hlc};

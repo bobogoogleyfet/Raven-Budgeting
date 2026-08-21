@@ -8,6 +8,11 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
+# The sync bundle's payloads. An entity's body crosses as JSON this crate does
+# not interpret, so that a bundle written by an older release stays readable
+# when a newer one adds a column — see `sync::bundle`. Was a dev-dependency
+# until M8; the sync module is the first non-test user.
+serde_json.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 rusqlite.workspace = true
@@ -20,7 +25,6 @@ quick-xml.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-serde_json.workspace = true
 tempfile.workspace = true
 # Hashes the shipped migration SQL so an edit to an already-applied migration
 # fails the test suite instead of silently diverging fresh DBs from existing
