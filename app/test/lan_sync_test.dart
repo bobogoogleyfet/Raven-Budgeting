@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:app/src/api.dart';
@@ -92,6 +93,13 @@ class Bench {
     }) async {
       calls.log.add('mark');
       calls.markedFor.add(peer);
+      // `merge::mark_sent` writes the `sync_peer` row, not only the watermark
+      // — which is the whole reason a join has to go through it. Modelled
+      // here, so a test can ask what the *next* connection would be allowed to
+      // do rather than only what this one called.
+      if (peer != null && !peers.contains(peer)) {
+        peers = <String>[...peers, peer];
+      }
     },
     openListener: () async => listener,
     openLink: (host, port) async {
@@ -297,15 +305,20 @@ void main() {
     addTearDown(bench.close);
     await bench.start();
 
-    // An empty frame is a device about to adopt this one's data saying
-    // "nothing from me" — it is about to throw its own copy away.
+    // An empty frame is how an older release joins: it says "nothing from
+    // me", and nothing about itself. Still answered in full, because the
+    // alternative is a device that updated first refusing to feed one that
+    // did not.
     final link = bench.connectionSending(Uint8List(0));
     await bench.settle();
 
     expect(bench.calls.log, isNot(contains('import')));
     expect(await bench.written(link), [ourBundle]);
     // Addressed to a name no device has, so the core finds no watermark for it
-    // and hands over the whole history rather than the tail of it.
+    // and hands over the whole history rather than the tail of it. Nothing can
+    // be recorded against that name, so this pairing stays one-directional
+    // until the other device is updated — which is exactly why a join now
+    // carries the joiner's own name instead.
     expect(bench.exportedFor.last, '(joining)');
     expect(bench.calls.log, isNot(contains('mark')));
   });
@@ -322,10 +335,14 @@ void main() {
 
     expect(bench.calls.log, contains('join'));
     expect(bench.calls.log, isNot(contains('import')));
-    // Nothing of this device's own goes over first: handing its chart of
-    // accounts across seconds before discarding it would leave the other one
-    // holding a duplicate of everything.
-    expect(await bench.written(bench.links.single), [isEmpty]);
+    // No data of this device's own goes over: handing its chart of accounts
+    // across seconds before discarding it would leave the other one holding a
+    // duplicate of everything. Its *name* does, because the device about to
+    // give away its whole ledger has to know who it gave it to.
+    final asked = readJoinRequest(
+      (await bench.written(bench.links.single)).single,
+    );
+    expect(asked!.device, 'laptop-91ab');
     expect(bench.state.lastResult, contains('Joined tablet-0000'));
   });
 
@@ -345,6 +362,134 @@ void main() {
     expect(bench.calls.log, isNot(contains('join')));
     expect(bench.state.lastFailed, isTrue);
     expect(bench.state.lastResult, contains('12 expense(s)'));
+  });
+
+  test('a join pairs the device that answers it, under the joiner’s own name',
+      () async {
+    // The bug this exists for: the joining device ended up with a peer row and
+    // the device it joined ended up with none, so everything the joiner sent
+    // afterwards was refused while both screens said they were paired.
+    final bench = Bench(peers: const <String>[]);
+    addTearDown(bench.close);
+    await bench.start();
+
+    final link = bench.connectionSending(joinRequestBytes(device: 'tablet-0000'));
+    await bench.settle();
+
+    // Handed over whole, and written off against the device that asked —
+    // `mark_sent` writes the `sync_peer` row, so this call *is* the pairing.
+    expect(bench.calls.log, ['export', 'mark']);
+    expect(await bench.written(link), [ourBundle]);
+    expect(bench.exportedFor.last, 'tablet-0000');
+    // Not '(joining)': a bundle addressed to a name no device has can never be
+    // recorded against a device, which is what left this side unpaired.
+    expect(bench.calls.markedFor, ['tablet-0000']);
+    expect(bench.state.paired, isTrue);
+    expect(bench.state.lastResult, contains('tablet-0000'));
+  });
+
+  test('after a join the joiner’s next bundle is merged, not refused', () async {
+    final bench = Bench(peers: const <String>[]);
+    addTearDown(bench.close);
+    await bench.start();
+
+    bench.connectionSending(joinRequestBytes(device: 'tablet-0000'));
+    await bench.settle();
+
+    // The ordinary exchange that follows, from the device that just joined.
+    // This is the direction that used to fail: unpaired, this device refused
+    // to import, and only importing could have paired it.
+    bench.connectionSending(theirBundle);
+    await bench.settle();
+
+    expect(bench.calls.merged.single, theirBundle);
+    expect(bench.state.lastFailed, isFalse);
+    expect(bench.state.lastResult, isNot(contains('not paired')));
+  });
+
+  test('a join that will not say who is joining is refused, and the listener lives',
+      () async {
+    final bench = Bench(peers: const <String>[]);
+    addTearDown(bench.close);
+    await bench.start();
+
+    final bad = bench.connectionSending(
+      Uint8List.fromList(
+        utf8.encode(jsonEncode(<String, Object>{'pacc': 1, 'join': ''})),
+      ),
+    );
+    await bench.settle();
+
+    // Neither opened as a bundle nor answered with this device's history:
+    // there would be nobody to record having been given it.
+    expect(bench.calls.log, isEmpty);
+    expect(bench.state.lastFailed, isTrue);
+    expect(bad.abandoned, isTrue);
+
+    // And it cost one socket. The next device to ask is still served.
+    bench.connectionSending(joinRequestBytes(device: 'tablet-0000'));
+    await bench.settle();
+    expect(bench.calls.markedFor, ['tablet-0000']);
+  });
+
+  test('a second join hands over the whole history again', () async {
+    final bench = Bench(peers: const <String>[]);
+    addTearDown(bench.close);
+    await bench.start();
+
+    bench.connectionSending(joinRequestBytes(device: 'tablet-0000'));
+    await bench.settle();
+
+    // The same device asking again. The first handover was written off as
+    // delivered on the strength of a half-close, which is not proof the joiner
+    // kept what it was given — and it being back says it did not.
+    bench.connectionSending(joinRequestBytes(device: 'tablet-0000'));
+    await bench.settle();
+
+    // So the second answer is the whole history once more, under the name
+    // nobody keeps a watermark for, rather than the tail since the mark: a
+    // join wipes the device before applying what it is handed, and half a
+    // ledger adopted that way cannot be told from a whole one.
+    expect(bench.exportedFor, ['tablet-0000', '(joining)']);
+    expect(bench.calls.markedFor, ['tablet-0000', 'tablet-0000']);
+  });
+
+  test('a device cannot join under this device’s own name', () async {
+    final bench = Bench(peers: const <String>[]);
+    addTearDown(bench.close);
+    await bench.start();
+
+    final link = bench.connectionSending(joinRequestBytes(device: 'laptop-91ab'));
+    await bench.settle();
+
+    // An export addressed to a peer leaves out everything that peer authored,
+    // so answering this would hand over an empty ledger dressed as a whole
+    // one — and then write it off as delivered.
+    expect(bench.calls.log, isEmpty);
+    expect(bench.state.lastFailed, isTrue);
+    expect(link.abandoned, isTrue);
+  });
+
+  test('paired devices exchange in both directions', () async {
+    final bench = Bench();
+    addTearDown(bench.close);
+    await bench.start();
+
+    // Dialled by the peer.
+    final inbound = bench.connectionSending(theirBundle);
+    await bench.settle();
+    expect(bench.calls.merged, [theirBundle]);
+    expect(await bench.written(inbound), [ourBundle]);
+
+    // And dialling it.
+    bench.heard();
+    await bench.settle();
+    expect(bench.dialled, ['10.0.0.9:6000']);
+    expect(bench.calls.merged, [theirBundle, theirBundle]);
+    expect(await bench.written(bench.links.single), [ourBundle]);
+    // Answering a connection cannot name who dialled — a socket carries no
+    // device name — so only the outgoing exchange addresses its watermark.
+    expect(bench.calls.markedFor, [null, 'phone-7f2c']);
   });
 
   test('turning it off stops announcing and answering', () async {

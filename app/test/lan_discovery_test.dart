@@ -63,4 +63,57 @@ void main() {
       );
     }
   });
+
+  test('a join request says who is joining, and nothing else', () {
+    final asked = readJoinRequest(joinRequestBytes(device: 'phone-7f2c'));
+
+    expect(asked, isNotNull);
+    // The name the core keeps watermarks against, which is the only reason
+    // this message exists: the device handing over its ledger records the
+    // handover under it, and that record is what pairs the two.
+    expect(asked!.device, 'phone-7f2c');
+
+    final body = jsonDecode(utf8.decode(joinRequestBytes(device: 'a')));
+    expect((body as Map).keys, unorderedEquals(<String>['pacc', 'join']));
+  });
+
+  test('a nameless device does not get to ask', () {
+    // Refused here rather than by the far end, which would have to refuse it
+    // after handing over its whole history.
+    expect(() => joinRequestBytes(device: ''), throwsA(isA<Exception>()));
+  });
+
+  test('an ordinary bundle is not mistaken for a join request', () {
+    for (final bundle in <Uint8List>[
+      Uint8List(0), // an older release's join: no data, and no name either
+      Uint8List.fromList(<int>[0x8f, 0x00, 0xff, 0x11]), // sealed bytes
+      datagram(<String, Object>{'pacc': 1, 'device': 'x', 'port': 1}),
+      // Over the cap, so never decoded at all: the length in front of a frame
+      // is a stranger's, and it must not be able to buy a JSON parse of 60 MiB.
+      Uint8List.fromList(
+        utf8.encode(jsonEncode(<String, Object>{
+          'pacc': 1,
+          'join': 'x' * maxJoinRequestBytes,
+        })),
+      ),
+    ]) {
+      expect(readJoinRequest(bundle), isNull);
+    }
+  });
+
+  test('a join request this end cannot read is refused, not guessed at', () {
+    // Anything carrying `join` is claiming to be one of these. Unlike a
+    // datagram on a broadcast port, it arrived on a connection that is waiting
+    // for a ledger, and filling in what it left out is exactly what addressed
+    // a handover to a device that did not exist.
+    for (final broken in <Uint8List>[
+      datagram(<String, Object?>{'pacc': 1, 'join': ''}),
+      datagram(<String, Object?>{'pacc': 1, 'join': 7}),
+      datagram(<String, Object?>{'pacc': 1, 'join': null}),
+      datagram(<String, Object?>{'join': 'phone-7f2c'}),
+      datagram(<String, Object?>{'pacc': 2, 'join': 'phone-7f2c'}),
+    ]) {
+      expect(() => readJoinRequest(broken), throwsA(isA<Exception>()));
+    }
+  });
 }

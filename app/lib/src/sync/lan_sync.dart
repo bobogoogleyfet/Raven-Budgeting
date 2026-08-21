@@ -21,6 +21,12 @@
 /// Once the two are paired their uuids agree, and from then on everything is
 /// automatic.
 ///
+/// Joining is what pairs *both* devices, and it has to: the one that adopts
+/// records the device it took its data from, and the one that hands the data
+/// over records the device it gave it to. Half of that is not a weaker
+/// pairing, it is a pairing that works in one direction and silently refuses
+/// everything sent back the other way.
+///
 /// # Who may connect
 ///
 /// Anyone on the network. The pairing phrase is the group's identity and the
@@ -328,10 +334,13 @@ class LanSync {
   /// Adopt a discovered device's data, replacing everything here.
   ///
   /// The one destructive thing in the feature, and the only one that needs a
-  /// person. It pulls rather than exchanges: this device sends an empty frame,
-  /// meaning "nothing from me" — its own chart of accounts is about to be
-  /// thrown away, and handing it over first would only give the other device a
-  /// duplicate of everything to merge.
+  /// person. It pulls rather than exchanges: this device sends no data of its
+  /// own — its chart of accounts is about to be thrown away, and handing it
+  /// over first would only give the other device a duplicate of everything to
+  /// merge. What it does send is its name, because the device about to hand
+  /// over its whole ledger has to be able to record who it gave it to; that is
+  /// the moment the two become peers, and it is the only moment either of them
+  /// gets.
   Future<void> joinPeer(LanPeer peer) async {
     final refusal = await loadRefusal();
     if (refusal != null) {
@@ -556,22 +565,49 @@ class LanSync {
     try {
       reader = FrameReader(link.incoming);
       final theirs = await reader.next().timeout(patience);
+      final joining = readJoinRequest(theirs);
+      if (joining != null && joining.device == _device) {
+        // This device's own name for its database, from something that is not
+        // this device: a loopback, or a stranger echoing back a beacon. An
+        // export addressed to a peer skips every change that peer authored, so
+        // answering would hand over an empty history dressed as a whole one,
+        // and then record it as delivered.
+        throw SyncProtocolException(
+          'a device asked to join under this device’s own name, which is not '
+          'a name it can be given anything under',
+        );
+      }
 
       Applied? applied;
-      if (theirs.isNotEmpty && _knownPeers.isNotEmpty) {
-        applied = await merge(bytes: theirs, phrase: phrase);
-      } else if (theirs.isNotEmpty) {
+      if (joining != null) {
+        // Nothing to merge, by design: a joiner is seconds away from throwing
+        // its own copy away, so it sends its name in place of a bundle.
+      } else if (theirs.isEmpty) {
+        // An older release joining, which says nothing about itself. Answered
+        // in full below, and unrecordable — see [_bundleFor].
+      } else if (_knownPeers.isEmpty) {
         // Unpaired, so this device's uuids are its own and merging would
         // double its chart of accounts. Say so rather than silently dropping
         // it: from the other end this looks like sync not working.
+        //
+        // Still only *merging* is refused. Answering a join is safe however
+        // unpaired this device is — it hands over data and takes none — and
+        // refusing that as well is what made pairing unresolvable: becoming
+        // paired needed an import, and importing needed to be paired already.
         _report(
           'Another device offered to sync, but this one is not paired with '
           'anything yet. Join it from the list below to adopt its data.',
           failed: true,
         );
+      } else {
+        applied = await merge(bytes: theirs, phrase: phrase);
       }
 
-      final ours = await _bundleFor(pull: theirs.isEmpty, phrase: phrase);
+      final ours = await _bundleFor(
+        joining: joining?.device,
+        pull: theirs.isEmpty,
+        phrase: phrase,
+      );
       link.send(framed(ours));
       await link.flush();
 
@@ -581,10 +617,32 @@ class LanSync {
       // it would mean these changes were never sent again.
       await reader.untilClosed().timeout(patience);
 
-      if (applied != null && ours.isNotEmpty) {
-        await markSent(phrase: phrase, bytes: ours);
-      }
-      if (applied != null) {
+      if (joining != null) {
+        // The pairing moment on this side, and the only one it gets: this
+        // device has just handed over its entire history to a device that
+        // named itself. `merge::mark_sent` writes the `sync_peer` row as well
+        // as the watermark, so this is what makes the joiner a peer here —
+        // without it this device would go on refusing everything the joiner
+        // sent while both screens claimed the two were paired.
+        //
+        // The evidence is the half-close waited for above, and it is exactly
+        // the evidence the ordinary reply below already advances a watermark
+        // on: the joiner adopts what it was handed and closes afterwards. What
+        // it is not is proof the adopt committed — a device that died between
+        // receiving and applying closes its socket the same way. So rather
+        // than pretend a join has stronger evidence than it does, the join is
+        // made repeatable: see [_bundleFor], which hands the whole history
+        // over again to a joiner this device has already marked one against.
+        await markSent(peer: joining.device, phrase: phrase, bytes: ours);
+        await _refreshStanding();
+        _report(
+          '${joining.device} joined this device: it now carries a copy of '
+          'everything here, and the two sync from now on.',
+        );
+      } else if (applied != null) {
+        if (ours.isNotEmpty) {
+          await markSent(phrase: phrase, bytes: ours);
+        }
         await _refreshStanding();
         _report(_sentence(link.peer, applied), applied: applied);
       }
@@ -608,10 +666,13 @@ class LanSync {
       link = await openLink(peer.host, peer.port).timeout(patience);
       reader = FrameReader(link.incoming);
 
-      // An empty frame is this end saying "nothing from me". Sending its own
-      // bundle instead would hand the other device a duplicate of every
-      // category, seconds before this one throws that copy away.
-      link.send(framed(Uint8List(0)));
+      // This device's name, and nothing else. Sending its own bundle instead
+      // would hand the other device a duplicate of every category, seconds
+      // before this one throws that copy away — but sending *nothing* is no
+      // better, because the far end is about to give away its whole ledger and
+      // has to know who it gave it to. Both the reply and the peer row the
+      // other device records are addressed to this name.
+      link.send(framed(joinRequestBytes(device: _device)));
       await link.flush();
 
       final theirs = await reader.next().timeout(patience);
@@ -641,17 +702,42 @@ class LanSync {
 
   /// What to reply with, addressed to whoever this can honestly address.
   ///
-  /// A *pull* asks for everything, so it is addressed to a name no device has:
-  /// the core looks for a watermark under it, finds none, and sends the whole
-  /// history. Nothing is ever recorded against that name, because a pull is
-  /// never marked delivered.
+  /// A *join* is answered with everything, and addressed to [joining] — a
+  /// device this one has never met, so the core finds no watermark under it
+  /// and seals the whole history. Naming the joiner is what lets the handover
+  /// be recorded against a device that exists, which is the whole of the fix.
+  ///
+  /// Unless there *is* a watermark under that name, which means this is a
+  /// second attempt: the first was written off as delivered on the strength of
+  /// a half-close, and whatever the joiner did with it plainly did not last.
+  /// Addressing the retry to the joiner would answer it with the tail of a
+  /// history it never received, and a join wipes the device before applying
+  /// what it is given. So a retry falls back to the unwatermarked name and
+  /// hands the whole thing over again. Marking it stays keyed to the real
+  /// device either way — the core reads the watermark out of the bundle's
+  /// contents, not out of who it was addressed to.
+  ///
+  /// An older release joins with an empty frame instead and says nothing about
+  /// itself. It still gets everything — addressed to [_joining], which no
+  /// device is called, so again there is no watermark to find — but this end
+  /// cannot pair from it, having no name to write down. That pairing stays
+  /// one-directional until the other device is updated, which is the most this
+  /// end can do with what it was told.
   ///
   /// An ordinary exchange is addressed to the only peer this device has, and
   /// with several it cannot be addressed at all — a socket carries no device
   /// name, so there is no way to tell which of them dialled. That case replies
   /// empty and lets this device's own outgoing exchange, which does know who
   /// it is talking to, carry the changes a moment later.
-  Future<Uint8List> _bundleFor({required bool pull, required String phrase}) async {
+  Future<Uint8List> _bundleFor({
+    required String? joining,
+    required bool pull,
+    required String phrase,
+  }) async {
+    if (joining != null) {
+      final retry = _knownPeers.contains(joining);
+      return export(peer: retry ? _joining : joining, phrase: phrase);
+    }
     if (pull) return export(peer: _joining, phrase: phrase);
     if (_knownPeers.length > 1) return Uint8List(0);
     return export(peer: null, phrase: phrase);
@@ -659,9 +745,9 @@ class LanSync {
 
   /// The addressee of a bundle nobody is keeping a watermark for.
   ///
-  /// Parenthesised so it cannot collide with a real device name, which is
-  /// always a uuid — the same trick, for the same reason, as the core's own
-  /// `(unpaired)`.
+  /// An older release's join, and a retried one. Parenthesised so it cannot
+  /// collide with a real device name, which is always a uuid — the same trick,
+  /// for the same reason, as the core's own `(unpaired)`.
   static const String _joining = '(joining)';
 
   // ------------------------------------------------------------ bookkeeping
