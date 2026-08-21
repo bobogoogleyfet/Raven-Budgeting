@@ -465,8 +465,14 @@ fn upsert_group(
         // below: whether a group holds obligations is a fact about what it is,
         // not a preference the user set, and an upgraded database would
         // otherwise keep calling an unspent grocery envelope "behind" forever.
+        // Skipped when it would change nothing, for the same reason as the
+        // category flags below: an AFTER UPDATE trigger cannot tell a no-op
+        // from a real edit, and a launch that re-stamps every seeded group
+        // would outrank a peer's genuine rename.
         tx.execute(
-            "UPDATE category_group SET is_obligation = ?2 WHERE id = ?1",
+            "UPDATE category_group
+                SET is_obligation = ?2
+              WHERE id = ?1 AND is_obligation <> ?2",
             params![id, i64::from(group.obligation)],
         )?;
         return Ok(id);
@@ -537,10 +543,21 @@ fn upsert_category(
         // otherwise keep taxing groceries at the full rate and adding sales
         // tax to rent forever. They are facts about what the category *is*,
         // not preferences the user set.
+        // The trailing condition is not an optimisation. `seed_defaults` runs
+        // on every open, and these values are already correct almost every
+        // time — but SQLite fires AFTER UPDATE whether or not a value changed,
+        // so without it every launch would stamp all thirty-odd seeded
+        // categories into the sync change log. Under last-writer-wins that
+        // means merely *opening* the app on one device carries a newer
+        // timestamp than a genuine rename made on the other, and silently
+        // reverts it. A write that changes nothing must not look like a write.
         tx.execute(
             "UPDATE category
                 SET uses_food_rate = ?2, uses_restaurant_rate = ?3, taxable = ?4
-              WHERE id = ?1",
+              WHERE id = ?1
+                AND (uses_food_rate       <> ?2
+                  OR uses_restaurant_rate <> ?3
+                  OR taxable              <> ?4)",
             params![
                 id,
                 i64::from(cat.food),

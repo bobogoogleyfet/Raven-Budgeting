@@ -113,7 +113,10 @@ fn writes_inside_one_millisecond_still_order() {
     sorted.sort();
     sorted.dedup();
     assert_eq!(sorted.len(), stamps.len(), "every stamp is distinct");
-    assert_eq!(sorted, stamps, "and they are in the order they were written");
+    assert_eq!(
+        sorted, stamps,
+        "and they are in the order they were written"
+    );
 }
 
 #[test]
@@ -266,4 +269,56 @@ fn txn_uuid(db: &Db, id: accounting_core::TxnId) -> String {
             |r| r.get(0),
         )
         .expect("the receipt exists")
+}
+
+#[test]
+fn re_opening_the_app_is_not_an_edit() {
+    // `seed_defaults` runs on every open and re-applies the category flags,
+    // which is deliberate: they are facts about what a category *is*, and a
+    // database seeded before a flag existed must pick it up. But SQLite fires
+    // AFTER UPDATE whether or not a value actually changed, so a naive
+    // re-apply stamps every seeded category into the change log on every
+    // launch.
+    //
+    // Under last-writer-wins that is data loss with no error anywhere: merely
+    // opening the app on the laptop carries a newer timestamp than a genuine
+    // rename made on the phone an hour earlier, so the launch wins and the
+    // rename is silently reverted. A write that changes nothing must not look
+    // like a write.
+    let db = seeded_db();
+    device(&db, "laptop");
+
+    let before = changes(&db);
+    accounting_core::seed_defaults(&db).expect("re-open");
+    accounting_core::seed_defaults(&db).expect("and again");
+    let after = changes(&db);
+
+    assert_eq!(
+        before, after,
+        "re-running the seed must not touch the change log"
+    );
+}
+
+#[test]
+fn a_seed_flag_that_is_genuinely_new_still_lands() {
+    // The other half: skipping no-ops must not skip real ones. A database
+    // seeded before `is_obligation` existed has to pick it up, or an upgraded
+    // install keeps calling an unspent grocery envelope "behind" forever.
+    let db = seeded_db();
+    device(&db, "laptop");
+    db.conn()
+        .execute("UPDATE category_group SET is_obligation = 0", [])
+        .expect("rewind to a pre-007 database");
+
+    accounting_core::seed_defaults(&db).expect("re-open");
+
+    let bills: i64 = db
+        .conn()
+        .query_row(
+            "SELECT is_obligation FROM category_group WHERE name = 'Bills'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("Bills is seeded");
+    assert_eq!(bills, 1, "a genuinely missing flag must still be applied");
 }
