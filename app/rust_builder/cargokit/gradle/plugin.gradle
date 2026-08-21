@@ -2,7 +2,9 @@
 /// Details: https://fzyzcjy.github.io/flutter_rust_bridge/manual/integrate/builtin
 
 import java.nio.file.Paths
+import javax.inject.Inject
 import org.apache.tools.ant.taskdefs.condition.Os
+import org.gradle.process.ExecOperations
 
 CargoKitPlugin.file = buildscript.sourceFile
 
@@ -14,6 +16,21 @@ class CargoKitExtension {
 }
 
 abstract class CargoKitBuildTask extends DefaultTask {
+
+    // LOCAL PATCH (not upstream cargokit).
+    //
+    // `Project.exec()` was deprecated in Gradle 8 and *removed* in Gradle 9,
+    // and this project is on Gradle 9.3.1 because AGP 9.1.0 requires it — so
+    // downgrading Gradle to suit cargokit is not available. Injecting
+    // ExecOperations is the replacement Gradle documents, and it is what lets
+    // the Rust bridge cross-compile for Android at all: without it the build
+    // dies at `Could not find method exec()` before cargo is ever invoked.
+    //
+    // This file is vendored ("copied from Cargokit" per the header), so this
+    // patch is lost if cargokit is re-vendored. Re-apply it, or take a
+    // cargokit that has fixed it upstream.
+    @Inject
+    abstract ExecOperations getExecOperations()
 
     @Input
     String buildMode
@@ -60,12 +77,12 @@ abstract class CargoKitBuildTask extends DefaultTask {
         def rootProjectDir = project.rootProject.projectDir
 
         if (!Os.isFamily(Os.FAMILY_WINDOWS)) {
-            project.exec {
+            execOperations.exec {
                 commandLine 'chmod', '+x', path
             }
         }
 
-        project.exec {
+        execOperations.exec {
             executable path
             args "build-gradle"
             environment "CARGOKIT_ROOT_PROJECT_DIR", rootProjectDir
