@@ -6,6 +6,7 @@ Future<List<String>> pump(
   WidgetTester tester, {
   bool strict = false,
   bool openOnFocus = true,
+  String? noMatchLabel,
   List<String> options = const ['Highland', 'Salt Lake City', 'Provo'],
 }) async {
   final committed = <String>[];
@@ -21,6 +22,7 @@ Future<List<String>> pump(
               controller: controller,
               options: options,
               strict: strict,
+              noMatchLabel: noMatchLabel,
               openOnFocus: openOnFocus,
               hint: 'Start typing…',
               emptyLabel: 'Start typing to find a city.',
@@ -103,8 +105,27 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'Boise');
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('No Utah jurisdiction matches'), findsOneWidget);
+    // The widget's own fallback. Refusing without saying anything reads as a
+    // dead field, so there is always a sentence.
+    expect(find.textContaining('Nothing matches'), findsOneWidget);
     expect(find.textContaining('Press Enter to add'), findsNothing);
+  });
+
+  testWidgets('a strict field can say why in its own words', (tester) async {
+    // The refusal differs per field — an unpublished city and a category that
+    // does not exist are different problems with different fixes — so the
+    // sentence is the caller's to supply rather than the widget's to guess.
+    await pump(
+      tester,
+      strict: true,
+      openOnFocus: false,
+      noMatchLabel: 'No Utah jurisdiction matches “{typed}”.',
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'Boise');
+    await tester.pumpAndSettle();
+
+    expect(find.text('No Utah jurisdiction matches “Boise”.'), findsOneWidget);
   });
 
   testWidgets('a store field still takes a name nobody has used before',
