@@ -297,6 +297,14 @@ class _ComboboxState extends State<Combobox> {
                 : ListView.builder(
                     primary: false,
                     shrinkWrap: true,
+                    // Zero, explicitly. A ListView takes its padding from the
+                    // ambient MediaQuery when it is not told otherwise, and
+                    // this one lives in an Overlay that still carries the
+                    // window's insets — so on a phone with a status bar and a
+                    // display cutout the list opened with roughly 150 logical
+                    // pixels of nothing above the first option. Invisible on a
+                    // desktop, which has no cutout to inherit.
+                    padding: EdgeInsets.zero,
                     itemCount: shown.length,
                     itemBuilder: (context, index) => InkWell(
                       // A tap, not a press-and-release on the option itself:

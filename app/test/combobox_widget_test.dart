@@ -142,4 +142,37 @@ void main() {
     // The shop you are standing in is more authoritative than the list.
     expect(committed, ['Corner Shop']);
   });
+  testWidgets('the list opens against its first option, not below the cutout',
+      (tester) async {
+    // A ListView inherits padding from the ambient MediaQuery unless told
+    // otherwise, and this one lives in an Overlay that still carries the
+    // window's insets. On a phone that meant ~150 logical pixels of nothing
+    // above the first option; on a desktop, with no cutout to inherit, it was
+    // invisible.
+    const cutout = EdgeInsets.only(top: 152);
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(padding: cutout, viewPadding: cutout),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Combobox(
+              controller: TextEditingController(),
+              options: const ['Highland', 'Provo'],
+              onCommit: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField));
+    await tester.pumpAndSettle();
+
+    final list = tester.getRect(find.byType(ListView).first);
+    final first = tester.getRect(find.text('Highland').first);
+    expect(
+      first.top - list.top,
+      lessThan(24),
+      reason: 'the first option should sit at the top of the list',
+    );
+  });
 }
