@@ -497,6 +497,51 @@ void main() {
     expect(find.widgetWithText(TextField, 'Groceries'), findsOneWidget);
   });
 
+  testWidgets('a bank amount carries its own tax, so none is added',
+      (tester) async {
+    // A statement gives one number per charge with the tax already inside it.
+    // Adding a rate on top invents money nobody was charged.
+    final fake = Fake();
+    await pump(tester, fake);
+
+    await tester.tap(find.widgetWithText(SegmentedButton<bool>, 'Bank'));
+    await tester.pumpAndSettle();
+    await enterAmount(tester, '13.59');
+
+    final sent = fake.previews.last.rows.single;
+    expect(sent.subtotal.value, 1359);
+    // Zero, not null: null means "work it out from the rate", which is the
+    // behaviour being switched off.
+    expect(sent.tax?.value, 0,
+        reason: 'a statement figure asserts there is nothing to add');
+  });
+
+  testWidgets('a receipt amount still leaves the tax to the rate',
+      (tester) async {
+    final fake = Fake();
+    await pump(tester, fake);
+    await enterAmount(tester, '13.59');
+
+    final sent = fake.previews.last.rows.single;
+    expect(sent.subtotal.value, 1359);
+    expect(sent.tax, isNull, reason: 'Receipt is still the default');
+  });
+
+  testWidgets('switching source re-previews rather than leaving stale tax',
+      (tester) async {
+    final fake = Fake();
+    await pump(tester, fake);
+    await enterAmount(tester, '13.59');
+    final int before = fake.previews.length;
+
+    await tester.tap(find.widgetWithText(SegmentedButton<bool>, 'Bank'));
+    await tester.pumpAndSettle();
+
+    expect(fake.previews.length, greaterThan(before),
+        reason: 'every amount on screen just changed meaning');
+    expect(fake.previews.last.rows.single.tax?.value, 0);
+  });
+
   testWidgets('a failed save says so and keeps the receipt', (tester) async {
     final fake = Fake()
       ..previewResult = ((draft) => preview(

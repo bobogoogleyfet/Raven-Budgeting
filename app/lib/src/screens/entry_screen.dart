@@ -115,6 +115,21 @@ class _EntryScreenState extends State<EntryScreen> {
   /// field appears, and the form is cleared in place rather than rebuilt.
   final FocusNode _dateFocus = FocusNode();
 
+  /// Whether the figures being typed come off a bank statement rather than a
+  /// receipt.
+  ///
+  /// A statement gives one number per charge with the tax already inside it,
+  /// and it never breaks that tax out. A receipt gives a pre-tax subtotal and
+  /// prints the tax separately. Adding a rate on top of a statement figure
+  /// invents money nobody was charged, which is the same mistake untaxed
+  /// categories exist to prevent — only here it is a property of the *source*
+  /// rather than of the category.
+  ///
+  /// Kept across saves on purpose: reconciling a statement means working
+  /// through a run of them, and re-picking the source for every line would be
+  /// the decision this form exists to remove.
+  bool _fromBank = false;
+
   String _date = today();
   List<CategoryDto> _categories = const [];
   List<String> _stores = const [];
@@ -254,7 +269,19 @@ class _EntryScreenState extends State<EntryScreen> {
         // $0.00 line would claim the user meant to file nothing under that
         // category.
         if (cents != null) {
-          rows.add(DraftRow(categoryId: row.categoryId, subtotal: cents));
+          rows.add(
+            DraftRow(
+              categoryId: row.categoryId,
+              subtotal: cents,
+              // Zero, not null. Null means "work it out from the rate"; zero
+              // says the tax is known to be nothing to add, which is what a
+              // statement figure asserts — the tax is real but already inside
+              // the number, so `subtotal + 0 = total` records the amount the
+              // bank actually took. It also keeps `taxIsEstimated` false,
+              // because nothing here was estimated.
+              tax: _fromBank ? zero : null,
+            ),
+          );
         }
       }
     } else {
@@ -397,6 +424,35 @@ class _EntryScreenState extends State<EntryScreen> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       children: [
         _Field(
+          label: 'From',
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.receipt_long_outlined),
+                  label: Text('Receipt'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.account_balance_outlined),
+                  label: Text('Bank'),
+                ),
+              ],
+              selected: {_fromBank},
+              showSelectedIcon: false,
+              onSelectionChanged: (picked) {
+                setState(() => _fromBank = picked.first);
+                // Every amount on screen just changed meaning, so the preview
+                // is re-run rather than left showing tax that is no longer
+                // being added.
+                _schedulePreview();
+              },
+            ),
+          ),
+        ),
+        _Field(
           label: 'Date',
           child: DateField(
             value: _date,
@@ -468,7 +524,12 @@ class _EntryScreenState extends State<EntryScreen> {
                   key: ObjectKey(_rows[i]),
                   row: _rows[i],
                   options: _availableTo(_rows[i]),
-                  ratePpm: _categoryRates[_rows[i].categoryId],
+                  // No rate is applied to a statement figure, so naming one
+                  // beside the category would promise arithmetic that is not
+                  // going to happen.
+                  ratePpm:
+                      _fromBank ? null : _categoryRates[_rows[i].categoryId],
+                  taxIncluded: _fromBank,
                   onCategory: (id) {
                     setState(() => _rows[i].categoryId = id);
                     _schedulePreview();
@@ -603,6 +664,7 @@ class _CategoryRow extends StatelessWidget {
     required this.row,
     required this.options,
     required this.ratePpm,
+    required this.taxIncluded,
     required this.onCategory,
     required this.onAmount,
     required this.onCategoryDone,
@@ -613,6 +675,9 @@ class _CategoryRow extends StatelessWidget {
   final _RowState row;
   final List<CategoryDto> options;
   final int? ratePpm;
+
+  /// The amount already contains its tax, so nothing is added to it.
+  final bool taxIncluded;
   final void Function(int? id) onCategory;
   final VoidCallback onAmount;
   final VoidCallback onCategoryDone;
@@ -660,7 +725,16 @@ class _CategoryRow extends StatelessWidget {
                 // The rate belongs beside the category that determines it, and
                 // shows as soon as one is picked: "what will this be taxed at"
                 // is a question about the category alone.
-                if (ratePpm != null)
+                if (taxIncluded)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, left: 4),
+                    child: Text(
+                      'tax included',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  )
+                else if (ratePpm != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 4, left: 4),
                     child: Text(
