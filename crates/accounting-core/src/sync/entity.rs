@@ -34,6 +34,25 @@ use rusqlite::types::{Value, ValueRef};
 use crate::db::Db;
 use crate::error::{CoreError, Result};
 
+/// A table that has no independent existence, carried inside its parent.
+///
+/// `txn_split` and `line_item` are not entities. The write path replaces a
+/// receipt by deleting its children and re-inserting them, and the schema's
+/// invariants are aggregate-level — splits summing to the total, line items
+/// summing to the split. Carrying them separately would let a merge take the
+/// splits from one device and the transaction from the other, producing a
+/// receipt whose parts do not add up: a state that was valid nowhere and that
+/// `db::check_all` exists to catch.
+pub struct ChildSpec {
+    /// The key its rows sit under in the parent's body.
+    pub key: &'static str,
+    pub table: &'static str,
+    /// The column pointing back at the parent's rowid.
+    pub parent: &'static str,
+    pub refs: &'static [(&'static str, &'static str)],
+    pub children: &'static [ChildSpec],
+}
+
 /// One kind of thing that syncs.
 pub struct EntitySpec {
     /// The name used in a bundle. Same as the table today; kept separate
@@ -42,7 +61,27 @@ pub struct EntitySpec {
     pub table: &'static str,
     /// `(column, entity it points at)`. Carried as `{column-minus-_id}_uuid`.
     pub refs: &'static [(&'static str, &'static str)],
+    /// Rows carried inside this one. Empty for everything but a receipt.
+    pub children: &'static [ChildSpec],
 }
+
+/// The line items inside one split.
+const LINE_ITEMS: &[ChildSpec] = &[ChildSpec {
+    key: "line_items",
+    table: "line_item",
+    parent: "split_id",
+    refs: &[("category_id", "category")],
+    children: &[],
+}];
+
+/// The splits inside one receipt.
+const SPLITS: &[ChildSpec] = &[ChildSpec {
+    key: "splits",
+    table: "txn_split",
+    parent: "txn_id",
+    refs: &[("category_id", "category")],
+    children: LINE_ITEMS,
+}];
 
 /// Every syncable kind, in dependency order.
 ///
@@ -58,16 +97,19 @@ pub const ENTITIES: &[EntitySpec] = &[
         name: "category_group",
         table: "category_group",
         refs: &[],
+        children: &[],
     },
     EntitySpec {
         name: "category",
         table: "category",
         refs: &[("group_id", "category_group")],
+        children: &[],
     },
     EntitySpec {
         name: "location",
         table: "location",
         refs: &[],
+        children: &[],
     },
     EntitySpec {
         name: "merchant",
@@ -76,26 +118,33 @@ pub const ENTITIES: &[EntitySpec] = &[
             ("default_category_id", "category"),
             ("default_location_id", "location"),
         ],
+        children: &[],
     },
     EntitySpec {
         name: "budget_line",
         table: "budget_line",
         refs: &[("category_id", "category")],
+        children: &[],
     },
     EntitySpec {
         name: "budget_adjustment",
         table: "budget_adjustment",
         refs: &[("category_id", "category")],
+        children: &[],
     },
     EntitySpec {
         name: "budget_contribution",
         table: "budget_contribution",
         refs: &[("category_id", "category")],
+        children: &[],
     },
     EntitySpec {
         name: "txn",
         table: "txn",
         refs: &[("merchant_id", "merchant"), ("location_id", "location")],
+        // The only aggregate. A receipt without its splits is a receipt whose
+        // parts do not add up.
+        children: SPLITS,
     },
 ];
 
@@ -158,6 +207,15 @@ pub fn read(db: &Db, spec: &EntitySpec, uuid: &str) -> Result<Option<serde_json:
         }
         body.insert(name.clone(), json_of(row.get_ref(i)?));
     }
+    drop(rows);
+
+    if !spec.children.is_empty() {
+        let id = rowid_of(db, spec.table, uuid)?
+            .ok_or_else(|| CoreError::Invalid(format!("{} {uuid} vanished mid-read", spec.name)))?;
+        for child in spec.children {
+            body.insert(child.key.to_string(), read_children(db, child, id)?);
+        }
+    }
     Ok(Some(serde_json::Value::Object(body)))
 }
 
@@ -185,6 +243,10 @@ pub fn write(
 
     for (key, value) in map {
         if key == "id" {
+            continue;
+        }
+        // Children are written after the parent exists, below.
+        if spec.children.iter().any(|c| c.key == key) {
             continue;
         }
         // A column this release does not have: a bundle from a newer app.
@@ -251,6 +313,17 @@ pub fn write(
     );
     db.conn()
         .execute(&sql, rusqlite::params_from_iter(values.iter()))?;
+
+    if !spec.children.is_empty() {
+        let parent = rowid_of(db, spec.table, uuid)?.ok_or_else(|| {
+            CoreError::Invalid(format!("{} {uuid} vanished mid-write", spec.name))
+        })?;
+        for child in spec.children {
+            if let Err(missing) = write_children(db, child, parent, map.get(child.key))? {
+                return Ok(Err(missing));
+            }
+        }
+    }
     Ok(Ok(()))
 }
 
@@ -344,4 +417,155 @@ pub fn local_hlc(db: &Db, entity: &str, uuid: &str) -> Result<Option<String>> {
         Some(row) => Some(row.get(0)?),
         None => None,
     })
+}
+
+/// Read one level of children, and their children, ordered so a re-insert
+/// preserves what the user saw.
+fn read_children(db: &Db, child: &ChildSpec, parent: i64) -> Result<serde_json::Value> {
+    let sql = format!(
+        "SELECT * FROM {} WHERE {} = ?1 ORDER BY sort_order, id",
+        child.table, child.parent
+    );
+    let mut stmt = db.conn().prepare(&sql)?;
+    let names: Vec<String> = stmt
+        .column_names()
+        .iter()
+        .map(|c| (*c).to_string())
+        .collect();
+
+    let mut out = Vec::new();
+    let mut ids = Vec::new();
+    let mut rows = stmt.query([parent])?;
+    while let Some(row) = rows.next()? {
+        let mut body = serde_json::Map::new();
+        let mut own_id = 0_i64;
+        for (i, name) in names.iter().enumerate() {
+            if name == "id" {
+                own_id = row.get(i)?;
+                continue;
+            }
+            // The parent is implied by nesting; carrying its rowid would be
+            // carrying a number that means nothing on the other device.
+            if name == child.parent {
+                continue;
+            }
+            if let Some((_, points_at)) = child.refs.iter().find(|(c, _)| c == name) {
+                let target: Option<i64> = row.get(i)?;
+                let as_uuid = match target {
+                    Some(id) => uuid_of(db, points_at, id)?,
+                    None => None,
+                };
+                body.insert(ref_key(name), json_of_opt_string(as_uuid));
+                continue;
+            }
+            body.insert(name.clone(), json_of(row.get_ref(i)?));
+        }
+        out.push(serde_json::Value::Object(body));
+        ids.push(own_id);
+    }
+    drop(rows);
+
+    for (body, id) in out.iter_mut().zip(ids) {
+        for grandchild in child.children {
+            if let Some(map) = body.as_object_mut() {
+                map.insert(
+                    grandchild.key.to_string(),
+                    read_children(db, grandchild, id)?,
+                );
+            }
+        }
+    }
+    Ok(serde_json::Value::Array(out))
+}
+
+/// Replace one level of children wholesale.
+///
+/// Delete and re-insert, exactly as `repo::transactions::save` does, and for
+/// the same reason: a diff leaves the aggregate half-replaced between
+/// statements, and nothing in the database can prove the diff was complete.
+fn write_children(
+    db: &Db,
+    child: &ChildSpec,
+    parent: i64,
+    rows: Option<&serde_json::Value>,
+) -> Result<std::result::Result<(), MissingRef>> {
+    db.conn().execute(
+        &format!("DELETE FROM {} WHERE {} = ?1", child.table, child.parent),
+        [parent],
+    )?;
+    let Some(items) = rows.and_then(|v| v.as_array()) else {
+        return Ok(Ok(()));
+    };
+
+    for item in items {
+        let Some(map) = item.as_object() else {
+            continue;
+        };
+        let known = columns(db, child.table)?;
+        let mut cols = vec![child.parent.to_string()];
+        let mut values = vec![Value::Integer(parent)];
+
+        for (key, value) in map {
+            if child.children.iter().any(|g| g.key == key) {
+                continue;
+            }
+            if let Some(column) = child
+                .refs
+                .iter()
+                .find(|(c, _)| &ref_key(c) == key)
+                .map(|(c, _)| *c)
+            {
+                let points_at = child
+                    .refs
+                    .iter()
+                    .find(|(c, _)| *c == column)
+                    .map(|(_, t)| *t)
+                    .unwrap_or_default();
+                let local = match value.as_str() {
+                    None => None,
+                    Some(target) => match rowid_of(db, points_at, target)? {
+                        Some(id) => Some(id),
+                        None => {
+                            return Ok(Err(MissingRef {
+                                entity: child.table.to_string(),
+                                uuid: map
+                                    .get("uuid")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_string(),
+                                wanted: (points_at.to_string(), target.to_string()),
+                            }));
+                        }
+                    },
+                };
+                cols.push(column.to_string());
+                values.push(local.map_or(Value::Null, Value::Integer));
+                continue;
+            }
+            if !known.contains(key) {
+                continue;
+            }
+            cols.push(key.clone());
+            values.push(sql_of(value));
+        }
+
+        let placeholders: Vec<String> = (1..=cols.len()).map(|i| format!("?{i}")).collect();
+        db.conn().execute(
+            &format!(
+                "INSERT INTO {} ({}) VALUES ({})",
+                child.table,
+                cols.join(", "),
+                placeholders.join(", ")
+            ),
+            rusqlite::params_from_iter(values.iter()),
+        )?;
+        let id = db.conn().last_insert_rowid();
+
+        for grandchild in child.children {
+            if let Err(missing) = write_children(db, grandchild, id, map.get(grandchild.key))? {
+                return Ok(Err(missing));
+            }
+        }
+    }
+    Ok(Ok(()))
 }

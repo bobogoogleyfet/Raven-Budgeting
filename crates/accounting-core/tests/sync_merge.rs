@@ -241,3 +241,109 @@ fn a_kind_from_a_newer_release_is_noticed_rather_than_silently_dropped() {
     let applied = merge::import(&phone, &out, 1_000).expect("import");
     assert_eq!(applied.unknown_kinds, vec!["invented_later".to_string()]);
 }
+
+#[test]
+fn a_receipt_arrives_with_its_splits_and_still_adds_up() {
+    // The aggregate is the unit, and the module docs have said so from the
+    // start — but reading only the `txn` row would send a receipt whose parts
+    // are missing. It would satisfy the row-local CHECK (subtotal + tax =
+    // total) and fail the aggregate invariant that no constraint can express,
+    // so the receipt would look fine and `db::check_all` would find it later.
+    use accounting_core::repo::{categories, transactions};
+    use common::{amounts, day, split, txn};
+
+    let laptop = seeded_db();
+    let phone = empty_db();
+
+    let groceries = categories::resolve(&laptop, "Groceries")
+        .expect("resolve")
+        .id;
+    let household = categories::resolve(&laptop, "Household")
+        .expect("resolve")
+        .id;
+    transactions::save(
+        &laptop,
+        &txn(
+            day("2026-08-20"),
+            amounts(5_000, 0),
+            vec![split(groceries, 3_000, 0), split(household, 2_000, 0)],
+        ),
+    )
+    .expect("save");
+
+    let applied = sync(&laptop, &phone, 1_000);
+    assert!(applied.deferred.is_empty(), "{:?}", applied.deferred);
+
+    let there = transactions::list(&phone, &accounting_core::TxnFilter::default()).expect("list");
+    assert_eq!(there.len(), 1, "the receipt should have arrived");
+    let receipt = &there[0];
+    assert_eq!(receipt.total.cents(), 5_000);
+    assert_eq!(receipt.splits.len(), 2, "with both of its splits");
+
+    let summed: i64 = receipt.splits.iter().map(|s| s.amount.cents()).sum();
+    assert_eq!(summed, 5_000, "and the parts must still add up");
+
+    // The invariant no SQLite constraint can express, checked the way the app
+    // checks it.
+    let violations = accounting_core::check_all(&phone).expect("check");
+    assert!(violations.is_empty(), "{violations:?}");
+
+    // And the splits point at the right categories, by uuid rather than by a
+    // rowid that means nothing here.
+    let names: Vec<&str> = receipt
+        .splits
+        .iter()
+        .map(|s| s.category_name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"Groceries") && names.contains(&"Household"),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn re_splitting_a_receipt_replaces_its_parts_rather_than_adding_to_them() {
+    // Children are replaced wholesale, as the write path does it. A merge that
+    // appended would double a receipt's splits on every exchange.
+    use accounting_core::repo::{categories, transactions};
+    use common::{amounts, day, split, txn};
+
+    let laptop = seeded_db();
+    let phone = empty_db();
+    let groceries = categories::resolve(&laptop, "Groceries")
+        .expect("resolve")
+        .id;
+    let household = categories::resolve(&laptop, "Household")
+        .expect("resolve")
+        .id;
+
+    let id = transactions::save(
+        &laptop,
+        &txn(
+            day("2026-08-20"),
+            amounts(5_000, 0),
+            vec![split(groceries, 3_000, 0), split(household, 2_000, 0)],
+        ),
+    )
+    .expect("save");
+    sync(&laptop, &phone, 1_000);
+
+    // Now it is all groceries.
+    let mut replaced = txn(
+        day("2026-08-20"),
+        amounts(5_000, 0),
+        vec![split(groceries, 5_000, 0)],
+    );
+    replaced.id = Some(id);
+    transactions::save(&laptop, &replaced).expect("re-split");
+    sync(&laptop, &phone, 2_000);
+
+    let there = transactions::list(&phone, &accounting_core::TxnFilter::default()).expect("list");
+    assert_eq!(there.len(), 1);
+    assert_eq!(there[0].splits.len(), 1, "replaced, not appended");
+    assert!(
+        accounting_core::check_all(&phone)
+            .expect("check")
+            .is_empty()
+    );
+}
