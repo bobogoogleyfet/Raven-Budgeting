@@ -1,5 +1,7 @@
 //! The expense list, its filter menus, and deleting a row.
 
+use chrono::NaiveDate;
+
 use accounting_core::repo::transactions::{self, TxnFilter, TxnSort};
 use accounting_core::{CategoryId, MerchantId, TxnId};
 
@@ -50,12 +52,16 @@ pub struct FilterValuesDto {
 /// expenses from the list itself. Two copies of this would drift the first time
 /// a filter was added to one of them.
 fn build_filter(
+    from: Option<String>,
+    to: Option<String>,
     category_ids: Option<Vec<i64>>,
     merchant_ids: Option<Vec<i64>>,
     include_no_merchant: Option<bool>,
     sort: Option<String>,
 ) -> Result<TxnFilter, String> {
     Ok(TxnFilter {
+        from: parse_bound(from)?,
+        to: parse_bound(to)?,
         category_ids: category_ids
             .unwrap_or_default()
             .into_iter()
@@ -86,6 +92,8 @@ fn build_filter(
 pub fn list_transactions(
     limit: u32,
     offset: Option<u32>,
+    from: Option<String>,
+    to: Option<String>,
     category_ids: Option<Vec<i64>>,
     merchant_ids: Option<Vec<i64>>,
     include_no_merchant: Option<bool>,
@@ -95,7 +103,7 @@ pub fn list_transactions(
         limit: Some(limit as usize),
         // Absent and zero are the same page, so the first page need not say so.
         offset: offset.map(|n| n as usize),
-        ..build_filter(category_ids, merchant_ids, include_no_merchant, sort)?
+        ..build_filter(from, to, category_ids, merchant_ids, include_no_merchant, sort)?
     };
 
     let db = db::locked()?;
@@ -128,6 +136,8 @@ pub struct TxnTotalsDto {
 
 /// Add up every expense the filter matches, however the list is paged.
 pub fn transaction_totals(
+    from: Option<String>,
+    to: Option<String>,
     category_ids: Option<Vec<i64>>,
     merchant_ids: Option<Vec<i64>>,
     include_no_merchant: Option<bool>,
@@ -135,7 +145,7 @@ pub fn transaction_totals(
     // Sort left at its default: the order of rows cannot change what they add
     // up to, and asking the screen for one it does not need would be a
     // parameter that could only ever be wrong.
-    let filter = build_filter(category_ids, merchant_ids, include_no_merchant, None)?;
+    let filter = build_filter(from, to, category_ids, merchant_ids, include_no_merchant, None)?;
 
     let db = db::locked()?;
     let totals = transactions::totals(&db, &filter).map_err(to_message)?;
@@ -184,6 +194,21 @@ pub(crate) fn summarise(txn: &transactions::Txn) -> TxnSummaryDto {
         needs_review: txn.needs_review,
         categories: txn.splits.iter().map(|s| s.category_name.clone()).collect(),
     }
+}
+
+/// One inclusive date bound, or `None` for no bound at all.
+///
+/// Refused rather than dropped when it is not a date: a range whose lower
+/// bound quietly vanished would answer a wider question than the one the
+/// screen is asking, and a list of the right shape is the kind of wrong nobody
+/// reports.
+fn parse_bound(value: Option<String>) -> Result<Option<NaiveDate>, String> {
+    value
+        .map(|v| {
+            v.parse::<NaiveDate>()
+                .map_err(|e| format!("{v} is not a YYYY-MM-DD date: {e}"))
+        })
+        .transpose()
 }
 
 /// The sort names the UI sends, which are the enum's own variants in the

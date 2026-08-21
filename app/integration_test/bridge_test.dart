@@ -114,6 +114,49 @@ void main() {
     );
   });
 
+  test('a date range narrows the list and its totals together', () async {
+    await openDatabase(appDataDir: dataDir.path);
+    await ensureLocation('Provo');
+    final groceries =
+        (await listCategories()).firstWhere((c) => c.name == 'Groceries');
+
+    Future<int> save(String date, int cents) => saveSubtotals(SubtotalDraft(
+          txnDate: date,
+          merchant: 'Ranges',
+          location: 'Provo',
+          rows: [DraftRow(categoryId: groceries.id, subtotal: fromCore(cents))],
+        ));
+
+    // The days either side of the month, and the days at its edges: the
+    // expense list is paged by month now, so an off-by-one at either bound
+    // moves a receipt into a month it does not belong to and takes its money
+    // with it.
+    final int july = await save('2026-07-31', 100);
+    final int first = await save('2026-08-01', 200);
+    final int last = await save('2026-08-31', 300);
+    final int september = await save('2026-09-01', 400);
+
+    const august = TxnQuery(limit: 500, from: '2026-08-01', to: '2026-08-31');
+    final rows = await listTransactions(august);
+    final ids = rows.map((r) => r.id).toList();
+    expect(ids, containsAll([first, last]), reason: 'both bounds inclusive');
+    expect(ids, isNot(contains(july)));
+    expect(ids, isNot(contains(september)));
+
+    // The bottom line is summed by the core over the same bounds, so it counts
+    // exactly what the list shows rather than the whole database.
+    final totals = await transactionTotals(august);
+    expect(totals.expenses, ids.length);
+
+    // A bound that is not a date is refused rather than dropped: a range whose
+    // lower bound quietly vanished would answer a wider question than the one
+    // on screen, and look right doing it.
+    await expectLater(
+      rust_txn.listTransactions(limit: 10, from: 'August'),
+      throwsA(anything),
+    );
+  });
+
   test('deleting an expense that is not there says so', () async {
     await openDatabase(appDataDir: dataDir.path);
 

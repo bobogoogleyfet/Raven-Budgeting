@@ -800,6 +800,8 @@ fn wire__crate__api__transactions__list_transactions_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_limit = <u32>::sse_decode(&mut deserializer);
             let api_offset = <Option<u32>>::sse_decode(&mut deserializer);
+            let api_from = <Option<String>>::sse_decode(&mut deserializer);
+            let api_to = <Option<String>>::sse_decode(&mut deserializer);
             let api_category_ids = <Option<Vec<i64>>>::sse_decode(&mut deserializer);
             let api_merchant_ids = <Option<Vec<i64>>>::sse_decode(&mut deserializer);
             let api_include_no_merchant = <Option<bool>>::sse_decode(&mut deserializer);
@@ -810,6 +812,8 @@ fn wire__crate__api__transactions__list_transactions_impl(
                     let output_ok = crate::api::transactions::list_transactions(
                         api_limit,
                         api_offset,
+                        api_from,
+                        api_to,
                         api_category_ids,
                         api_merchant_ids,
                         api_include_no_merchant,
@@ -1362,6 +1366,8 @@ fn wire__crate__api__transactions__transaction_totals_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_from = <Option<String>>::sse_decode(&mut deserializer);
+            let api_to = <Option<String>>::sse_decode(&mut deserializer);
             let api_category_ids = <Option<Vec<i64>>>::sse_decode(&mut deserializer);
             let api_merchant_ids = <Option<Vec<i64>>>::sse_decode(&mut deserializer);
             let api_include_no_merchant = <Option<bool>>::sse_decode(&mut deserializer);
@@ -1369,6 +1375,8 @@ fn wire__crate__api__transactions__transaction_totals_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::transactions::transaction_totals(
+                        api_from,
+                        api_to,
                         api_category_ids,
                         api_merchant_ids,
                         api_include_no_merchant,

@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `build_filter`, `parse_sort`, `summarise`
+// These functions are ignored because they are not marked as `pub`: `build_filter`, `parse_bound`, `parse_sort`, `summarise`
 
 /// One page of the expense list.
 ///
@@ -23,6 +23,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<List<TxnSummaryDto>> listTransactions({
   required int limit,
   int? offset,
+  String? from,
+  String? to,
   Int64List? categoryIds,
   Int64List? merchantIds,
   bool? includeNoMerchant,
@@ -30,6 +32,8 @@ Future<List<TxnSummaryDto>> listTransactions({
 }) => RustLib.instance.api.crateApiTransactionsListTransactions(
   limit: limit,
   offset: offset,
+  from: from,
+  to: to,
   categoryIds: categoryIds,
   merchantIds: merchantIds,
   includeNoMerchant: includeNoMerchant,
@@ -38,10 +42,14 @@ Future<List<TxnSummaryDto>> listTransactions({
 
 /// Add up every expense the filter matches, however the list is paged.
 Future<TxnTotalsDto> transactionTotals({
+  String? from,
+  String? to,
   Int64List? categoryIds,
   Int64List? merchantIds,
   bool? includeNoMerchant,
 }) => RustLib.instance.api.crateApiTransactionsTransactionTotals(
+  from: from,
+  to: to,
   categoryIds: categoryIds,
   merchantIds: merchantIds,
   includeNoMerchant: includeNoMerchant,

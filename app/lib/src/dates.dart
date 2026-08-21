@@ -23,6 +23,35 @@ String today([DateTime? now]) {
 /// The current `YYYY-MM`, in the user's own timezone.
 String thisMonth([DateTime? now]) => today(now).substring(0, 7);
 
+/// The month [count] months away from `YYYY-MM`, rolling the year.
+///
+/// `DateTime` does the rolling: December plus one is month 13, which the
+/// constructor normalises to January of the next year. Doing that arithmetic by
+/// hand is how a screen ends up offering `2026-13`, which is a month the core
+/// will refuse and the reader cannot get out of.
+String addMonths(String yearMonth, int count) {
+  final List<String> parts = yearMonth.split('-');
+  return thisMonth(DateTime(int.parse(parts[0]), int.parse(parts[1]) + count));
+}
+
+/// A month's first and last day, as the inclusive `YYYY-MM-DD` bounds a date
+/// filter takes.
+///
+/// The end is day zero of the *next* month, which `DateTime` normalises to the
+/// last day of this one — so February, and the leap year rule, are answered by
+/// the calendar rather than by a table of month lengths copied into a screen.
+/// Getting that end wrong drops the last receipt of the month out of a total
+/// that still calls itself the month's.
+({String from, String to}) monthRange(String yearMonth) {
+  final List<String> parts = yearMonth.split('-');
+  final int year = int.parse(parts[0]);
+  final int month = int.parse(parts[1]);
+  return (
+    from: today(DateTime(year, month, 1)),
+    to: today(DateTime(year, month + 1, 0)),
+  );
+}
+
 /// Assemble typed segments into `YYYY-MM-DD`, or `null` if they are not a real
 /// date.
 ///

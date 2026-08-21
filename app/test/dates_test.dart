@@ -51,4 +51,27 @@ void main() {
     expect(fromIso('nope'), (month: '', day: '', year: ''));
     expect(fromIso('2026-8-20'), (month: '', day: '', year: ''));
   });
+
+  test('stepping a month rolls the year at both ends', () {
+    expect(addMonths('2026-08', 1), '2026-09');
+    expect(addMonths('2026-12', 1), '2027-01');
+    expect(addMonths('2026-01', -1), '2025-12');
+    // Month zero and month thirteen are not months, and a screen that offered
+    // one would be asking the core for a range it refuses.
+    expect(addMonths('2026-08', -12), '2025-08');
+  });
+
+  test('a month ends on the day it ends on', () {
+    expect(monthRange('2026-08'), (from: '2026-08-01', to: '2026-08-31'));
+    expect(monthRange('2026-09'), (from: '2026-09-01', to: '2026-09-30'));
+    // February is the whole reason this is the calendar's arithmetic and not a
+    // table: an end of the 28th drops a leap day out of a total that still
+    // calls itself February's.
+    expect(monthRange('2026-02'), (from: '2026-02-01', to: '2026-02-28'));
+    expect(monthRange('2028-02'), (from: '2028-02-01', to: '2028-02-29'));
+  });
+
+  test('a month label reads as a person would say it', () {
+    expect(monthLabel('2026-08'), 'August 2026');
+  });
 }

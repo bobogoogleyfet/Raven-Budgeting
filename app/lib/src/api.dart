@@ -177,6 +177,8 @@ class TxnQuery {
   const TxnQuery({
     required this.limit,
     this.offset = 0,
+    this.from,
+    this.to,
     this.categoryIds,
     this.merchantIds,
     this.includeNoMerchant = false,
@@ -192,6 +194,14 @@ class TxnQuery {
   /// here, so the app never holds a table it is not showing.
   final int offset;
 
+  /// Inclusive `YYYY-MM-DD` bounds on the expense date, or `null` for no bound.
+  ///
+  /// Sent as the core formats dates rather than as a `DateTime`: the core's
+  /// dates carry no timezone, and handing this layer one is how an expense
+  /// entered at 8pm ends up in the next month's range.
+  final String? from;
+  final String? to;
+
   final List<int>? categoryIds;
   final List<int>? merchantIds;
   final bool includeNoMerchant;
@@ -201,6 +211,8 @@ class TxnQuery {
   TxnQuery atOffset(int offset) => TxnQuery(
         limit: limit,
         offset: offset,
+        from: from,
+        to: to,
         categoryIds: categoryIds,
         merchantIds: merchantIds,
         includeNoMerchant: includeNoMerchant,
@@ -249,6 +261,8 @@ Future<List<TxnSummary>> listTransactions(TxnQuery query) async {
   final rows = await rust_txn.listTransactions(
     limit: query.limit,
     offset: query.offset,
+    from: query.from,
+    to: query.to,
     categoryIds: _ids(query.categoryIds),
     merchantIds: _ids(query.merchantIds),
     includeNoMerchant: query.includeNoMerchant,
@@ -272,12 +286,17 @@ Future<List<TxnSummary>> listTransactions(TxnQuery query) async {
 /// Add up every expense a filter matches, however the list is paged.
 ///
 /// `limit` and `offset` are deliberately not sent: a page total would change
-/// under a reader who only pressed Next. Summed in the core, from the same
+/// under a reader who only pressed Next. The date bounds *are* sent — they are
+/// what the list is narrowed to, not how much of it is on screen, so a total
+/// that ignored them would describe a different set of expenses from the rows
+/// above it. Summed in the core, from the same
 /// filter the list is built from, so the row of totals can never describe a
 /// different set from the rows above it. Not here — [Cents] makes arithmetic a
 /// compile error on purpose, so a total is never a figure this layer invented.
 Future<TxnTotals> transactionTotals(TxnQuery query) async {
   final t = await rust_txn.transactionTotals(
+    from: query.from,
+    to: query.to,
     categoryIds: _ids(query.categoryIds),
     merchantIds: _ids(query.merchantIds),
     includeNoMerchant: query.includeNoMerchant,

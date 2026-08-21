@@ -159,6 +159,8 @@ abstract class RustLibApi extends BaseApi {
   Future<List<TxnSummaryDto>> crateApiTransactionsListTransactions({
     required int limit,
     int? offset,
+    String? from,
+    String? to,
     Int64List? categoryIds,
     Int64List? merchantIds,
     bool? includeNoMerchant,
@@ -224,6 +226,8 @@ abstract class RustLibApi extends BaseApi {
   PlatformInt64 crateApiEntryTotalOf({required Int64List parts});
 
   Future<TxnTotalsDto> crateApiTransactionsTransactionTotals({
+    String? from,
+    String? to,
     Int64List? categoryIds,
     Int64List? merchantIds,
     bool? includeNoMerchant,
@@ -895,6 +899,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<List<TxnSummaryDto>> crateApiTransactionsListTransactions({
     required int limit,
     int? offset,
+    String? from,
+    String? to,
     Int64List? categoryIds,
     Int64List? merchantIds,
     bool? includeNoMerchant,
@@ -906,6 +912,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_u_32(limit, serializer);
           sse_encode_opt_box_autoadd_u_32(offset, serializer);
+          sse_encode_opt_String(from, serializer);
+          sse_encode_opt_String(to, serializer);
           sse_encode_opt_list_prim_i_64_strict(categoryIds, serializer);
           sse_encode_opt_list_prim_i_64_strict(merchantIds, serializer);
           sse_encode_opt_box_autoadd_bool(includeNoMerchant, serializer);
@@ -925,6 +933,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         argValues: [
           limit,
           offset,
+          from,
+          to,
           categoryIds,
           merchantIds,
           includeNoMerchant,
@@ -941,6 +951,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         argNames: [
           "limit",
           "offset",
+          "from",
+          "to",
           "categoryIds",
           "merchantIds",
           "includeNoMerchant",
@@ -1434,6 +1446,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<TxnTotalsDto> crateApiTransactionsTransactionTotals({
+    String? from,
+    String? to,
     Int64List? categoryIds,
     Int64List? merchantIds,
     bool? includeNoMerchant,
@@ -1442,6 +1456,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_opt_String(from, serializer);
+          sse_encode_opt_String(to, serializer);
           sse_encode_opt_list_prim_i_64_strict(categoryIds, serializer);
           sse_encode_opt_list_prim_i_64_strict(merchantIds, serializer);
           sse_encode_opt_box_autoadd_bool(includeNoMerchant, serializer);
@@ -1457,7 +1473,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiTransactionsTransactionTotalsConstMeta,
-        argValues: [categoryIds, merchantIds, includeNoMerchant],
+        argValues: [from, to, categoryIds, merchantIds, includeNoMerchant],
         apiImpl: this,
       ),
     );
@@ -1466,7 +1482,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiTransactionsTransactionTotalsConstMeta =>
       const TaskConstMeta(
         debugName: "transaction_totals",
-        argNames: ["categoryIds", "merchantIds", "includeNoMerchant"],
+        argNames: [
+          "from",
+          "to",
+          "categoryIds",
+          "merchantIds",
+          "includeNoMerchant",
+        ],
       );
 
   @protected

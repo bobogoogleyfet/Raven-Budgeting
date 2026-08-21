@@ -137,13 +137,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
   }
 
   void _step(int months) {
-    final parts = _month.split('-');
-    final DateTime moved = DateTime(
-      int.parse(parts[0]),
-      int.parse(parts[1]) + months,
-    );
     setState(() {
-      _month = thisMonth(moved);
+      // The rolling lives in `dates.dart`, so this screen and the expense list
+      // step months by the same arithmetic rather than by two copies of it.
+      _month = addMonths(_month, months);
       _rows = widget.load(_month);
       _totals = widget.loadTotals(_month);
       _note = null;

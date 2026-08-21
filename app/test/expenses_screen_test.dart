@@ -1,6 +1,7 @@
 import 'package:app/src/api.dart';
 import 'package:app/src/money.dart';
 import 'package:app/src/screens/expenses_screen.dart';
+import 'package:app/src/shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -34,13 +35,14 @@ const FilterValues someValues = FilterValues(
   anyWithoutMerchant: false,
 );
 
-/// A whole table of expenses, paged by the harness the way the core pages it.
+/// A month's worth of expenses, all on the same day.
 ///
-/// Built as one list rather than per-page fixtures so the tests can assert that
-/// a page is a window onto a stable order — the property paging exists to have.
-List<TxnSummary> manyExpenses(int n) => [
+/// Built as one list rather than per-screen fixtures so a test can assert that
+/// the whole month is on screen — the property the month control exists to
+/// have, now that nothing else pages the list.
+List<TxnSummary> manyExpenses(int n, {String date = '2026-08-18'}) => [
       for (int i = 1; i <= n; i++)
-        expense(i, merchant: 'Shop $i', total: i * 100),
+        expense(i, merchant: 'Shop $i', total: i * 100, date: date),
     ];
 
 class Harness {
@@ -63,28 +65,40 @@ class Harness {
   final List<int> deleted = [];
   int filterValueLoads = 0;
 
-  /// Slices [rows] the way SQL would, so `limit`/`offset` are exercised rather
-  /// than assumed: a screen that asked for the right page and then rendered the
-  /// wrong one would still pass a stub that ignored them.
+  /// The rows the query's date range actually asks for.
+  ///
+  /// ISO dates compare as strings exactly as they compare as dates, which is
+  /// the whole reason the core stores them that way. Applied here rather than
+  /// ignored so a screen that asked for the right month and rendered another
+  /// fails, instead of passing against a stub that never looked at the bounds.
+  List<TxnSummary> within(TxnQuery query) => rows
+      .where((r) =>
+          (query.from == null || r.txnDate.compareTo(query.from!) >= 0) &&
+          (query.to == null || r.txnDate.compareTo(query.to!) <= 0))
+      .toList();
+
+  /// Slices the matching rows the way SQL would, so `limit` is exercised
+  /// rather than assumed: a screen that rendered more rows than it asked for
+  /// would still pass a stub that ignored it.
   Future<List<TxnSummary>> load(TxnQuery query) async {
     queries.add(query);
     if (loadFails) throw Exception('the database is not open yet');
-    if (query.offset >= rows.length) return const [];
-    final int end = query.offset + query.limit;
-    return rows.sublist(query.offset, end > rows.length ? rows.length : end);
+    return within(query).skip(query.offset).take(query.limit).toList();
   }
 
-  /// Deliberately ignores `limit` and `offset`, exactly as the core does. The
-  /// totals row is the whole filtered set, and a stub that paged them would
-  /// hide the bug where the screen expects a page total.
+  /// Deliberately ignores `limit` and `offset`, exactly as the core does, and
+  /// deliberately honours the date range, exactly as the core does. The totals
+  /// row is the whole month, not the rows drawn, and a stub that confused the
+  /// two would hide both bugs.
   Future<TxnTotals> loadTotals(TxnQuery query) async {
     totalsQueries.add(query);
     if (totalsFail) throw Exception('the database is not open yet');
+    final int n = within(query).length;
     return TxnTotals(
-      subtotal: fromCore(rows.length * 100),
-      tax: fromCore(rows.length * 7),
-      total: fromCore(rows.length * 107),
-      expenses: rows.length,
+      subtotal: fromCore(n * 100),
+      tax: fromCore(n * 7),
+      total: fromCore(n * 107),
+      expenses: n,
     );
   }
 
@@ -102,8 +116,19 @@ class Harness {
   TxnQuery get lastQuery => queries.last;
 }
 
-Future<void> pump(WidgetTester tester, Harness harness,
-    {double width = 1000}) async {
+/// The month every fixture sits in.
+///
+/// Pinned rather than left to the clock: a screen that opens on the real
+/// current month would make every assertion here expire, and the failure would
+/// arrive one September morning with nothing to blame it on.
+const String pinnedMonth = '2026-08';
+
+Future<void> pump(
+  WidgetTester tester,
+  Harness harness, {
+  double width = 1000,
+  String month = pinnedMonth,
+}) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -116,7 +141,38 @@ Future<void> pump(WidgetTester tester, Harness harness,
           loadTotals: harness.loadTotals,
           loadFilterValues: harness.loadValues,
           delete: harness.delete,
+          month: month,
         ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+/// The expense list inside the real navigation shell, which is where the
+/// floating button that used to sit on top of its totals comes from.
+Future<void> pumpInShell(
+  WidgetTester tester,
+  Harness harness, {
+  required double width,
+}) async {
+  tester.view.physicalSize = Size(width, 900);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: AppShell(
+        // Every destination draws the expense list: what is under test is the
+        // chrome the shell puts around it, not which destination is selected.
+        screenBuilder: (context, destination) => ExpensesScreen(
+          load: harness.load,
+          loadTotals: harness.loadTotals,
+          loadFilterValues: harness.loadValues,
+          delete: harness.delete,
+          month: pinnedMonth,
+        ),
+        onNewExpense: (context) {},
       ),
     ),
   );
@@ -134,8 +190,9 @@ void main() {
     await pump(tester, harness);
 
     expect(harness.lastQuery.sort, TxnSort.dateDesc);
-    expect(harness.lastQuery.limit, 50);
-    expect(harness.lastQuery.offset, 0);
+    // The month is the whole of the range asked for, inclusive at both ends.
+    expect(harness.lastQuery.from, '2026-08-01');
+    expect(harness.lastQuery.to, '2026-08-31');
     expect(find.text("Macey's"), findsOneWidget);
     expect(find.text(r'$118.40'), findsOneWidget);
   });
@@ -190,7 +247,10 @@ void main() {
     // The core reads an empty filter set as "no filter", so a hide-all that
     // was sent would show the whole table — the opposite of itself.
     expect(harness.queries.length, before);
-    expect(find.text('No expenses match those filters.'), findsOneWidget);
+    expect(
+      find.text('No expenses match those filters in August 2026.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('show all puts the filter back to untouched', (tester) async {
@@ -236,13 +296,16 @@ void main() {
     expect(find.text('—'), findsOneWidget);
   });
 
-  testWidgets('an empty database says so differently from an empty filter',
+  testWidgets('an empty month says so differently from an empty filter',
       (tester) async {
     final harness = Harness();
     await pump(tester, harness);
 
-    expect(find.textContaining('No expenses yet'), findsOneWidget);
-    expect(find.text('No expenses match those filters.'), findsNothing);
+    expect(find.text('Nothing recorded in August 2026.'), findsOneWidget);
+    expect(
+      find.text('No expenses match those filters in August 2026.'),
+      findsNothing,
+    );
   });
 
   testWidgets('a failed load keeps the rows that were there', (tester) async {
@@ -321,7 +384,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(harness.queries.length, greaterThan(loadsBefore));
-    expect(find.textContaining('No expenses yet'), findsOneWidget);
+    expect(find.text('Nothing recorded in August 2026.'), findsOneWidget);
   });
 
   testWidgets('a failed delete says so and keeps the row', (tester) async {
@@ -337,125 +400,158 @@ void main() {
     expect(find.text("Macey's"), findsOneWidget);
   });
 
-  testWidgets('a page is fifty rows, and Next asks for the next fifty',
+  testWidgets('the month is the paging: all of it is on screen at once',
       (tester) async {
     final harness = Harness(rows: manyExpenses(120));
     await pump(tester, harness);
 
-    expect(find.text('Showing 1\u201350 of 120'), findsOneWidget);
-
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
-    await tester.pumpAndSettle();
-
-    expect(harness.lastQuery.offset, 50);
-    expect(harness.lastQuery.limit, 50);
-    expect(find.text('Showing 51\u2013100 of 120'), findsOneWidget);
-
-    // The last page is what is left of one, not a full one padded out.
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
-    await tester.pumpAndSettle();
-    expect(find.text('Showing 101\u2013120 of 120'), findsOneWidget);
+    // No page controls left to press, and no offset asked for: what used to be
+    // "the next fifty" is now "the next month".
+    expect(harness.lastQuery.offset, 0);
+    expect(find.textContaining('Showing'), findsNothing);
+    expect(find.text('Total of all 120 expenses in August 2026'), findsOneWidget);
   });
 
-  testWidgets('page two does not repeat page one', (tester) async {
-    final harness = Harness(rows: manyExpenses(120));
+  testWidgets('stepping back asks for the previous month', (tester) async {
+    final harness = Harness(rows: [
+      expense(1, date: '2026-08-18'),
+      expense(2, merchant: 'Chevron', date: '2026-07-04'),
+    ]);
     await pump(tester, harness);
-    expect(find.text('Shop 1'), findsOneWidget);
+    expect(find.text('August 2026'), findsOneWidget);
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.tap(find.byTooltip('Previous month'));
     await tester.pumpAndSettle();
 
-    // The offset is the whole of the mechanism, and an off-by-one in it shows
-    // one receipt twice and hides another for good — the reader has no way to
-    // notice, because both pages still look like pages.
-    expect(find.text('Shop 1'), findsNothing);
-    expect(find.text('Shop 51'), findsOneWidget);
+    expect(harness.lastQuery.from, '2026-07-01');
+    expect(harness.lastQuery.to, '2026-07-31');
+    expect(find.text('July 2026'), findsOneWidget);
+    // And the bounds are what decides the rows, not the label over them.
+    expect(find.text('Chevron'), findsOneWidget);
+    expect(find.text("Macey's"), findsNothing);
+
+    await tester.tap(find.byTooltip('Next month'));
+    await tester.pumpAndSettle();
+    expect(harness.lastQuery.from, '2026-08-01');
+    expect(find.text("Macey's"), findsOneWidget);
   });
 
-  testWidgets('the ends of the list disable the control that would leave them',
+  testWidgets('stepping past January rolls the year', (tester) async {
+    final harness = Harness(rows: [expense(1)]);
+    await pump(tester, harness, month: '2026-01');
+
+    await tester.tap(find.byTooltip('Previous month'));
+    await tester.pumpAndSettle();
+
+    // Month zero is not a month. The rolling is the calendar's, so the reader
+    // cannot step into a range the core would refuse.
+    expect(find.text('December 2025'), findsOneWidget);
+    expect(harness.lastQuery.from, '2025-12-01');
+    expect(harness.lastQuery.to, '2025-12-31');
+  });
+
+  testWidgets('a short month ends on the day it ends on', (tester) async {
+    final harness = Harness(rows: [expense(1, date: '2028-02-29')]);
+    await pump(tester, harness, month: '2028-02');
+
+    // A leap day is exactly the receipt a hardcoded 28 or 30 would drop out of
+    // a total still calling itself February's.
+    expect(harness.lastQuery.to, '2028-02-29');
+    expect(find.text('Total of 1 expense in February 2028'), findsOneWidget);
+  });
+
+  testWidgets('the month steps in both directions, however empty',
       (tester) async {
-    final harness = Harness(rows: manyExpenses(60));
+    final harness = Harness();
     await pump(tester, harness);
 
+    // Unlike the pager it replaced, neither control is ever a dead end: there
+    // is always a month before and after this one, and a disabled arrow would
+    // strand a reader in an empty month.
     IconButton button(IconData icon) =>
         tester.widget<IconButton>(find.widgetWithIcon(IconButton, icon));
-
-    // Disabled rather than hidden: a control that vanishes moves the one next
-    // to it under a pointer that was aiming at something else.
-    expect(button(Icons.chevron_left).onPressed, isNull);
-    expect(button(Icons.chevron_right).onPressed, isNotNull);
-
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
-    await tester.pumpAndSettle();
-
     expect(button(Icons.chevron_left).onPressed, isNotNull);
-    expect(button(Icons.chevron_right).onPressed, isNull);
+    expect(button(Icons.chevron_right).onPressed, isNotNull);
   });
 
-  testWidgets('the totals row adds up the whole filter, not the page shown',
+  testWidgets('a month too big to draw says so rather than truncating quietly',
       (tester) async {
-    final harness = Harness(rows: manyExpenses(120));
+    final harness = Harness(rows: manyExpenses(600));
     await pump(tester, harness);
 
-    // 120 expenses, of which only 50 are on screen. The useful number is what
-    // the filter comes to, and a total that changed every time the reader
-    // pressed Next would read as an arithmetic bug rather than as a page.
-    expect(find.text('Total of all 120 expenses'), findsOneWidget);
-    expect(find.text(r'$128.40'), findsOneWidget);
-
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Total of all 120 expenses'), findsOneWidget);
-    expect(find.text(r'$128.40'), findsOneWidget);
-    // And the core is asked for the whole set, never for a page of it: the
-    // screen must not be able to sum a page even by accident.
-    expect(harness.totalsQueries, isNotEmpty);
+    expect(harness.lastQuery.limit, 500);
+    expect(
+      find.text('Showing the first 500 of 600 expenses in August 2026.'),
+      findsOneWidget,
+    );
+    // The bottom line still covers the month, which is exactly why the line
+    // above it has to exist: the rows and the figure disagree, and the screen
+    // is the only thing that can say why.
+    expect(find.text('Total of all 600 expenses in August 2026'), findsOneWidget);
   });
 
-  testWidgets('changing a filter goes back to the first page', (tester) async {
-    final harness = Harness(rows: manyExpenses(120));
+  testWidgets('the totals row covers the month, not the whole database',
+      (tester) async {
+    final harness = Harness(rows: [
+      ...manyExpenses(3),
+      expense(90, date: '2026-07-31'),
+      expense(91, date: '2026-09-01'),
+    ]);
     await pump(tester, harness);
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    // The day either side of the month is the whole test: an off-by-one at
+    // either bound puts a receipt in a month it does not belong to, and the
+    // reader has no way to see that it did.
+    expect(find.text('Total of all 3 expenses in August 2026'), findsOneWidget);
+    expect(find.text(r'$3.21'), findsOneWidget);
+    expect(harness.totalsQueries.last.from, '2026-08-01');
+    expect(harness.totalsQueries.last.to, '2026-08-31');
+
+    await tester.tap(find.byTooltip('Previous month'));
     await tester.pumpAndSettle();
-    expect(harness.lastQuery.offset, 50);
+
+    expect(find.text('Total of 1 expense in July 2026'), findsOneWidget);
+  });
+
+  testWidgets('changing a filter keeps the month it was changed in',
+      (tester) async {
+    final harness = Harness(rows: manyExpenses(3));
+    await pump(tester, harness);
+
+    await tester.tap(find.byTooltip('Previous month'));
+    await tester.pumpAndSettle();
 
     await openMenu(tester, 'Store');
     await tester.tap(find.text('Chevron'));
     await tester.pumpAndSettle();
 
-    // Otherwise a narrowed filter lands on a page past the end of its own
-    // result: an empty screen that is indistinguishable from a filter that
-    // matched nothing.
-    expect(harness.lastQuery.offset, 0);
+    // Narrowing to one shop is not a reason to be thrown back to today:
+    // comparing two shops over a month would otherwise be impossible.
+    expect(harness.lastQuery.from, '2026-07-01');
     expect(harness.lastQuery.merchantIds, [2]);
+    expect(find.text('July 2026'), findsOneWidget);
   });
 
-  testWidgets('flipping the sort goes back to the first page', (tester) async {
-    final harness = Harness(rows: manyExpenses(120));
+  testWidgets('flipping the sort keeps the month too', (tester) async {
+    final harness = Harness(rows: manyExpenses(3));
     await pump(tester, harness);
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+    await tester.tap(find.byTooltip('Previous month'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Date'));
     await tester.pumpAndSettle();
 
-    // Page 2 of newest-first and page 2 of oldest-first hold different
-    // receipts. Staying put would look like the sort had scrambled the list.
-    expect(harness.lastQuery.offset, 0);
     expect(harness.lastQuery.sort, TxnSort.dateAsc);
+    expect(harness.lastQuery.from, '2026-07-01');
   });
 
-  testWidgets('an empty result has no pager and no row of zeroes',
-      (tester) async {
+  testWidgets('an empty month has no row of zeroes', (tester) async {
     final harness = Harness();
     await pump(tester, harness);
 
-    expect(find.widgetWithIcon(IconButton, Icons.chevron_right), findsNothing);
-    expect(find.textContaining('Showing'), findsNothing);
-    // A total of $0.00 under "no expenses yet" is the same news twice.
+    // A total of \$0.00 under "nothing recorded" is the same news twice.
     expect(find.textContaining('Total of'), findsNothing);
+    expect(find.byKey(const Key('expense-totals')), findsNothing);
   });
 
   testWidgets('deleting refreshes the bottom line without reloading the page',
@@ -476,7 +572,7 @@ void main() {
     // moment of loading.
     expect(harness.queries.length, listLoads);
     expect(harness.totalsQueries.length, greaterThan(totalsLoads));
-    expect(find.text('Total of all 2 expenses'), findsOneWidget);
+    expect(find.text('Total of all 2 expenses in August 2026'), findsOneWidget);
   });
 
   testWidgets('a phone gets a list rather than a table', (tester) async {
@@ -487,5 +583,69 @@ void main() {
     expect(find.text("Macey's"), findsOneWidget);
     // The date moves under the store rather than into a column of its own.
     expect(find.textContaining('2026-08-18'), findsOneWidget);
+  });
+
+  testWidgets('the new-expense button does not sit on the bottom line',
+      (tester) async {
+    final harness = Harness(rows: [expense(1)]);
+    await pumpInShell(tester, harness, width: 1400);
+
+    // The complaint itself, in rectangles: at desktop widths the shell floats
+    // an extended button over the content, and it landed on the one row of the
+    // screen that cannot be scrolled out from under it.
+    final Rect fab = tester.getRect(find.byType(FloatingActionButton));
+    final Rect totals = tester.getRect(find.byKey(const Key('expense-totals')));
+    expect(fab.overlaps(totals), isFalse);
+    // And the month control at the other end of the screen is no nearer it.
+    expect(
+      fab.overlaps(tester.getRect(find.text('August 2026'))),
+      isFalse,
+    );
+  });
+
+  testWidgets("a phone's bottom line is clear of its button as well",
+      (tester) async {
+    final harness = Harness(rows: [expense(1)]);
+    await pumpInShell(tester, harness, width: 400);
+
+    // The report was about desktop, but the round button covers the money
+    // column of a phone's totals row for the same reason and by 48 of the 64
+    // pixels it is tall.
+    final Rect fab = tester.getRect(find.byType(FloatingActionButton));
+    final Rect totals = tester.getRect(find.byKey(const Key('expense-totals')));
+    expect(fab.overlaps(totals), isFalse);
+    // Whole rather than clipped, and with the money still readable: reserving
+    // space is only a fix if the row it protects survives it.
+    expect(totals.bottom, lessThanOrEqualTo(tester.view.physicalSize.height));
+    expect(find.text(r'$1.07'), findsOneWidget);
+  });
+
+  testWidgets('the space kept for the button is where the button is',
+      (tester) async {
+    final harness = Harness(rows: [expense(1)]);
+
+    // Not a margin under the table: the strip exists because something is
+    // drawn in it, and a gap the button did not fill would be one the reader
+    // is right to read as a mistake.
+    for (final double width in [400.0, 1400.0]) {
+      await pumpInShell(tester, harness, width: width);
+      final Rect fab = tester.getRect(find.byType(FloatingActionButton));
+      final Rect totals =
+          tester.getRect(find.byKey(const Key('expense-totals')));
+      expect(fab.top, greaterThanOrEqualTo(totals.bottom));
+    }
+  });
+
+  testWidgets('a rail keeps the button, so nothing is reserved under the list',
+      (tester) async {
+    final harness = Harness(rows: [expense(1)]);
+    await pumpInShell(tester, harness, width: 700);
+
+    // At medium widths the button is in the navigation rail. Reserving space
+    // for it at the bottom of this screen would be a strip of nothing.
+    final Rect fab = tester.getRect(find.byType(FloatingActionButton));
+    final Rect totals = tester.getRect(find.byKey(const Key('expense-totals')));
+    expect(fab.overlaps(totals), isFalse);
+    expect(totals.bottom, tester.view.physicalSize.height);
   });
 }
