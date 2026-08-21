@@ -347,3 +347,35 @@ fn re_splitting_a_receipt_replaces_its_parts_rather_than_adding_to_them() {
             .is_empty()
     );
 }
+
+#[test]
+fn re_importing_your_own_bundle_does_not_make_you_your_own_peer() {
+    // An ordinary thing to do: check the file opened, or recover after a copy
+    // that failed halfway. The damage would be silent and total — this device
+    // would appear in its own peer list, `default_peer` would start returning
+    // its own name, and export skips changes authored by the peer it is
+    // addressing. Every later bundle would be empty and sync would look like
+    // it was working.
+    use accounting_core::sync::merge;
+
+    let laptop = seeded_db();
+    let mine = device::id(&laptop).expect("id");
+    let out = merge::export(&laptop, "somebody-else", 1_000).expect("export");
+
+    let applied = merge::import(&laptop, &out, 1_100).expect("import our own");
+    assert_eq!(applied.applied, 0, "we already have all of it");
+
+    let peers = merge::peers(&laptop).expect("peers");
+    assert!(
+        !peers.contains(&mine),
+        "this device must not be its own peer: {peers:?}"
+    );
+
+    // And a bundle for a real peer still carries everything.
+    let phone = empty_db();
+    let applied = sync(&laptop, &phone, 2_000);
+    assert!(
+        applied.applied > 0,
+        "sync must still carry the whole database"
+    );
+}

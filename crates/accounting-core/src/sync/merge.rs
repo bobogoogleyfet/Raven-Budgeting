@@ -187,6 +187,17 @@ pub fn import(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
         }
     }
 
+    // Never record ourselves as a peer. Re-importing the file you just
+    // exported is an ordinary thing to do — checking it opened, recovering
+    // after a failed copy — and it must not leave this device in its own
+    // peer list. The damage is silent and total: `default_peer` would start
+    // returning our own name, and export skips changes authored by the peer it
+    // is addressing, so every later bundle would be empty. Sync would appear
+    // to work and carry nothing.
+    if bundle.from == ours {
+        return Ok(out);
+    }
+
     let high = bundle.changes.iter().map(|c| c.hlc.to_string()).max();
     db.conn().execute(
         "INSERT INTO sync_peer (device, seen_through, synced_at)
