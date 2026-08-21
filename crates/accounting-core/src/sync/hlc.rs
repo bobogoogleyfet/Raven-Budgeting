@@ -130,7 +130,11 @@ impl Hlc {
 /// a later edit before an earlier one on the ten-thousandth write.
 impl fmt::Display for Hlc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:016x}-{:08x}-{}", self.millis, self.counter, self.device)
+        write!(
+            f,
+            "{:016x}-{:08x}-{}",
+            self.millis, self.counter, self.device
+        )
     }
 }
 
@@ -251,7 +255,12 @@ mod tests {
 
     #[test]
     fn malformed_text_is_refused_rather_than_guessed_at() {
-        for bad in ["", "nope", "0198f1a2b3c4-2a-laptop", "00000198f1a2b3c4-0000002a-"] {
+        for bad in [
+            "",
+            "nope",
+            "0198f1a2b3c4-2a-laptop",
+            "00000198f1a2b3c4-0000002a-",
+        ] {
             assert!(bad.parse::<Hlc>().is_err(), "{bad:?} should not parse");
         }
     }
