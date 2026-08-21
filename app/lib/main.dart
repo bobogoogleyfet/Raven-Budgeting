@@ -18,6 +18,7 @@ import 'src/screens/settings_screen.dart';
 import 'src/screens/home_screen.dart';
 import 'src/shell.dart';
 import 'src/sync/lan_sync.dart';
+import 'src/sync/redraw.dart';
 import 'src/theme.dart';
 
 Future<void> main() async {
@@ -114,6 +115,28 @@ class _AccountingAppState extends State<AccountingApp> {
   /// its State is rebuilt and it asks the core again. A screen-by-screen
   /// refresh hook would be four hooks that each have to remember to fire.
   int _dataVersion = 0;
+
+  /// Bumped by an exchange that brought something in, so a screen showing a
+  /// list is rebuilt when a receipt lands from the other device.
+  late final SyncRedraws _redraws = SyncRedraws(widget.lan.state);
+
+  @override
+  void initState() {
+    super.initState();
+    _redraws.addListener(_onSynced);
+  }
+
+  @override
+  void dispose() {
+    _redraws
+      ..removeListener(_onSynced)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onSynced() {
+    if (mounted) setState(() => _dataVersion++);
+  }
 
   @override
   Widget build(BuildContext context) {
