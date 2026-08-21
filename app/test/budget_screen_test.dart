@@ -56,9 +56,20 @@ const BudgetRow unbudgeted = BudgetRow(
   monthsRemaining: null,
 );
 
+/// A bottom line, for a screen that always asks for one.
+const BudgetTotals noTotals = BudgetTotals(
+  perMonth: zero,
+  funded: zero,
+  spentCycle: zero,
+  remaining: zero,
+  overspentBy: zero,
+  categories: 0,
+);
+
 Future<List<String>> pump(
   WidgetTester tester, {
   List<BudgetRow> rows = const [],
+  BudgetTotals totals = noTotals,
   double width = 1000,
 }) async {
   final asked = <String>[];
@@ -75,6 +86,7 @@ Future<List<String>> pump(
             asked.add(month);
             return rows;
           },
+          loadTotals: (month) async => totals,
         ),
       ),
     ),
@@ -155,7 +167,9 @@ void main() {
     // The footnote still uses the word, explaining why this row does not.
     expect(find.text(r'behind $495.37'), findsNothing);
     expect(find.textContaining(r'$495.37 left'), findsOneWidget);
-    expect(find.text('—'), findsOneWidget);
+    // One for this row's Over column and one for the table's bottom line:
+    // being behind on funding is not being over budget, in either place.
+    expect(find.text('—'), findsNWidgets(2));
   });
 
   testWidgets('over budget shows a positive figure, never a negative',
@@ -237,5 +251,48 @@ void main() {
 
     expect(find.textContaining('set aside'), findsNothing);
   });
+
+  testWidgets('the table has a bottom line, summed in the core',
+      (tester) async {
+    // Not added up here: `Cents` exists to make arithmetic a compile error, so
+    // a total on this screen can never be a figure the frontend invented.
+    await pump(
+      tester,
+      rows: [row('Groceries'), row('Rent')],
+      totals: BudgetTotals(
+        perMonth: fromCore(120000),
+        funded: fromCore(20926),
+        spentCycle: fromCore(99074),
+        remaining: fromCore(20926),
+        overspentBy: zero,
+        categories: 2,
+      ),
+    );
+
+    expect(find.text('Total of 2 categories'), findsOneWidget);
+    expect(find.text(r'$1,200.00'), findsOneWidget);
+  });
+
+  testWidgets('a total with nothing over shows a dash rather than a zero',
+      (tester) async {
+    // Same rule as the rows: no overspend is the absence of a number, not a
+    // number. Overspending in one envelope is not cancelled by another having
+    // room, so this is a sum of what is over rather than a net figure.
+    await pump(
+      tester,
+      rows: [row('Groceries')],
+      totals: BudgetTotals(
+        perMonth: fromCore(60000),
+        funded: zero,
+        spentCycle: zero,
+        remaining: zero,
+        overspentBy: zero,
+        categories: 1,
+      ),
+    );
+
+    expect(find.text('Total of 1 category'), findsOneWidget);
+  });
 }
+
 

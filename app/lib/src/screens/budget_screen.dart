@@ -32,6 +32,7 @@ class BudgetScreen extends StatefulWidget {
     this.loadCategories = listCategories,
     this.month,
     this.record = recordContribution,
+    this.loadTotals = budgetTotals,
   });
 
   final BudgetLoader load;
@@ -42,6 +43,7 @@ class BudgetScreen extends StatefulWidget {
     required String month,
     required Cents amount,
   }) record;
+  final Future<BudgetTotals> Function(String month) loadTotals;
 
   @override
   State<BudgetScreen> createState() => _BudgetScreenState();
@@ -50,11 +52,16 @@ class BudgetScreen extends StatefulWidget {
 class _BudgetScreenState extends State<BudgetScreen> {
   late String _month = widget.month ?? thisMonth();
   late Future<List<BudgetRow>> _rows;
+  /// Asked for alongside the rows, and summed in the core from the same set —
+  /// a footer that re-reads the database can sit under a table it disagrees
+  /// with, with nothing on screen to say so.
+  late Future<BudgetTotals> _totals;
 
   @override
   void initState() {
     super.initState();
     _rows = widget.load(_month);
+    _totals = widget.loadTotals(_month);
   }
 
   String? _note;
@@ -85,6 +92,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     setState(() {
       _note = '${row.categoryName}: ${formatMoney(amount)} set aside.';
       _rows = widget.load(_month);
+      _totals = widget.loadTotals(_month);
     });
   }
 
@@ -124,6 +132,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     setState(() {
       _note = budgetOutcome(result, row?.categoryName ?? name);
       _rows = widget.load(_month);
+      _totals = widget.loadTotals(_month);
     });
   }
 
@@ -136,6 +145,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     setState(() {
       _month = thisMonth(moved);
       _rows = widget.load(_month);
+      _totals = widget.loadTotals(_month);
       _note = null;
     });
   }
@@ -217,6 +227,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                       onEdit: () => _setBudget(row),
                       onRecordSaved: () => _recordSaved(row),
                     ),
+                  _Totals(totals: _totals, wide: wide),
                   if (without > 0)
                     _Message(
                       '$without ${without == 1 ? 'category has' : 'categories have'}'
@@ -513,6 +524,87 @@ class _SavedDialogState extends State<_SavedDialog> {
           child: const Text('Record'),
         ),
       ],
+    );
+  }
+}
+
+
+/// The table's bottom line.
+///
+/// Summed in the core, from the same rows the table renders. Not added up
+/// here: `Cents` exists to make arithmetic a compile error, so a total on this
+/// screen can never be a figure the frontend invented.
+class _Totals extends StatelessWidget {
+  const _Totals({required this.totals, required this.wide});
+
+  final Future<BudgetTotals> totals;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return FutureBuilder<BudgetTotals>(
+      future: totals,
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        // Nothing at all while it loads, rather than a row of zeroes: a bottom
+        // line reading $0.00 is a claim, and briefly making a false one is
+        // worse than briefly making none.
+        if (data == null) return const SizedBox.shrink();
+
+        // No column headings. The table above already carries them, and a
+        // footer that repeats "Spent (cycle)" under "Spent (cycle)" reads as a
+        // second table rather than the sum of the first.
+        Widget figure(Cents amount, {Color? colour}) => SizedBox(
+              width: 120,
+              child: MoneyText(
+                amount,
+                textAlign: TextAlign.right,
+                style: theme.textTheme.titleSmall?.copyWith(color: colour),
+              ),
+            );
+
+        return Container(
+          color: theme.colorScheme.surfaceContainerHigh,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Total of ${data.categories} '
+                  '${data.categories == 1 ? 'category' : 'categories'}',
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+              if (wide) ...[
+                figure(data.perMonth),
+                figure(data.funded),
+              ],
+              figure(data.spentCycle),
+              figure(data.remaining),
+              SizedBox(
+                width: 120,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  // Overspending in one envelope is not cancelled by another
+                  // having room, so this is the sum of what is actually over
+                  // rather than a net figure. Zero reads as an em dash for the
+                  // same reason as the rows: no overspend is the absence of a
+                  // number, not a number.
+                  child: data.overspentBy.value == 0
+                      ? Text('—', style: theme.textTheme.titleSmall)
+                      : MoneyText(
+                          data.overspentBy,
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(color: theme.colorScheme.error),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
