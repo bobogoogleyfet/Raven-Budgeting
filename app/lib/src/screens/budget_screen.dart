@@ -8,6 +8,40 @@ import '../widgets/cents_field.dart';
 import '../widgets/money_text.dart';
 import 'set_budget_dialog.dart';
 
+/// One money column of the table, in device-independent pixels.
+///
+/// Wide enough for six figures and a sign without the amounts touching, and
+/// the same number in the rows and in the bottom line so a total sits under
+/// the column it adds up.
+const double _columnWidth = 120;
+
+/// The narrowest a category name may be squeezed to and still be a name.
+///
+/// "Non-Monthly / Car Insurance" is what has to survive; below this it is read
+/// as "Non-M…" and the row stops saying which budget it is.
+const double _nameFloor = 180;
+
+/// How much room the table needs before it is worth offering.
+///
+/// Derived rather than chosen: five columns, the row's own padding, and a name
+/// still legible beside them. Which navigation component is on screen is a
+/// different question and the window size class answers that one — but the
+/// rail and the standard drawer take their width out of *this* screen, so a
+/// 1000dp window can hand the table 640dp. Asking the space itself is the only
+/// way the answer is about the space.
+const double _tableWidth = 5 * _columnWidth + 32 + _nameFloor;
+
+/// Blank space kept under the last row for the shell's floating button.
+///
+/// 56dp of button plus the 16dp it floats above the edge, the same arithmetic
+/// as the expense list's. Padding rather than a strip, because this list
+/// scrolls: without it the bottom row can be scrolled to and still not read.
+///
+/// Reserved only where the button actually floats over the content. At medium
+/// widths it lives in the navigation rail, and a gap here would be a gap with
+/// nothing in it.
+const double _fabReserve = 72;
+
 typedef BudgetLoader = Future<List<BudgetRow>> Function(String month);
 typedef CategoryLoader = Future<List<CategoryDto>> Function();
 
@@ -147,110 +181,155 @@ class _BudgetScreenState extends State<BudgetScreen> {
     });
   }
 
+  Widget _setBudgetButton() => FilledButton.tonalIcon(
+        onPressed: () => _setBudget(),
+        icon: const Icon(Icons.add),
+        label: const Text('Set a budget'),
+      );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bool wide =
+    // Where the shell floats its button over the content, mirrored from
+    // `shell.dart`: everywhere except medium, which has a rail to keep it in.
+    final bool floatingButton =
         WindowSizeClass.of(MediaQuery.sizeOf(context).width) !=
-        WindowSizeClass.compact;
+        WindowSizeClass.medium;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
-            children: [
-              IconButton(
-                onPressed: () => _step(-1),
-                icon: const Icon(Icons.chevron_left),
-                tooltip: 'Previous month',
+    // Measured, not assumed: what the table has to fit into is the width this
+    // screen was handed, which is the window less whichever navigation
+    // component the shell put beside it — up to 360dp of standard drawer.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool table = constraints.maxWidth >= _tableWidth;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => _step(-1),
+                        icon: const Icon(Icons.chevron_left),
+                        tooltip: 'Previous month',
+                      ),
+                      Expanded(
+                        child: Text(
+                          monthLabel(_month),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _step(1),
+                        icon: const Icon(Icons.chevron_right),
+                        tooltip: 'Next month',
+                      ),
+                      // Two steppers and a labelled button come to 340dp of
+                      // furniture before the month is written at all, which
+                      // on a 360dp phone left "August 2026" a letter wide and
+                      // spelled downwards. Narrow, the button takes the line
+                      // below rather than the month's room on this one.
+                      if (table) ...[
+                        const SizedBox(width: 8),
+                        _setBudgetButton(),
+                      ],
+                    ],
+                  ),
+                  if (!table)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _setBudgetButton(),
+                    ),
+                ],
               ),
-              Expanded(
-                child: Text(
-                  monthLabel(_month),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.titleMedium,
+            ),
+            if (_note != null)
+              Semantics(
+                liveRegion: true,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(_note!, style: theme.textTheme.bodyMedium),
                 ),
               ),
-              IconButton(
-                onPressed: () => _step(1),
-                icon: const Icon(Icons.chevron_right),
-                tooltip: 'Next month',
+            const Divider(height: 1),
+            Expanded(
+              child: FutureBuilder<List<BudgetRow>>(
+                future: _rows,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return _Message('Could not load budgets: ${snapshot.error}');
+                  }
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final all = snapshot.requireData;
+                  final budgeted = all.where((r) => r.isBudgeted).toList();
+                  final int without = all.length - budgeted.length;
+
+                  if (budgeted.isEmpty) {
+                    return _Message('No budgets set for this month.');
+                  }
+
+                  return ListView(
+                    padding: EdgeInsets.only(
+                      bottom: floatingButton ? _fabReserve : 0,
+                    ),
+                    children: [
+                      for (final row in budgeted) ...[
+                        _BudgetLine(
+                          row: row,
+                          table: table,
+                          onEdit: () => _setBudget(row),
+                          onRecordSaved: () => _recordSaved(row),
+                        ),
+                        // Stacked rows are three lines deep and would run into
+                        // each other as one paragraph. A table row is one line
+                        // and needs no rule under it.
+                        if (!table) const Divider(height: 1),
+                      ],
+                      _Totals(totals: _totals, table: table),
+                      if (without > 0)
+                        _Message(
+                          '$without '
+                          '${without == 1 ? 'category has' : 'categories have'}'
+                          ' no budget.',
+                        ),
+                      const _Footnote(),
+                    ],
+                  );
+                },
               ),
-              const SizedBox(width: 8),
-              FilledButton.tonalIcon(
-                onPressed: () => _setBudget(),
-                icon: const Icon(Icons.add),
-                label: const Text('Set a budget'),
-              ),
-            ],
-          ),
-        ),
-        if (_note != null)
-          Semantics(
-            liveRegion: true,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(_note!, style: theme.textTheme.bodyMedium),
             ),
-          ),
-        const Divider(height: 1),
-        Expanded(
-          child: FutureBuilder<List<BudgetRow>>(
-            future: _rows,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return _Message('Could not load budgets: ${snapshot.error}');
-              }
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final all = snapshot.requireData;
-              final budgeted = all.where((r) => r.isBudgeted).toList();
-              final int without = all.length - budgeted.length;
-
-              if (budgeted.isEmpty) {
-                return _Message('No budgets set for this month.');
-              }
-
-              return ListView(
-                padding: const EdgeInsets.only(bottom: 88),
-                children: [
-                  for (final row in budgeted)
-                    _BudgetLine(
-                      row: row,
-                      wide: wide,
-                      onEdit: () => _setBudget(row),
-                      onRecordSaved: () => _recordSaved(row),
-                    ),
-                  _Totals(totals: _totals, wide: wide),
-                  if (without > 0)
-                    _Message(
-                      '$without ${without == 1 ? 'category has' : 'categories have'}'
-                      ' no budget.',
-                    ),
-                  const _Footnote(),
-                ],
-              );
-            },
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
 
+/// One category's line: a table row where there is room, a stacked item where
+/// there is not.
+///
+/// The stacked form is not the table with columns shaved off it. A phone is
+/// 360dp wide and the table's fixed columns are 600 of them, so trimming ends
+/// with the name squeezed to nothing and the figures touching — which is worse
+/// than an overflow, because nothing on screen says it happened. Instead the
+/// name takes a line of its own and the figures carry their own labels.
 class _BudgetLine extends StatelessWidget {
   const _BudgetLine({
     required this.row,
-    required this.wide,
+    required this.table,
     required this.onEdit,
     required this.onRecordSaved,
   });
 
   final BudgetRow row;
-  final bool wide;
+  final bool table;
   final VoidCallback onEdit;
   final VoidCallback onRecordSaved;
 
@@ -281,57 +360,70 @@ class _BudgetLine extends StatelessWidget {
       final other => '$other ${formatMoney(row.fundingBy)}',
     };
 
+    final Widget name = Text(
+      '${row.groupName} / ${row.categoryName}',
+      style: theme.textTheme.bodyLarge,
+      overflow: TextOverflow.ellipsis,
+    );
+
     return InkWell(
       onTap: onEdit,
       child: Container(
+        // Keyed so a test can ask where this row's parts actually are: the
+        // complaint it exists to answer is figures on top of each other, and
+        // nothing but their rectangles can settle that.
+        key: Key('budget-row-${row.categoryId}'),
         color: background,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${row.groupName} / ${row.categoryName}',
-                    style: theme.textTheme.bodyLarge,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (wide) ...[
+            if (table)
+              Row(
+                children: [
+                  Expanded(child: name),
                   _Cell(label: 'Per month', amount: row.perMonth),
                   _Cell(label: 'Funded', amount: row.funded),
-                ],
-                _Cell(label: 'Spent (cycle)', amount: row.spentCycle),
-                _Cell(label: 'Left', amount: row.remaining),
-                SizedBox(
-                  width: 120,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        'Over',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      // Positive and unsigned, and an em dash rather than $0.00:
-                      // zero over budget is not a figure, it is the absence of
-                      // one.
-                      over
-                          ? MoneyText(
-                              row.overspentBy!,
-                              textAlign: TextAlign.right,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.error,
-                              ),
-                            )
-                          : Text('—', style: theme.textTheme.bodyMedium),
-                    ],
+                  _Cell(label: 'Spent (cycle)', amount: row.spentCycle),
+                  _Cell(label: 'Left', amount: row.remaining),
+                  // Positive and unsigned, and an em dash rather than $0.00:
+                  // zero over budget is not a figure, it is the absence of one.
+                  _Cell(
+                    label: 'Over',
+                    amount: over ? row.overspentBy : null,
+                    colour: theme.colorScheme.error,
                   ),
-                ),
-              ],
-            ),
+                ],
+              )
+            else ...[
+              name,
+              const SizedBox(height: 6),
+              // Wrapped rather than columned: each figure carries its label, so
+              // a second run costs a line instead of stranding numbers under a
+              // heading that scrolled off. Per month and Funded are what stays
+              // behind — they are the plan rather than how it is going, and
+              // tapping the row opens the editor that owns them.
+              Wrap(
+                spacing: 20,
+                runSpacing: 2,
+                children: [
+                  // First and heaviest. "How much is left" is the question the
+                  // screen gets opened for; the rest is what the answer means.
+                  _Figure(label: 'Left', amount: row.remaining, strong: true),
+                  _Figure(label: 'Spent (cycle)', amount: row.spentCycle),
+                  // Only when there is one. Over is a negative Left in
+                  // positive clothes — the core defines it as that figure's
+                  // absolute value — so a standing "Over —" would spend a
+                  // phone's width saying there is no number to show.
+                  if (over)
+                    _Figure(
+                      label: 'Over',
+                      amount: row.overspentBy,
+                      colour: theme.colorScheme.error,
+                    ),
+                ],
+              ),
+            ],
             if (row.isSinkingFund)
               Align(
                 alignment: Alignment.centerLeft,
@@ -382,17 +474,22 @@ class _BudgetLine extends StatelessWidget {
   }
 }
 
+/// A heading over a figure: one cell of the table.
 class _Cell extends StatelessWidget {
-  const _Cell({required this.label, required this.amount});
+  const _Cell({required this.label, required this.amount, this.colour});
 
   final String label;
   final Cents? amount;
+
+  /// Applied to the figure and never to the em dash: a colour on "there is no
+  /// number here" is a colour on nothing.
+  final Color? colour;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SizedBox(
-      width: 120,
+      width: _columnWidth,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -407,10 +504,60 @@ class _Cell extends StatelessWidget {
               : MoneyText(
                   amount!,
                   textAlign: TextAlign.right,
-                  style: theme.textTheme.bodyMedium,
+                  style: theme.textTheme.bodyMedium?.copyWith(color: colour),
                 ),
         ],
       ),
+    );
+  }
+}
+
+/// A figure with its name beside it, for the stacked layout.
+///
+/// The label travels with the number because there is no column heading to
+/// look up to. A bare $104.63 under a category name could be any of the five
+/// things this screen knows about that category, and guessing which is exactly
+/// the mistake the table's headings exist to prevent.
+class _Figure extends StatelessWidget {
+  const _Figure({
+    required this.label,
+    required this.amount,
+    this.colour,
+    this.strong = false,
+  });
+
+  final String label;
+  final Cents? amount;
+  final Color? colour;
+
+  /// The figure the row is read for, rather than the ones giving it context.
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final TextStyle? figure =
+        (strong ? theme.textTheme.titleSmall : theme.textTheme.bodyMedium)
+            ?.copyWith(color: colour);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      // Baselines rather than centres: an 11dp label centred against a 14dp
+      // figure rides high and reads as a superscript on the amount.
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(width: 6),
+        amount == null
+            ? Text('—', style: figure)
+            : MoneyText(amount!, style: figure),
+      ],
     );
   }
 }
@@ -532,10 +679,10 @@ class _SavedDialogState extends State<_SavedDialog> {
 /// here: `Cents` exists to make arithmetic a compile error, so a total on this
 /// screen can never be a figure the frontend invented.
 class _Totals extends StatelessWidget {
-  const _Totals({required this.totals, required this.wide});
+  const _Totals({required this.totals, required this.table});
 
   final Future<BudgetTotals> totals;
-  final bool wide;
+  final bool table;
 
   @override
   Widget build(BuildContext context) {
@@ -549,11 +696,23 @@ class _Totals extends StatelessWidget {
         // worse than briefly making none.
         if (data == null) return const SizedBox.shrink();
 
+        // Overspending in one envelope is not cancelled by another having
+        // room, so this is the sum of what is actually over rather than a net
+        // figure — and it is therefore *not* the mirror of Left the way a
+        // single row's is. Both are shown wherever either is.
+        final bool over = data.overspentBy.value != 0;
+
+        final Widget label = Text(
+          'Total of ${data.categories} '
+          '${data.categories == 1 ? 'category' : 'categories'}',
+          style: theme.textTheme.titleSmall,
+        );
+
         // No column headings. The table above already carries them, and a
         // footer that repeats "Spent (cycle)" under "Spent (cycle)" reads as a
         // second table rather than the sum of the first.
         Widget figure(Cents amount, {Color? colour}) => SizedBox(
-              width: 120,
+              width: _columnWidth,
               child: MoneyText(
                 amount,
                 textAlign: TextAlign.right,
@@ -562,44 +721,68 @@ class _Totals extends StatelessWidget {
             );
 
         return Container(
+          key: const Key('budget-totals'),
           color: theme.colorScheme.surfaceContainerHigh,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Total of ${data.categories} '
-                  '${data.categories == 1 ? 'category' : 'categories'}',
-                  style: theme.textTheme.titleSmall,
-                ),
-              ),
-              if (wide) ...[
-                figure(data.perMonth),
-                figure(data.funded),
-              ],
-              figure(data.spentCycle),
-              figure(data.remaining),
-              SizedBox(
-                width: 120,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  // Overspending in one envelope is not cancelled by another
-                  // having room, so this is the sum of what is actually over
-                  // rather than a net figure. Zero reads as an em dash for the
-                  // same reason as the rows: no overspend is the absence of a
-                  // number, not a number.
-                  child: data.overspentBy.value == 0
-                      ? Text('—', style: theme.textTheme.titleSmall)
-                      : MoneyText(
-                          data.overspentBy,
-                          textAlign: TextAlign.right,
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(color: theme.colorScheme.error),
+          child: table
+              ? Row(
+                  children: [
+                    Expanded(child: label),
+                    figure(data.perMonth),
+                    figure(data.funded),
+                    figure(data.spentCycle),
+                    figure(data.remaining),
+                    SizedBox(
+                      width: _columnWidth,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        // Zero reads as an em dash for the same reason as the
+                        // rows: no overspend is the absence of a number, not a
+                        // number.
+                        child: over
+                            ? MoneyText(
+                                data.overspentBy,
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.titleSmall
+                                    ?.copyWith(color: theme.colorScheme.error),
+                              )
+                            : Text('—', style: theme.textTheme.titleSmall),
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    label,
+                    const SizedBox(height: 6),
+                    // Labelled here, unlike the table's footer: stacked there
+                    // are no column headings above to inherit, and the same
+                    // three figures in the same order as the rows is what makes
+                    // this read as their sum.
+                    Wrap(
+                      spacing: 20,
+                      runSpacing: 2,
+                      children: [
+                        _Figure(
+                          label: 'Left',
+                          amount: data.remaining,
+                          strong: true,
                         ),
+                        _Figure(
+                          label: 'Spent (cycle)',
+                          amount: data.spentCycle,
+                        ),
+                        if (over)
+                          _Figure(
+                            label: 'Over',
+                            amount: data.overspentBy,
+                            colour: theme.colorScheme.error,
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
         );
       },
     );

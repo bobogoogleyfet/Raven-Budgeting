@@ -95,6 +95,92 @@ Future<List<String>> pump(
   return asked;
 }
 
+/// The screen on a window [width] logical pixels wide, and every layout error
+/// raised while it was laid out.
+///
+/// A row that does not fit fires one error per offending Row, so the answer is
+/// a list rather than a flag: which part overflowed is the useful half. The
+/// handler is put back before this returns — a failed `expect` while it is
+/// still overridden wedges the binding instead of reporting itself.
+Future<List<String>> pumpAt(
+  WidgetTester tester, {
+  required double width,
+  List<BudgetRow> rows = const [],
+  BudgetTotals totals = noTotals,
+}) async {
+  tester.view.physicalSize = Size(width, 900);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+
+  final errors = <String>[];
+  final previous = FlutterError.onError;
+  FlutterError.onError = (details) => errors.add(details.exceptionAsString());
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: BudgetScreen(
+          month: '2026-08',
+          load: (month) async => rows,
+          loadTotals: (month) async => totals,
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+
+  FlutterError.onError = previous;
+  return errors;
+}
+
+/// Somewhere inside the line for category 1, rather than anywhere on screen.
+///
+/// The bottom line carries the same words as the rows it sums, so an
+/// unqualified `find.text('Left')` matches two widgets and measures neither.
+Finder inRow(String text) => find.descendant(
+      of: find.byKey(const Key('budget-row-1')),
+      matching: find.text(text),
+    );
+
+Finder inTotals(String text) => find.descendant(
+      of: find.byKey(const Key('budget-totals')),
+      matching: find.text(text),
+    );
+
+/// Every one of [finders] is on screen, inside [width], and touching none of
+/// the others.
+///
+/// Overlap is the failure a screenshot shows and an `expect` on text usually
+/// misses: two amounts drawn at the same place are both "found".
+void expectLaidOutSeparately(
+  WidgetTester tester,
+  List<Finder> finders, {
+  required double width,
+}) {
+  final rects = <Rect>[];
+  for (final finder in finders) {
+    expect(finder, findsOneWidget);
+    final rect = tester.getRect(finder);
+    expect(rect.left, greaterThanOrEqualTo(0));
+    expect(rect.right, lessThanOrEqualTo(width));
+    for (final other in rects) {
+      expect(rect.overlaps(other), isFalse, reason: '$rect overlaps $other');
+    }
+    rects.add(rect);
+  }
+}
+
+/// A bottom line with figures of its own, none of them shared with the rows
+/// above, so a finder cannot match the wrong one.
+BudgetTotals someTotals() => BudgetTotals(
+      perMonth: fromCore(120000),
+      funded: fromCore(20926),
+      spentCycle: fromCore(99074),
+      remaining: fromCore(20926),
+      overspentBy: zero,
+      categories: 2,
+    );
+
 /// A sinking fund: saved into rather than paid out of.
 BudgetRow fund({
   String name = 'Car Repair',
@@ -208,12 +294,16 @@ void main() {
     expect(find.text('Set a budget'), findsOneWidget);
   });
 
-  testWidgets('a phone drops the columns the width cannot hold', (tester) async {
+  testWidgets('a phone stacks the line instead of squeezing the table',
+      (tester) async {
     await pump(tester, width: 420, rows: [row('Groceries')]);
 
-    // Spent, Left and Over survive; Per month and Funded are what goes.
-    expect(find.text('Spent (cycle)'), findsOneWidget);
-    expect(find.text('Left'), findsOneWidget);
+    // Spent and Left survive, on the row and again on the bottom line: stacked
+    // there are no column headings above for a footer to inherit, so it labels
+    // its own figures. Per month and Funded are what goes, and the editor
+    // behind the row is where they were set in the first place.
+    expect(find.text('Spent (cycle)'), findsNWidgets(2));
+    expect(find.text('Left'), findsNWidgets(2));
     expect(find.text('Per month'), findsNothing);
     expect(find.text('Funded'), findsNothing);
   });
@@ -292,6 +382,156 @@ void main() {
     );
 
     expect(find.text('Total of 1 category'), findsOneWidget);
+  });
+
+  // A phone held in one hand, and a slightly larger one. Three 120dp columns
+  // and a name fit neither: at 360 the rows overflowed by 32dp and the month
+  // header by 11, and at 400 nothing overflowed at all — the columns cleared
+  // the edge and left the category name 8dp wide. The silent one is the worse
+  // failure, which is why these tests measure boxes and not only find text.
+  for (final width in [360.0, 400.0]) {
+    final String at = 'at ${width.toInt()}px';
+
+    testWidgets('nothing overflows $at', (tester) async {
+      final errors = await pumpAt(
+        tester,
+        width: width,
+        rows: [row('Groceries'), fund(perMonth: 10000)],
+        totals: someTotals(),
+      );
+
+      expect(errors, isEmpty);
+    });
+
+    testWidgets('the category name gets a line to itself $at', (tester) async {
+      await pumpAt(tester, width: width, rows: [row('Groceries')]);
+
+      // Nearly the whole width, less the row's own padding. The failure this
+      // guards is the silent one: the columns used to take the line down to
+      // single figures of pixels, leaving a name that was present, findable,
+      // and impossible to read.
+      expect(
+        tester.getSize(inRow('Frequent / Groceries')).width,
+        greaterThan(width - 40),
+      );
+    });
+
+    testWidgets('every figure is on screen and clear of the next $at',
+        (tester) async {
+      await pumpAt(
+        tester,
+        width: width,
+        rows: [row('Groceries')],
+        totals: someTotals(),
+      );
+
+      // Both figures, each still beside the word that says what it is.
+      expectLaidOutSeparately(
+        tester,
+        [
+          inRow('Left'),
+          inRow(r'$104.63'),
+          inRow('Spent (cycle)'),
+          inRow(r'$495.37'),
+        ],
+        width: width,
+      );
+    });
+
+    testWidgets('an over-budget line shows the overspend $at', (tester) async {
+      final errors = await pumpAt(
+        tester,
+        width: width,
+        rows: [
+          row(
+            'Household',
+            perMonth: 12000,
+            spentCycle: 14390,
+            remaining: -2390,
+            overspentBy: 2390,
+            funding: 'behind',
+            fundingBy: 14390,
+          ),
+        ],
+        totals: someTotals(),
+      );
+
+      expect(errors, isEmpty);
+      // Three figures on the line rather than two, wrapping to a second run
+      // rather than being dropped or drawn on top of each other.
+      expectLaidOutSeparately(
+        tester,
+        [
+          inRow('Left'),
+          inRow(r'-$23.90'),
+          inRow('Spent (cycle)'),
+          inRow(r'$143.90'),
+          inRow('Over'),
+          inRow(r'$23.90'),
+        ],
+        width: width,
+      );
+    });
+
+    testWidgets('the bottom line still says what it sums $at', (tester) async {
+      await pumpAt(
+        tester,
+        width: width,
+        rows: [row('Groceries')],
+        totals: someTotals(),
+      );
+
+      expectLaidOutSeparately(
+        tester,
+        [
+          inTotals('Total of 2 categories'),
+          inTotals('Left'),
+          inTotals(r'$209.26'),
+          inTotals('Spent (cycle)'),
+          inTotals(r'$990.74'),
+        ],
+        width: width,
+      );
+    });
+
+    testWidgets('a sinking fund can still be recorded $at', (tester) async {
+      final errors = await pumpAt(
+        tester,
+        width: width,
+        rows: [fund(perMonth: 10000)],
+        totals: someTotals(),
+      );
+
+      expect(errors, isEmpty);
+      expect(find.textContaining(r'Set aside $100.00'), findsOneWidget);
+    });
+  }
+
+  testWidgets('a window with room for the table still gets one', (tester) async {
+    final errors = await pumpAt(
+      tester,
+      width: 1400,
+      rows: [row('Groceries')],
+      totals: someTotals(),
+    );
+
+    expect(errors, isEmpty);
+    // The headings are what name the figures where there are columns, so all
+    // five are on screen exactly once — over the rows, not repeated under them.
+    for (final heading in [
+      'Per month',
+      'Funded',
+      'Spent (cycle)',
+      'Left',
+      'Over',
+    ]) {
+      expect(find.text(heading), findsOneWidget);
+    }
+    // And the name is a name, not the offcut of five fixed columns.
+    expect(
+      tester.getSize(inRow('Frequent / Groceries')).width,
+      greaterThan(180),
+    );
   });
 }
 
