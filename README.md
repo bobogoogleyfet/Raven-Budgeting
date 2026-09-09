@@ -85,6 +85,24 @@ but that proves only that it compiles. It is a `cdylib`: nothing links it into
 an application until Flutter's own build runs, so a change there is not tested
 until `flutter test integration_test/` has run.
 
+### Showing it off
+
+`scripts/demo.sh` builds a throwaway database and opens the app on it — eight
+months of receipts, twenty-one budgets, a fund waiting to be set aside and an
+inbox with work in it. Every row goes in through `pacc`, so the figures on
+screen are the real core's arithmetic and only the receipts are invented.
+
+```sh
+scripts/demo.sh                    # build, then run on the Linux desktop
+scripts/demo.sh --device android   # build, install, and push to a connected phone
+scripts/demo.sh --build-only       # just the database
+```
+
+It writes to `$TMPDIR/pacc-demo/pacc.db`, never to the database the app
+normally opens, and rebuilds it from nothing every run. The amounts wander so
+the screens do not read as generated, but they wander identically every time:
+a demo that shows different figures on each run cannot be rehearsed.
+
 ## Platform status
 
 | Platform | Status |
