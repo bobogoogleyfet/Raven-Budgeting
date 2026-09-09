@@ -366,6 +366,42 @@ class _BudgetLine extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
     );
 
+    // Stacked, the group goes above the name instead of in front of it.
+    // "Non-Monthly / Home Maintenance & Repairs" on a 360dp phone ellipsised
+    // to "Non-Monthly / Home Ma…" — the prefix is the same on every row of a
+    // group and it was eating the half of the line that says which row this
+    // is. An M3 overline gives the identifying part the full width.
+    final Widget stackedName = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          row.groupName,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
+        Text(
+          row.categoryName,
+          style: theme.textTheme.bodyLarge,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+
+    // Spent this month and spent this cycle are the same number whenever the
+    // cycle is the month, which is every ordinary envelope. Only a cycle that
+    // outlasts the month makes them two different facts worth two figures.
+    final bool cycleOutlastsMonth = row.spentCycle != null &&
+        row.spentThisMonth.value != row.spentCycle!.value;
+
+    // Stacked, the labelled figures above already carry every number this
+    // sentence repeats: it was printing "spent $495.37" directly under
+    // "Spent (cycle) $495.37". It earns its line only where it says something
+    // the figures cannot — a bill is behind by what it still owes.
+    final bool showFunding =
+        table || (row.groupIsObligation && row.funding != 'none');
+
     return InkWell(
       onTap: onEdit,
       child: Container(
@@ -396,7 +432,7 @@ class _BudgetLine extends StatelessWidget {
                 ],
               )
             else ...[
-              name,
+              stackedName,
               const SizedBox(height: 6),
               // Wrapped rather than columned: each figure carries its label, so
               // a second run costs a line instead of stranding numbers under a
@@ -411,6 +447,13 @@ class _BudgetLine extends StatelessWidget {
                   // screen gets opened for; the rest is what the answer means.
                   _Figure(label: 'Left', amount: row.remaining, strong: true),
                   _Figure(label: 'Spent (cycle)', amount: row.spentCycle),
+                  // Only where the cycle runs past the month, which is the
+                  // only case where this is not the figure beside it again.
+                  if (cycleOutlastsMonth)
+                    _Figure(
+                      label: 'Spent (month)',
+                      amount: row.spentThisMonth,
+                    ),
                   // Only when there is one. Over is a negative Left in
                   // positive clothes — the core defines it as that figure's
                   // absolute value — so a standing "Over —" would spend a
@@ -450,10 +493,11 @@ class _BudgetLine extends StatelessWidget {
                         ),
                 ),
               ),
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                funding,
+            if (showFunding)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  funding,
                 style: theme.textTheme.bodySmall?.copyWith(
                   // Behind gets a warning tone, never the error tone: a bill
                   // still due is not the same news as money already overspent.

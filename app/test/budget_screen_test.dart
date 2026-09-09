@@ -404,16 +404,52 @@ void main() {
     });
 
     testWidgets('the category name gets a line to itself $at', (tester) async {
-      await pumpAt(tester, width: width, rows: [row('Groceries')]);
+      await pumpAt(
+        tester,
+        width: width,
+        rows: [row('Home Maintenance & Repairs')],
+      );
 
       // Nearly the whole width, less the row's own padding. The failure this
       // guards is the silent one: the columns used to take the line down to
       // single figures of pixels, leaving a name that was present, findable,
       // and impossible to read.
+      //
+      // The group is its own line above rather than a prefix, so the width
+      // measured is the category's. Prefixed, "Frequent / Home Maintenance &
+      // Repairs" spent the first half of the line on a word every row of the
+      // group repeats and ellipsised the half that says which row this is.
       expect(
-        tester.getSize(inRow('Frequent / Groceries')).width,
+        tester.getSize(inRow('Home Maintenance & Repairs')).width,
         greaterThan(width - 40),
       );
+      expect(inRow('Frequent'), findsOneWidget);
+    });
+
+    testWidgets('a figure is not printed twice under two names $at',
+        (tester) async {
+      // An envelope's cycle is its month, so "spent this month" and
+      // "Spent (cycle)" are one number, and the row used to print it as two
+      // lines — "spent $495.37" directly under "Spent (cycle) $495.37".
+      await pumpAt(tester, width: width, rows: [row('Groceries')]);
+
+      expect(find.textContaining(r'$495.37'), findsOneWidget);
+      expect(find.textContaining('spent '), findsNothing);
+    });
+
+    testWidgets('a bill still says what it owes $at', (tester) async {
+      // The sentence is dropped where it only retells the figures, never
+      // where it carries the one thing they cannot say.
+      await pumpAt(
+        tester,
+        width: width,
+        rows: [
+          row('Rent',
+              funding: 'behind', fundingBy: 165000, groupIsObligation: true),
+        ],
+      );
+
+      expect(find.text(r'behind $1,650.00'), findsOneWidget);
     });
 
     testWidgets('every figure is on screen and clear of the next $at',
