@@ -110,6 +110,21 @@ void main() {
     expect(find.text('screen:${Destination.inbox.label}'), findsOneWidget);
   });
 
+  testWidgets('the drawer is headed with the app name', (tester) async {
+    // The one place the app says its own name inside the app. Worth pinning:
+    // a rename that misses here leaves the old name in the only spot a user
+    // reads it every time they navigate.
+    await pumpAtWidth(tester, 1400);
+
+    expect(
+      find.descendant(
+        of: find.byType(NavigationDrawer),
+        matching: find.text('Raven Budgeting'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('the new-expense button is not on Budget or Settings',
       (tester) async {
     // Budget already has a primary action of its own — "Set a budget" — and

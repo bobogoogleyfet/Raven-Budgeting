@@ -1,4 +1,4 @@
-# Personal Accounting
+# Raven Budgeting
 
 A local-first expense tracker and budgeting app. Rust core, Flutter app.
 

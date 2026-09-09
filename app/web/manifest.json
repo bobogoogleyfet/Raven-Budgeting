@@ -1,6 +1,6 @@
 {
-    "name": "app",
-    "short_name": "app",
+    "name": "Raven Budgeting",
+    "short_name": "Raven Budgeting",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

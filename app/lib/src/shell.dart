@@ -213,7 +213,7 @@ class AppShellState extends State<AppShell> {
                     // destination labels rather than with their icons.
                     padding: const EdgeInsets.fromLTRB(28, 16, 16, 10),
                     child: Text(
-                      'Personal Accounting',
+                      'Raven Budgeting',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),

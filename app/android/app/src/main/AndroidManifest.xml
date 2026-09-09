@@ -17,7 +17,7 @@
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation"/>
     <application
-        android:label="app"
+        android:label="Raven Budgeting"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

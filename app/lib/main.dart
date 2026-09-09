@@ -141,7 +141,7 @@ class _AccountingAppState extends State<AccountingApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Personal Accounting',
+      title: 'Raven Budgeting',
       // The demo has to run on a debug build — `run-as`, which is the only
       // legal way to put the demo database where the Android app looks for
       // it, works on nothing else — so the banner cannot be dropped by
