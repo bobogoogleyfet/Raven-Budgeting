@@ -98,10 +98,12 @@ scripts/demo.sh --device android   # build, install, and push to a connected pho
 scripts/demo.sh --build-only       # just the database
 ```
 
-It writes to `$TMPDIR/pacc-demo/pacc.db`, never to the database the app
-normally opens, and rebuilds it from nothing every run. The amounts wander so
-the screens do not read as generated, but they wander identically every time:
-a demo that shows different figures on each run cannot be rehearsed.
+It writes to `$TMPDIR/pacc-demo-$(id -u)/pacc.db` — named for your user
+because `/tmp` is shared — never to the database the app normally opens, and
+rebuilds it from nothing every run. Set `PACC_DEMO_DIR` to put it elsewhere.
+The amounts wander so the screens do not read as generated, but they wander
+identically every time: a demo that shows different figures on each run
+cannot be rehearsed.
 
 ## Platform status
 
