@@ -4,6 +4,7 @@ import '../api.dart';
 import '../dates.dart';
 import '../money.dart';
 import '../breakpoints.dart';
+import '../shell.dart';
 import '../widgets/filter_menu.dart';
 import '../widgets/money_text.dart';
 
@@ -17,17 +18,16 @@ import '../widgets/money_text.dart';
 /// out is one you cannot trust the rest of.
 const int _monthLimit = 500;
 
-/// Blank space kept under the bottom line for the shell's floating button.
+/// Blank space kept under the last row for the shell's floating button.
 ///
 /// 56dp of button — the same height circular or extended — plus the 16dp it
-/// floats above the edge. Every screen scrolls out from under that button
-/// except this one: the totals row is pinned, so anything the button covers
-/// here stays covered. It is the money column it lands on, which is the one
-/// figure on the screen worth pinning it there for.
+/// floats above the edge. On the list rather than under the bottom line: the
+/// bottom line is pinned *below* the button now, and it is the rows that need
+/// somewhere to scroll to that the button is not sitting on.
 ///
 /// Reserved only where the button actually floats over the content. At medium
-/// widths it lives in the navigation rail, and a strip under the totals there
-/// really would be a gap with nothing in it.
+/// widths it lives in the navigation rail, and a gap at the end of the list
+/// there really would be a gap with nothing in it.
 const double _fabReserve = 72;
 
 /// Stands for expenses with no store, which is what quick-add leaves behind.
@@ -95,6 +95,40 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   /// The month, added up by the core, with the filters applied. `null` until
   /// it arrives, and while the filter matches nothing.
   TxnTotals? _totals;
+
+  /// The pinned bottom line, so its height can be read after it is laid out.
+  final GlobalKey _bottomLineKey = GlobalKey();
+
+  /// Tell the shell how much of the bottom this screen has taken.
+  ///
+  /// Measured rather than computed: the row is one line of text at one text
+  /// scale and two at another, and a number worked out here would be a second
+  /// opinion about a height the framework has already settled. Runs after the
+  /// frame that laid it out, which is the first moment there is anything to
+  /// measure — so the button is in its unlifted place for that one frame,
+  /// before there is a bottom line under it to land on.
+  void _publishBottomLine() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _inset == null) return;
+      final box =
+          _bottomLineKey.currentContext?.findRenderObject() as RenderBox?;
+      _inset!.value = box?.hasSize == true ? box!.size.height : 0;
+    });
+  }
+
+  /// Held rather than looked up once a frame.
+  ///
+  /// Nothing is published from `dispose`: the screen going away is the shell's
+  /// own business and it zeroes the inset when it changes destination. A
+  /// screen cannot reach its ancestors while it is being taken off the tree,
+  /// and the notifier may already be gone with them.
+  ValueNotifier<double>? _inset;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _inset = BottomLineInset.of(context);
+  }
 
   /// Which load is the current one.
   ///
@@ -320,6 +354,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     // a navigation rail to keep it in.
     final bool floatingButton = sizeClass != WindowSizeClass.medium;
     final TxnTotals? totals = _totals;
+    _publishBottomLine();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -372,6 +407,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         else
           Expanded(
             child: ListView.separated(
+              // So the last row has somewhere to scroll to that the button is
+              // not sitting on. The bottom line below is pinned and cannot
+              // scroll, which is why the button is lifted clear of it instead.
+              padding: EdgeInsets.only(
+                bottom: floatingButton ? _fabReserve : 0,
+              ),
               itemCount: _rows.length,
               separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, index) => _ExpenseRow(
@@ -400,13 +441,24 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         // you have to reach the end of the rows to see is one nobody reads.
         // Hidden entirely when the month is empty — a row of zeroes under a
         // message saying there is nothing is the same news twice.
-        if (totals != null && totals.expenses > 0) ...[
-          const Divider(height: 1),
-          _TotalsRow(totals: totals, table: table, month: _month),
-        ],
-        // Below the bottom line, so the shell's floating button has somewhere
-        // to sit that is not on top of it.
-        if (floatingButton) const SizedBox(height: _fabReserve),
+        //
+        // Last, and under the button rather than above it: the button is
+        // lifted over this row by however tall it turns out to be, so the
+        // month's figure sits on the edge of the screen where a bottom line
+        // belongs, instead of a strip of nothing sitting there and the total
+        // floating above it.
+        if (totals != null && totals.expenses > 0)
+          KeyedSubtree(
+            key: _bottomLineKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Divider(height: 1),
+                _TotalsRow(totals: totals, table: table, month: _month),
+              ],
+            ),
+          ),
       ],
     );
   }

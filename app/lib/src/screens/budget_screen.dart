@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../api.dart';
-import '../breakpoints.dart';
 import '../dates.dart';
 import '../money.dart';
 import '../widgets/cents_field.dart';
@@ -30,17 +29,6 @@ const double _nameFloor = 180;
 /// 1000dp window can hand the table 640dp. Asking the space itself is the only
 /// way the answer is about the space.
 const double _tableWidth = 5 * _columnWidth + 32 + _nameFloor;
-
-/// Blank space kept under the last row for the shell's floating button.
-///
-/// 56dp of button plus the 16dp it floats above the edge, the same arithmetic
-/// as the expense list's. Padding rather than a strip, because this list
-/// scrolls: without it the bottom row can be scrolled to and still not read.
-///
-/// Reserved only where the button actually floats over the content. At medium
-/// widths it lives in the navigation rail, and a gap here would be a gap with
-/// nothing in it.
-const double _fabReserve = 72;
 
 typedef BudgetLoader = Future<List<BudgetRow>> Function(String month);
 typedef CategoryLoader = Future<List<CategoryDto>> Function();
@@ -190,11 +178,6 @@ class _BudgetScreenState extends State<BudgetScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Where the shell floats its button over the content, mirrored from
-    // `shell.dart`: everywhere except medium, which has a rail to keep it in.
-    final bool floatingButton =
-        WindowSizeClass.of(MediaQuery.sizeOf(context).width) !=
-        WindowSizeClass.medium;
 
     // Measured, not assumed: what the table has to fit into is the width this
     // screen was handed, which is the window less whichever navigation
@@ -276,9 +259,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
                   }
 
                   return ListView(
-                    padding: EdgeInsets.only(
-                      bottom: floatingButton ? _fabReserve : 0,
-                    ),
+                    // Nothing reserved at the end: the new-expense button does
+                    // not float over this screen. Setting a budget is what
+                    // this screen is for and it has its own button up in the
+                    // header, so the last row can end where the list ends.
                     children: [
                       for (final row in budgeted) ...[
                         _BudgetLine(

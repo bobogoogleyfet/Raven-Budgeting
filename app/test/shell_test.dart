@@ -27,6 +27,13 @@ Future<List<String>> pumpAtWidth(WidgetTester tester, double width) async {
   return started;
 }
 
+/// Move to a destination by tapping its label in whichever navigation
+/// component is on screen.
+Future<void> goTo(WidgetTester tester, Destination d) async {
+  await tester.tap(find.text(d.label).last);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('opens on Home', (tester) async {
     await pumpAtWidth(tester, 1000);
@@ -101,5 +108,69 @@ void main() {
 
     expect(find.byType(NavigationDrawer), findsOneWidget);
     expect(find.text('screen:${Destination.inbox.label}'), findsOneWidget);
+  });
+
+  testWidgets('the new-expense button is not on Budget or Settings',
+      (tester) async {
+    // Budget already has a primary action of its own — "Set a budget" — and
+    // Material 3 allows a screen one. A second, heavier button offering
+    // something unrelated is the one thing Budget was not opened to do.
+    // Settings has no entry action at all, so the button there was only ever
+    // something to hit by accident.
+    for (final double width in [400.0, 700.0, 1400.0]) {
+      await pumpAtWidth(tester, width);
+
+      for (final d in [Destination.budget, Destination.settings]) {
+        await goTo(tester, d);
+        expect(
+          find.byType(FloatingActionButton),
+          findsNothing,
+          reason: '${d.label} at ${width.toInt()}px',
+        );
+      }
+    }
+  });
+
+  testWidgets('the new-expense button is on the screens about spending',
+      (tester) async {
+    // The overview, the list, and the queue of things not categorized yet:
+    // the three places where the next thing you do is record what was spent.
+    for (final double width in [400.0, 700.0, 1400.0]) {
+      await pumpAtWidth(tester, width);
+
+      for (final d in [
+        Destination.home,
+        Destination.expenses,
+        Destination.inbox,
+      ]) {
+        await goTo(tester, d);
+        expect(
+          find.byType(FloatingActionButton),
+          findsOneWidget,
+          reason: '${d.label} at ${width.toInt()}px',
+        );
+      }
+    }
+  });
+
+  testWidgets('the rail keeps its place when a screen offers no button',
+      (tester) async {
+    // The button lives in the rail's leading slot at medium widths, so a
+    // screen without one leaves a hole there. The destinations must not slide
+    // up into it: navigation that moves as you navigate is navigation you
+    // have to re-find every time.
+    // Scoped to the rail: the app bar carries the same word, and which of the
+    // two moved is the whole question.
+    final inRail = find.descendant(
+      of: find.byType(NavigationRail),
+      matching: find.text('Home'),
+    );
+
+    await pumpAtWidth(tester, 700);
+    final double before = tester.getRect(inRail).top;
+
+    await goTo(tester, Destination.budget);
+
+    expect(tester.getRect(inRail).top, before);
   });
 }

@@ -155,6 +155,7 @@ Future<void> pumpInShell(
   WidgetTester tester,
   Harness harness, {
   required double width,
+  double textScale = 1.0,
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1;
@@ -162,6 +163,11 @@ Future<void> pumpInShell(
 
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => MediaQuery.withClampedTextScaling(
+        minScaleFactor: textScale,
+        maxScaleFactor: textScale,
+        child: child!,
+      ),
       home: AppShell(
         // Every destination draws the expense list: what is under test is the
         // chrome the shell puts around it, not which destination is selected.
@@ -620,20 +626,63 @@ void main() {
     expect(find.text(r'$1.07'), findsOneWidget);
   });
 
-  testWidgets('the space kept for the button is where the button is',
+  testWidgets('the bottom line is below the button, not above it',
       (tester) async {
     final harness = Harness(rows: [expense(1)]);
 
-    // Not a margin under the table: the strip exists because something is
-    // drawn in it, and a gap the button did not fill would be one the reader
-    // is right to read as a mistake.
+    // The button is lifted over the bottom line rather than the bottom line
+    // being pushed up off the edge to clear it. What used to sit under the
+    // total was a 72dp strip of nothing with a button floating in it, and the
+    // month's figure ended one button's height short of the screen edge.
     for (final double width in [400.0, 1400.0]) {
       await pumpInShell(tester, harness, width: width);
       final Rect fab = tester.getRect(find.byType(FloatingActionButton));
       final Rect totals =
           tester.getRect(find.byKey(const Key('expense-totals')));
-      expect(fab.top, greaterThanOrEqualTo(totals.bottom));
+      expect(fab.bottom, lessThanOrEqualTo(totals.top));
     }
+  });
+
+  testWidgets('the bottom line ends where the content ends', (tester) async {
+    final harness = Harness(rows: [expense(1)]);
+
+    // Flush with the bottom of the content, which is the point of the
+    // rearrangement: a bottom line is only a bottom line if it is at the
+    // bottom. On a phone the content stops at the navigation bar.
+    await pumpInShell(tester, harness, width: 400);
+    expect(
+      tester.getRect(find.byKey(const Key('expense-totals'))).bottom,
+      moreOrLessEquals(tester.getRect(find.byType(NavigationBar)).top,
+          epsilon: 1),
+    );
+
+    // Wider there is a drawer beside the content rather than a bar under it,
+    // so the bottom line runs to the bottom of the window.
+    await pumpInShell(tester, harness, width: 1400);
+    expect(
+      tester.getRect(find.byKey(const Key('expense-totals'))).bottom,
+      moreOrLessEquals(900, epsilon: 1),
+    );
+  });
+
+  testWidgets('a taller bottom line lifts the button further', (tester) async {
+    final harness = Harness(rows: [expense(1)]);
+
+    await pumpInShell(tester, harness, width: 400);
+    final double plain =
+        tester.getRect(find.byType(FloatingActionButton)).bottom;
+
+    // The lift is measured, not a constant, so a bottom line that wraps to two
+    // lines at a larger text size moves the button by what it actually grew
+    // rather than by what someone guessed it would.
+    await pumpInShell(tester, harness, width: 400, textScale: 2.0);
+    final double scaled =
+        tester.getRect(find.byType(FloatingActionButton)).bottom;
+
+    expect(scaled, lessThan(plain));
+    final Rect fab = tester.getRect(find.byType(FloatingActionButton));
+    final Rect totals = tester.getRect(find.byKey(const Key('expense-totals')));
+    expect(fab.bottom, lessThanOrEqualTo(totals.top));
   });
 
   testWidgets('a rail keeps the button, so nothing is reserved under the list',
