@@ -277,7 +277,7 @@ case "$DEVICE" in
     echo "==> running on the Linux desktop"
     # The desktop resolves its path from the same $PACC_DB the CLI reads, so
     # pointing the app at the demo is one variable and no code.
-    cd "$REPO/app" && PACC_DB="$DEMO_DB" exec flutter run -d linux
+    cd "$REPO/app" && PACC_DB="$DEMO_DB" exec flutter run -d linux --dart-define=PACC_DEMO=true
     ;;
   android)
     # Mobile ignores $PACC_DB — it asks Android for its own support directory
@@ -287,7 +287,7 @@ case "$DEVICE" in
     SERIAL="$(adb devices | awk '$2=="device"{print $1; exit}')"
     [ -n "$SERIAL" ] || { echo "no authorized android device; check the phone for the USB dialog" >&2; exit 1; }
     echo "==> installing the app on $SERIAL"
-    ( cd "$REPO/app" && flutter build apk --debug )
+    ( cd "$REPO/app" && flutter build apk --debug --dart-define=PACC_DEMO=true )
     adb -s "$SERIAL" install -r "$REPO/app/build/app/outputs/flutter-apk/app-debug.apk"
 
     # Ship one checkpointed file. `backup` is VACUUM INTO, which folds the WAL

@@ -142,6 +142,12 @@ class _AccountingAppState extends State<AccountingApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Personal Accounting',
+      // The demo has to run on a debug build — `run-as`, which is the only
+      // legal way to put the demo database where the Android app looks for
+      // it, works on nothing else — so the banner cannot be dropped by
+      // building for release. `scripts/demo.sh` passes this instead, and an
+      // ordinary debug run still gets the banner.
+      debugShowCheckedModeBanner: !const bool.fromEnvironment('PACC_DEMO'),
       theme: lightTheme(),
       darkTheme: darkTheme(),
       home: _configured
