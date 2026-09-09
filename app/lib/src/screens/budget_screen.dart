@@ -391,8 +391,12 @@ class _BudgetLine extends StatelessWidget {
 
     // Spent this month and spent this cycle are the same number whenever the
     // cycle is the month, which is every ordinary envelope. Only a cycle that
-    // outlasts the month makes them two different facts worth two figures.
+    // outlasts the month makes them two different facts worth two figures —
+    // and only when something actually went out this month, for the same
+    // reason "Over" is hidden at zero: a row of "Spent (month) $0.00" down
+    // every sinking fund is a phone's width spent saying nothing happened.
     final bool cycleOutlastsMonth = row.spentCycle != null &&
+        row.spentThisMonth.value != 0 &&
         row.spentThisMonth.value != row.spentCycle!.value;
 
     // Stacked, the labelled figures above already carry every number this

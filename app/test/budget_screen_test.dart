@@ -16,6 +16,7 @@ BudgetRow row(
   bool groupIsObligation = false,
   int? contributedThisMonth,
   bool isSinkingFund = false,
+  int? spentThisMonth,
 }) =>
     BudgetRow(
       categoryId: 1,
@@ -27,7 +28,10 @@ BudgetRow row(
       spentCycle: spentCycle == null ? null : fromCore(spentCycle),
       remaining: remaining == null ? null : fromCore(remaining),
       overspentBy: overspentBy == null ? null : fromCore(overspentBy),
-      spentThisMonth: fromCore(spentCycle ?? 0),
+      // Defaults to the cycle's figure, which is what a monthly envelope is:
+      // its cycle is the month. Given separately for a fund, whose cycle
+      // outlasts the month and where the two are different facts.
+      spentThisMonth: fromCore(spentThisMonth ?? spentCycle ?? 0),
       groupIsObligation: groupIsObligation,
       contributedThisMonth:
           contributedThisMonth == null ? null : fromCore(contributedThisMonth),
@@ -186,12 +190,16 @@ BudgetRow fund({
   String name = 'Car Repair',
   int perMonth = 10000,
   int? contributed,
+  int? spentCycle,
+  int? spentThisMonth,
 }) =>
     row(
       name,
       perMonth: perMonth,
       contributedThisMonth: contributed,
       isSinkingFund: true,
+      spentCycle: spentCycle ?? 49537,
+      spentThisMonth: spentThisMonth,
     );
 
 void main() {
@@ -435,6 +443,34 @@ void main() {
 
       expect(find.textContaining(r'$495.37'), findsOneWidget);
       expect(find.textContaining('spent '), findsNothing);
+    });
+
+    testWidgets('a fund with nothing spent this month stays quiet $at',
+        (tester) async {
+      // A fund's cycle outlasts the month, so spent-this-month is a second
+      // fact — but only when there is one. Zero is the absence of a figure,
+      // the same rule "Over" follows, and "Spent (month) $0.00" down every
+      // fund is a phone's width spent saying nothing happened.
+      await pumpAt(
+        tester,
+        width: width,
+        rows: [fund(name: 'Medical', spentCycle: 24000, spentThisMonth: 0)],
+      );
+
+      expect(find.textContaining('Spent (month)'), findsNothing);
+    });
+
+    testWidgets('a fund that spent this month says how much $at',
+        (tester) async {
+      // Then it is not the number beside it repeated, and it earns the line.
+      await pumpAt(
+        tester,
+        width: width,
+        rows: [fund(name: 'Medical', spentCycle: 24000, spentThisMonth: 4000)],
+      );
+
+      expect(find.textContaining('Spent (month)'), findsOneWidget);
+      expect(find.text(r'$40.00'), findsOneWidget);
     });
 
     testWidgets('a bill still says what it owes $at', (tester) async {
