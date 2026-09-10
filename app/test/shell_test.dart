@@ -188,4 +188,50 @@ void main() {
 
     expect(tester.getRect(inRail).top, before);
   });
+
+  testWidgets('the button is inside the drawer at expanded widths',
+      (tester) async {
+    // Material 3 puts the primary action in the upper left at expanded
+    // breakpoints — inside the navigation component — rather than floating in
+    // the corner diagonally opposite the navigation. Asserted by where the
+    // button lives in the tree, because that is the whole difference: the
+    // same button in the Scaffold's own slot would still be on screen, just
+    // in the wrong half of it.
+    await pumpAtWidth(tester, 1400);
+
+    expect(
+      find.descendant(
+        of: find.byType(NavigationDrawer),
+        matching: find.byType(FloatingActionButton),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the drawer keeps its place when a screen offers no button',
+      (tester) async {
+    // The same hole the rail has, in the drawer: the slot is held open on
+    // Budget and Settings so the five destinations do not slide up into it.
+    final inDrawer = find.descendant(
+      of: find.byType(NavigationDrawer),
+      matching: find.text('Home'),
+    );
+
+    await pumpAtWidth(tester, 1400);
+    final double before = tester.getRect(inDrawer).top;
+
+    await goTo(tester, Destination.budget);
+
+    expect(tester.getRect(inDrawer).top, before);
+  });
+
+  testWidgets('the floating button is the medium size', (tester) async {
+    // 80dp, which is the medium FAB Material 3 asks for in a mobile layout
+    // and the size Flutter has no constructor for. Checked here rather than
+    // trusted to the theme override: the whole point of the override is that
+    // nothing else in the framework will tell you it stopped working.
+    await pumpAtWidth(tester, 400);
+
+    expect(tester.getSize(find.byType(FloatingActionButton)), const Size(80, 80));
+  });
 }

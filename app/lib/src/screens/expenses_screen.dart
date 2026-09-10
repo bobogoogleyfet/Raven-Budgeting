@@ -4,6 +4,7 @@ import '../api.dart';
 import '../dates.dart';
 import '../money.dart';
 import '../breakpoints.dart';
+import '../fab.dart';
 import '../shell.dart';
 import '../widgets/filter_menu.dart';
 import '../widgets/money_text.dart';
@@ -17,18 +18,6 @@ import '../widgets/money_text.dart';
 /// the old two-hundred cap was silent, and a ledger that quietly leaves rows
 /// out is one you cannot trust the rest of.
 const int _monthLimit = 500;
-
-/// Blank space kept under the last row for the shell's floating button.
-///
-/// 56dp of button — the same height circular or extended — plus the 16dp it
-/// floats above the edge. On the list rather than under the bottom line: the
-/// bottom line is pinned *below* the button now, and it is the rows that need
-/// somewhere to scroll to that the button is not sitting on.
-///
-/// Reserved only where the button actually floats over the content. At medium
-/// widths it lives in the navigation rail, and a gap at the end of the list
-/// there really would be a gap with nothing in it.
-const double _fabReserve = 72;
 
 /// Stands for expenses with no store, which is what quick-add leaves behind.
 ///
@@ -352,7 +341,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     // Where the shell floats its button over the content, mirrored from
     // `shell.dart`: everywhere except medium, which is the one width that has
     // a navigation rail to keep it in.
-    final bool floatingButton = sizeClass != WindowSizeClass.medium;
+    // Reserved only where the button actually floats over the content, which
+    // is now only the compact window: at medium widths it lives in the
+    // navigation rail and at expanded ones in the drawer, and a gap at the end
+    // of the list there really would be a gap with nothing in it.
+    final bool floatingButton = sizeClass == WindowSizeClass.compact;
     final TxnTotals? totals = _totals;
     _publishBottomLine();
 
@@ -411,7 +404,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               // not sitting on. The bottom line below is pinned and cannot
               // scroll, which is why the button is lifted clear of it instead.
               padding: EdgeInsets.only(
-                bottom: floatingButton ? _fabReserve : 0,
+                bottom: floatingButton ? kFabReserve : 0,
               ),
               itemCount: _rows.length,
               separatorBuilder: (context, index) => const Divider(height: 1),

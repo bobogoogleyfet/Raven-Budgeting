@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api.dart';
 import '../breakpoints.dart';
+import '../fab.dart';
 import '../dates.dart';
 import '../money.dart';
 import '../widgets/budget_ring.dart';
@@ -290,15 +291,21 @@ class _OverviewState extends State<_Overview> {
             ),
     );
 
+    // Space for the shell's floating button, and only where it floats: at
+    // medium widths it is in the rail and at expanded ones in the drawer, so
+    // reserving there leaves a gap with nothing in it.
+    final double reserve =
+        sizeClass == WindowSizeClass.compact ? kFabReserve : 8;
+
     if (sizeClass == WindowSizeClass.compact ||
         sizeClass == WindowSizeClass.medium) {
       return ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 88),
+        padding: EdgeInsets.fromLTRB(0, 8, 0, reserve),
         children: [budgetSection, recentSection],
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(0, 8, 0, 88),
+      padding: EdgeInsets.fromLTRB(0, 8, 0, reserve),
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
