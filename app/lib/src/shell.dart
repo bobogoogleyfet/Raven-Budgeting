@@ -13,12 +13,10 @@ import 'fab.dart';
 /// underneath never knows which one is showing.
 ///
 /// Entering an expense is the primary action rather than a destination, so it
-/// goes wherever Material 3 puts a primary action at that width: floating in
-/// the lower right when the window is compact, and inside the navigation
-/// component once there is one — the rail's leading slot, or the top of the
-/// drawer. It is on the screens that are about money going out, which
-/// [Destination.offersNewExpense] names: the app opens one tap away from
-/// recording something.
+/// is a button over the content — the rail's leading slot where there is one,
+/// and a floating button in the lower right where there is not. It is on the
+/// screens that are about money going out, which [Destination.offersNewExpense]
+/// names: the app opens one tap away from recording something.
 /// How much of the bottom of the content a screen has pinned something to.
 ///
 /// The floating button is anchored to the bottom of the content area, so it
@@ -201,6 +199,19 @@ class AppShellState extends State<AppShell> {
       WindowSizeClass.extraLarge =>
         Scaffold(
           appBar: appBar,
+          // The lower right, the same corner the compact window uses. Material
+          // 3 suggests considering the upper left at these widths — inside the
+          // navigation component — but says in the same breath to test whether
+          // it is really the best position, and allows a FAB aligned left,
+          // center or right. Extended, because there is width here for the
+          // label to cost nothing.
+          floatingActionButton: offersNewExpense
+              ? lifted(FloatingActionButton.extended(
+                  onPressed: newExpense,
+                  icon: const Icon(Icons.add),
+                  label: const Text('New expense'),
+                ))
+              : null,
           body: Row(
             children: [
               // A standard drawer, permanently on screen rather than opened
@@ -220,32 +231,6 @@ class AppShellState extends State<AppShell> {
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
-                    ),
-                  ),
-                  // At expanded widths Material 3 puts the primary action in
-                  // the upper left, inside the navigation component, rather
-                  // than floating in the far corner from it. Extended, because
-                  // the drawer is wide enough for the label to be free, and
-                  // first, which also puts it early in the focus order where
-                  // the spec's accessibility guidance wants it.
-                  //
-                  // Aligned rather than stretched: an extended FAB is as wide
-                  // as its label, and one pulled out to the drawer's full
-                  // width reads as a list row.
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      // Held open on the screens that offer nothing, for the
-                      // same reason the rail's slot is: without it the five
-                      // destinations move whenever you land on Budget.
-                      child: offersNewExpense
-                          ? FloatingActionButton.extended(
-                              onPressed: newExpense,
-                              icon: const Icon(Icons.add),
-                              label: const Text('New expense'),
-                            )
-                          : const SizedBox(height: 56),
                     ),
                   ),
                   for (final d in Destination.values)

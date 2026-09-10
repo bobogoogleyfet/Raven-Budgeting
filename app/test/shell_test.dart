@@ -189,14 +189,12 @@ void main() {
     expect(tester.getRect(inRail).top, before);
   });
 
-  testWidgets('the button is inside the drawer at expanded widths',
+  testWidgets('the button floats in the lower right at expanded widths',
       (tester) async {
-    // Material 3 puts the primary action in the upper left at expanded
-    // breakpoints — inside the navigation component — rather than floating in
-    // the corner diagonally opposite the navigation. Asserted by where the
-    // button lives in the tree, because that is the whole difference: the
-    // same button in the Scaffold's own slot would still be on screen, just
-    // in the wrong half of it.
+    // The same corner the compact window uses, rather than inside the
+    // navigation. Material 3 suggests considering the upper left here and
+    // then says to test whether it is really best; it allows a FAB aligned
+    // left, center or right, and this app is aligned right everywhere.
     await pumpAtWidth(tester, 1400);
 
     expect(
@@ -204,25 +202,12 @@ void main() {
         of: find.byType(NavigationDrawer),
         matching: find.byType(FloatingActionButton),
       ),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('the drawer keeps its place when a screen offers no button',
-      (tester) async {
-    // The same hole the rail has, in the drawer: the slot is held open on
-    // Budget and Settings so the five destinations do not slide up into it.
-    final inDrawer = find.descendant(
-      of: find.byType(NavigationDrawer),
-      matching: find.text('Home'),
+      findsNothing,
     );
 
-    await pumpAtWidth(tester, 1400);
-    final double before = tester.getRect(inDrawer).top;
-
-    await goTo(tester, Destination.budget);
-
-    expect(tester.getRect(inDrawer).top, before);
+    final Rect fab = tester.getRect(find.byType(FloatingActionButton));
+    expect(fab.right, closeTo(1400 - 16, 0.5));
+    expect(fab.bottom, closeTo(800 - 16, 0.5));
   });
 
   testWidgets('the floating button is the medium size', (tester) async {

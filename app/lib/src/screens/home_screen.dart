@@ -291,11 +291,9 @@ class _OverviewState extends State<_Overview> {
             ),
     );
 
-    // Space for the shell's floating button, and only where it floats: at
-    // medium widths it is in the rail and at expanded ones in the drawer, so
-    // reserving there leaves a gap with nothing in it.
-    final double reserve =
-        sizeClass == WindowSizeClass.compact ? kFabReserve : 8;
+    // Space for the shell's floating button, sized to whichever button this
+    // width actually gets — and nothing at medium, where it is in the rail.
+    final double reserve = fabReserve(sizeClass);
 
     if (sizeClass == WindowSizeClass.compact ||
         sizeClass == WindowSizeClass.medium) {

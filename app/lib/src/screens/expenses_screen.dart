@@ -341,11 +341,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     // Where the shell floats its button over the content, mirrored from
     // `shell.dart`: everywhere except medium, which is the one width that has
     // a navigation rail to keep it in.
-    // Reserved only where the button actually floats over the content, which
-    // is now only the compact window: at medium widths it lives in the
-    // navigation rail and at expanded ones in the drawer, and a gap at the end
-    // of the list there really would be a gap with nothing in it.
-    final bool floatingButton = sizeClass == WindowSizeClass.compact;
     final TxnTotals? totals = _totals;
     _publishBottomLine();
 
@@ -403,9 +398,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               // So the last row has somewhere to scroll to that the button is
               // not sitting on. The bottom line below is pinned and cannot
               // scroll, which is why the button is lifted clear of it instead.
-              padding: EdgeInsets.only(
-                bottom: floatingButton ? kFabReserve : 0,
-              ),
+              padding: EdgeInsets.only(bottom: fabReserve(sizeClass)),
               itemCount: _rows.length,
               separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, index) => _ExpenseRow(

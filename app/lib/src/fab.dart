@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'breakpoints.dart';
+
 /// The Material 3 FAB sizes, and the one Flutter does not ship.
 ///
 /// M3 sizes the button by breakpoint rather than using one button everywhere:
@@ -21,16 +23,30 @@ const double kMediumFabSize = 80;
 const double kMediumFabIcon = 28;
 const double kMediumFabCorner = 20;
 
-/// What a floating button costs the bottom of a scrolling list.
+/// The extended FAB's height, which the spec keeps at the baseline 56dp
+/// whatever the label says.
+const double kExtendedFabHeight = 56;
+
+/// How far a floating button sits from the edges it floats above.
+const double kFabMargin = 16;
+
+/// What the floating button costs the bottom of a scrolling list.
 ///
 /// The button sits [kFabMargin] from the bottom edge, so the last row has to
 /// travel its whole height plus that margin to get out from under it, and
-/// another margin to not be touching it. Derived rather than written down as a
-/// number: the three screens that reserve this space had drifted to two
-/// different constants, neither of which would have survived the button
-/// changing size.
-const double kFabMargin = 16;
-const double kFabReserve = kMediumFabSize + kFabMargin * 2;
+/// another margin to not be touching it.
+///
+/// Derived from the button that is actually on screen rather than written down
+/// once: the sizes differ by breakpoint now, and the three screens reserving
+/// this space had already drifted to two different constants back when there
+/// was only one size to get wrong.
+double fabReserve(WindowSizeClass sizeClass) => switch (sizeClass) {
+      // In the rail's leading slot, not over the content: a gap at the end of
+      // the list here really would be a gap with nothing in it.
+      WindowSizeClass.medium => 0,
+      WindowSizeClass.compact => kMediumFabSize + kFabMargin * 2,
+      _ => kExtendedFabHeight + kFabMargin * 2,
+    };
 
 /// A Material 3 medium FAB.
 ///

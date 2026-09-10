@@ -109,19 +109,17 @@ class _InboxScreenState extends State<InboxScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // Space for the shell's floating button, and only where it floats: at
-    // medium widths it is in the rail and at expanded ones in the drawer, so
-    // reserving there leaves a gap with nothing in it.
-    final bool floatingButton =
-        WindowSizeClass.of(MediaQuery.sizeOf(context).width) ==
-            WindowSizeClass.compact;
+    // Space for the shell's floating button, sized to whichever button this
+    // width actually gets — and nothing at medium, where it is in the rail.
+    final double reserve =
+        fabReserve(WindowSizeClass.of(MediaQuery.sizeOf(context).width));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
           child: ListView.separated(
-            padding: EdgeInsets.only(bottom: floatingButton ? kFabReserve : 0),
+            padding: EdgeInsets.only(bottom: reserve),
             itemCount: _rows.length,
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) {
