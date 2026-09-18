@@ -368,6 +368,10 @@ class _EntryScreenState extends State<EntryScreen> {
       // full-screen dialog and does not know what is underneath it, so where
       // "home" is stays the caller's business.
       if (outcome.then == SaveThen.home) {
+        // Before leaving, not skipped by it: this is what tells the screens
+        // underneath that there is a new expense, and Home is the one the
+        // user is about to look at.
+        widget.onSaved?.call();
         Navigator.of(context).pop(true);
         return;
       }

@@ -414,6 +414,7 @@ void main() {
     // Pushed the way the app pushes it: a full-screen dialog over something
     // else, which is why the form pops a result instead of navigating itself.
     Object? popped = 'not popped';
+    var refreshed = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -423,7 +424,12 @@ void main() {
                 popped = await Navigator.of(context).push<bool>(
                   MaterialPageRoute<bool>(
                     fullscreenDialog: true,
-                    builder: (_) => Scaffold(body: EntryScreen(core: fake.api)),
+                    builder: (_) => Scaffold(
+                      body: EntryScreen(
+                        core: fake.api,
+                        onSaved: () => refreshed++,
+                      ),
+                    ),
                   ),
                 );
               },
@@ -447,6 +453,9 @@ void main() {
     // `true` and not just "popped": dismissing any other way must leave the
     // user where they were.
     expect(popped, isTrue);
+    // Home is where this goes, so Home has to hear about the new expense —
+    // leaving must not skip the refresh that "Save & New" gets.
+    expect(refreshed, 1, reason: 'the screens underneath are told to redraw');
   });
 
   testWidgets('a category cannot be invented by typing it into the row',
