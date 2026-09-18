@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:app/src/api.dart';
+import 'package:app/src/browser/browser.dart' show PickedFile;
 import 'package:app/src/screens/home_area_form.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +31,8 @@ Future<List<Saved>> pump(
   Object? refreshError,
   Object? saveError,
   bool canRefresh = true,
+  WorkbookInstaller? install,
+  PickedFile? picked,
 }) async {
   var refreshed = false;
   final saved = <Saved>[];
@@ -41,6 +46,8 @@ Future<List<Saved>> pump(
         body: HomeAreaForm(
           firstRun: firstRun,
           canRefresh: canRefresh,
+          install: install,
+          pick: () async => picked,
           submitLabel: 'Save',
           onSaved: () {},
           loadAreas: () async => [
@@ -283,6 +290,65 @@ void main() {
 
     expect(find.text('Check for new rates'), findsNothing);
     expect(find.textContaining('2026Q2 publication.'), findsOneWidget);
+  });
+
+  testWidgets('a browser imports the workbook the user downloaded instead',
+      (tester) async {
+    final installed = <List<int>>[];
+    await pump(
+      tester,
+      canRefresh: false,
+      release: RateReleaseDto(
+        quarter: '2026Q2',
+        effectiveOn: '2026-04-01',
+        current: false,
+      ),
+      afterRefresh: RateReleaseDto(
+        quarter: '2026Q3',
+        effectiveOn: '2026-07-01',
+        current: true,
+      ),
+      picked: PickedFile(
+        name: 'rates.xlsx',
+        bytes: Uint8List.fromList(const [0x50, 0x4b]),
+      ),
+      install: (bytes) async {
+        installed.add(bytes);
+        return RefreshDto(
+          attempted: true,
+          installed: true,
+          areas: 389,
+          locationsUpdated: 1,
+          problem: null,
+        );
+      },
+    );
+
+    await tester.tap(find.text('Import rate workbook…'));
+    await tester.pumpAndSettle();
+
+    expect(installed, [
+      [0x50, 0x4b],
+    ]);
+    expect(find.textContaining('from rates.xlsx — 389 jurisdictions'),
+        findsOneWidget);
+  });
+
+  testWidgets('a workbook for the wrong quarter is refused in its own words',
+      (tester) async {
+    await pump(
+      tester,
+      canRefresh: false,
+      picked: PickedFile(name: 'old.xlsx', bytes: Uint8List(0)),
+      install: (bytes) async =>
+          throw 'that workbook is for 2026Q1, not 2026Q3',
+    );
+
+    await tester.tap(find.text('Import rate workbook…'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not install it: that workbook is for 2026Q1'),
+        findsOneWidget);
   });
 
   testWidgets('a table that is already current says so', (tester) async {

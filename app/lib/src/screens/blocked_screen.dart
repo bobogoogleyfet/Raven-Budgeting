@@ -4,31 +4,29 @@ import '../theme.dart';
 
 /// A whole app that says one thing: why Raven is not open.
 ///
-/// Its own `MaterialApp` because it stands in for the real one before there is
-/// any database behind it — a second tab waiting its turn, or a browser that
-/// cannot be trusted with the data — and the real app cannot be built without
-/// one. It borrows the real theme so the page is recognisably the same app,
-/// and asks nothing of the bridge, so it can be shown before Rust has loaded
-/// or after it failed to.
+/// Its own `MaterialApp` because it stands in for the real one when there is
+/// no database behind it — most often a second tab, turned away because
+/// another already has the data open — and the real app cannot be built
+/// without one. It borrows the real theme so the page is recognisably the same
+/// app, and asks nothing of the bridge, so it can be shown before Rust has
+/// loaded or after it failed to.
 class BlockedApp extends StatelessWidget {
   const BlockedApp({
     super.key,
     required this.icon,
     required this.title,
     required this.message,
+    this.actionLabel,
+    this.onAction,
   });
 
   final IconData icon;
   final String title;
   final String message;
 
-  /// Shown by a second tab while the first holds the database. It opens on
-  /// its own as soon as the other tab closes, so there is nothing to press.
-  const BlockedApp.otherTab({super.key})
-      : icon = Icons.tab_outlined,
-        title = 'Raven is open in another tab',
-        message = 'Only one tab can use your data at a time, so this one is '
-            'waiting. Close the other tab and this one opens by itself.';
+  /// The one thing worth pressing, when there is one.
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +69,13 @@ class BlockedApp extends StatelessWidget {
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
+                          if (actionLabel != null && onAction != null) ...[
+                            const SizedBox(height: 24),
+                            FilledButton(
+                              onPressed: onAction,
+                              child: Text(actionLabel!),
+                            ),
+                          ],
                         ],
                       ),
                     ),

@@ -1,7 +1,10 @@
+import 'dart:typed_data' show Uint8List;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../api.dart';
+import '../browser/browser.dart';
 import '../money.dart';
 import '../rates.dart';
 import '../widgets/combobox.dart';
@@ -9,6 +12,7 @@ import '../widgets/combobox.dart';
 typedef AreaLoader = Future<List<AreaDto>> Function();
 typedef ReleaseLoader = Future<RateReleaseDto?> Function();
 typedef RateRefresher = Future<RefreshDto> Function();
+typedef WorkbookInstaller = Future<RefreshDto> Function(Uint8List bytes);
 typedef HomeSetter = Future<void> Function({
   required String name,
   required String? areaCode,
@@ -51,6 +55,8 @@ class HomeAreaForm extends StatefulWidget {
     this.save = setHomeLocation,
     this.embedded = false,
     this.canRefresh = !kIsWeb,
+    this.install,
+    this.pick = pickFile,
   });
 
   final String submitLabel;
@@ -73,9 +79,14 @@ class HomeAreaForm extends StatefulWidget {
   /// Whether this build can fetch a rate table at all. A browser cannot: the
   /// Tax Commission's server sends no CORS headers, and the page's
   /// Content-Security-Policy forbids talking to anything but its own origin.
-  /// A button that could only ever fail is not offered; the web build carries
-  /// the table it was built with.
+  /// A button that could only ever fail is not offered. Instead the user
+  /// imports the workbook themselves, through [install] and [pick].
   final bool canRefresh;
+
+  /// Installs a rate workbook the user downloaded, as this quarter's table.
+  /// Offered only where [canRefresh] is false, and only when there is one.
+  final WorkbookInstaller? install;
+  final FilePicker pick;
   final HomeSetter save;
 
   @override
@@ -139,6 +150,47 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
       });
     } catch (error) {
       if (mounted) setState(() => _refreshNote = 'Could not fetch it: $error');
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  /// Install a workbook the user fetched themselves — the browser's only way
+  /// to a newer table.
+  Future<void> _importWorkbook(WorkbookInstaller install) async {
+    // Before anything is awaited: a browser opens its picker only from a
+    // gesture it can still see.
+    final Future<PickedFile?> picking = widget.pick();
+    final PickedFile? file;
+    try {
+      file = await picking;
+    } catch (error) {
+      if (mounted) setState(() => _refreshNote = 'Could not read the file: $error');
+      return;
+    }
+    // Closing the picker is a change of mind, not a failure.
+    if (file == null || !mounted) return;
+
+    setState(() {
+      _refreshing = true;
+      _refreshNote = null;
+    });
+    try {
+      final result = await install(file.bytes);
+      final release = await widget.loadRelease();
+      if (!mounted) return;
+      setState(() {
+        _provenance = releaseLine(
+          quarter: release?.quarter,
+          current: release?.current ?? false,
+        );
+        _refreshNote = 'Installed ${release?.quarter ?? 'the new table'} '
+            'from ${file!.name} — ${result.areas} jurisdictions.';
+      });
+    } catch (error) {
+      // The core refuses a workbook that is not this quarter's, and says so;
+      // that sentence is the whole of what the user needs.
+      if (mounted) setState(() => _refreshNote = 'Could not install it: $error');
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -336,9 +388,23 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
                 onPressed: _refreshing ? null : () => _checkNow(),
                 child: Text(_refreshing ? 'Checking…' : 'Check for new rates'),
               ),
+            ] else if (widget.install case final install?) ...[
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: _refreshing ? null : () => _importWorkbook(install),
+                child: Text(_refreshing ? 'Installing…' : 'Import rate workbook…'),
+              ),
             ],
           ],
         ),
+        if (!widget.canRefresh && widget.install != null)
+          Text(
+            'Raven cannot download the rate table from here. Each quarter the '
+            'Utah State Tax Commission publishes it as a spreadsheet on '
+            'tax.utah.gov; download it and import it with the button above.',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
         if (_refreshNote != null)
           Semantics(
             liveRegion: true,
