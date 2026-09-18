@@ -18,6 +18,10 @@ chrono.workspace = true
 # package and the codegen binary — must stay on one version. A minor version
 # may change the handler ABI, and the symptom is a content-hash mismatch at
 # runtime rather than a compile error.
+#
+# The defaults include `thread-pool`, which nothing here uses — every bridged
+# function is `async`, see `src/api/mod.rs` — but which cannot be turned off:
+# 2.12's generated handler for wasm only compiles against the real pool.
 flutter_rust_bridge = "=2.12.0"
 log = "0.4"
 

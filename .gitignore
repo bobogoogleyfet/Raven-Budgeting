@@ -1,6 +1,11 @@
 /target
 **/target
 
+# The web build's Rust half, written by scripts/build-web-bridge.sh. Build
+# output like `target/`, and 2.7MB of it that changes with every edit to the
+# core.
+/app/web/pkg/
+
 # NEVER commit a database — these contain real financial data.
 *.db
 *.db-wal
