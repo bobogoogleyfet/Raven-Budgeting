@@ -12,9 +12,8 @@ use crate::error::to_message;
 /// directly: its ids are `#[serde(transparent)]` newtypes, and serde is not in
 /// play at an FFI boundary, so each would surface in Dart as a wrapper class.
 ///
-/// `id` is an `i64` **in a struct field**, which the bridge maps to
-/// `PlatformInt64` (`typedef = int` on native). A bare `Vec<i64>` would arrive
-/// as `BigInt` instead — exact, but needing an unwrap at every use.
+/// `id` is an `i64`, which reaches Dart as a plain `int` on every platform —
+/// `type_64bit_int` in `flutter_rust_bridge.yaml` says why.
 pub struct CategoryDto {
     pub id: i64,
     pub name: String,

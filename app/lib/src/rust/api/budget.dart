@@ -40,9 +40,9 @@ Future<BudgetTotalsDto> budgetTotals({required String month}) =>
 /// it as spending would count it against the budget now and again when the bill
 /// is finally paid.
 Future<void> recordContribution({
-  required PlatformInt64 categoryId,
+  required int categoryId,
   required String month,
-  required PlatformInt64 amountCents,
+  required int amountCents,
 }) => RustLib.instance.api.crateApiBudgetRecordContribution(
   categoryId: categoryId,
   month: month,
@@ -51,7 +51,7 @@ Future<void> recordContribution({
 
 /// Forget a recorded contribution, returning the month to "nothing recorded".
 Future<void> forgetContribution({
-  required PlatformInt64 categoryId,
+  required int categoryId,
   required String month,
 }) => RustLib.instance.api.crateApiBudgetForgetContribution(
   categoryId: categoryId,
@@ -70,8 +70,8 @@ Future<void> forgetContribution({
 /// is refused rather than defaulted: a budget silently landing on the wrong
 /// schedule is a number nobody checks again.
 Future<SupersededDto> setBudget({
-  required PlatformInt64 categoryId,
-  required PlatformInt64 amountCents,
+  required int categoryId,
+  required int amountCents,
   required String period,
   int? everyNMonths,
   required String month,
@@ -103,31 +103,31 @@ Future<SupersededDto> setBudget({
 /// `behind` as over budget would make the screen cry wolf on every bill that is
 /// merely still waiting to be paid.
 class BudgetRowDto {
-  final PlatformInt64 categoryId;
+  final int categoryId;
   final String categoryName;
   final String groupName;
 
   /// The line's budget for one full cycle. `None` throughout when the
   /// category has no budget line.
-  final PlatformInt64? budgeted;
+  final int? budgeted;
 
   /// The contribution for this month alone — a yearly line shows a twelfth
   /// here and the whole bill in `budgeted`.
-  final PlatformInt64? perMonth;
-  final PlatformInt64? funded;
+  final int? perMonth;
+  final int? funded;
 
   /// Spending within the current cycle, through this month.
-  final PlatformInt64? spentCycle;
+  final int? spentCycle;
 
   /// `budgeted - spent_cycle`. Goes negative once spending passes the
   /// budget, which is the same news `overspent_by` carries as a magnitude.
-  final PlatformInt64? remaining;
+  final int? remaining;
 
   /// Zero while within budget. Any non-zero value is the over-budget signal.
-  final PlatformInt64? overspentBy;
+  final int? overspentBy;
 
   /// Spending in this month alone. Never null.
-  final PlatformInt64 spentThisMonth;
+  final int spentThisMonth;
 
   /// Whether this category's group holds money that is owed rather than
   /// merely available — rent versus groceries. Decides whether a shortfall
@@ -137,7 +137,7 @@ class BudgetRowDto {
   /// What was actually set aside this month, in cents. `None` means nothing
   /// has been recorded — which a sinking fund counts as nothing saved, and
   /// which the screen must tell apart from a recorded zero.
-  final PlatformInt64? contributedThisMonth;
+  final int? contributedThisMonth;
 
   /// Whether this line is saved into rather than paid out of: a yearly
   /// premium, a car-repair fund. Only these can take a contribution.
@@ -147,7 +147,7 @@ class BudgetRowDto {
   final String funding;
 
   /// The magnitude of ahead or behind. Never negative.
-  final PlatformInt64 fundingBy;
+  final int fundingBy;
 
   /// Months left in the cycle, counting this one: 12 in the first month of a
   /// yearly line, 1 in its last.
@@ -216,11 +216,11 @@ class BudgetRowDto {
 
 /// Every column of the budget table, added up.
 class BudgetTotalsDto {
-  final PlatformInt64 perMonth;
-  final PlatformInt64 funded;
-  final PlatformInt64 spentCycle;
-  final PlatformInt64 remaining;
-  final PlatformInt64 overspentBy;
+  final int perMonth;
+  final int funded;
+  final int spentCycle;
+  final int remaining;
+  final int overspentBy;
 
   /// Budgeted categories in the total. Unbudgeted ones have no figure in any
   /// column and are left out, so this can be checked against the table.
@@ -266,8 +266,8 @@ class BudgetTotalsDto {
 /// Summed by the core, not here and not in Dart: adding money is arithmetic,
 /// and a total computed per frontend is a total that drifts per frontend.
 class MonthTotalsDto {
-  final PlatformInt64 budgeted;
-  final PlatformInt64 spent;
+  final int budgeted;
+  final int spent;
 
   const MonthTotalsDto({required this.budgeted, required this.spent});
 

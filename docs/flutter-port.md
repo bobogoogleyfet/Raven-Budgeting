@@ -45,31 +45,32 @@ Generated from the real core, not from a tutorial:
 
 | Rust | Dart |
 |---|---|
-| `i64` **in a struct field** | `PlatformInt64`, which is `typedef = int` on native |
-| `i64` **in a bare `Vec`** | `BigInt` — see below |
+| `i64`, in a field or an argument | `int` — with `type_64bit_int: true`, see below |
+| `Vec<i64>` | `List<int>` — likewise |
 | `Option<u32>` | `int?` |
 | `Vec<String>` | `List<String>` |
 | `Vec<Struct>` | `List<Struct>` |
 | `Result<T, String>` | `Future<T>` that throws |
 | doc comments | carried through to the Dart |
 
-**Money goes in a struct field, never a bare `Vec<i64>`.** The bridge ships its
-own `Int64List extends TypedList<BigInt, int>`, so indexing a returned
-`Vec<i64>` yields `BigInt` — on native, and with web generation disabled. The
-values are exact either way (`i64::MAX`, `i64::MIN` and 2^53+1 all survive), so
-this is an ergonomic trap rather than a correctness one: every amount would
-need unwrapping, and one missed conversion is a type error rather than silent
-corruption. The existing DTOs already return lists of structs, so the rule
-costs nothing — it just has to be written down before someone designs an
-endpoint around `Vec<i64>`.
+**`type_64bit_int: true` is set in `app/flutter_rust_bridge.yaml`.** Without
+it an `i64` field is `PlatformInt64` — `int` on native and `BigInt` on the web
+— and a `Vec<i64>` is the bridge's own `Int64List`, which yields `BigInt` on
+read everywhere and shares its name with `dart:typed_data`'s. Both were
+ergonomic traps on native and the first is a type error in a web build. With
+the flag every one of them is a plain `int`.
 
-This was worth checking rather than assuming: research reported "i64
-round-trips exactly", which is true of the value and silent about the type.
+The price is on the web alone, where a Dart `int` is a JavaScript double and is
+exact only to 2^53. That is nine quadrillion for an id and ninety trillion
+dollars for a sum of cents, so no value these books hold is affected — but a
+new endpoint carrying something that really uses all 64 bits, a hash say,
+should cross as a `String`.
 
 Every generated function is a `Future`, so a blocking SQLite call runs off the
 UI isolate without being marked. That matches the core's design: it is
 synchronous because SQLite is a file, and the bridge is what makes that
-acceptable to a UI.
+acceptable to a UI. The Rust side of each is `pub async fn` for the web's
+sake; the gotchas below say why.
 
 ## Shape
 
@@ -289,10 +290,10 @@ discover later.
   Cargo's defaults.
 - **Do not reflexively `flutter clean`.** The Rust target directory lives
   inside the trees it deletes, so a clean means a cold rebuild of SQLite.
-- **`Vec<i64>` arguments arrive as `Int64List`** — the bridge's own class of
-  that name, not `dart:typed_data`'s. Mixing them up is a type error that names
-  the same type twice and explains nothing. Convert once at the boundary; the
-  rule that money stays in a struct field means only ids ever go through it.
+- **Keep `type_64bit_int: true`.** Without it `Vec<i64>` arguments arrive as
+  the bridge's own `Int64List`, not `dart:typed_data`'s — a type error that
+  names the same type twice and explains nothing — and every `i64` is a
+  `BigInt` in the web build.
 - **Name the Rust crate with underscores.** The scaffolder copies
   `--rust-crate-name` verbatim into `rust_builder/pubspec.yaml`, where a
   hyphen is not a legal Dart package name. It fails several steps later as

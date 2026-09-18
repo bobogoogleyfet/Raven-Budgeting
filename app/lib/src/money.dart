@@ -27,9 +27,10 @@ library;
 
 /// An integer number of cents, as the core sends it.
 ///
-/// Values arrive across the bridge as `PlatformInt64`, which is `int` on
-/// native, so no decoding step is needed — only the wrapper, which exists
-/// purely to make arithmetic a compile error.
+/// Values arrive across the bridge as a plain `int` on every platform
+/// (`type_64bit_int` in `flutter_rust_bridge.yaml`), so no decoding step is
+/// needed — only the wrapper, which exists purely to make arithmetic a compile
+/// error.
 extension type const Cents._(int _cents) {
   /// The underlying integer, for handing back to the core.
   int get value => _cents;

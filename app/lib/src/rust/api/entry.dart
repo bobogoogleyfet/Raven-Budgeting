@@ -20,7 +20,7 @@ Future<PreviewDto> previewSubtotals({required SubtotalDraftDto draft}) =>
     RustLib.instance.api.crateApiEntryPreviewSubtotals(draft: draft);
 
 /// Write the receipt. Returns the transaction's id.
-Future<PlatformInt64> saveSubtotals({required SubtotalDraftDto draft}) =>
+Future<int> saveSubtotals({required SubtotalDraftDto draft}) =>
     RustLib.instance.api.crateApiEntrySaveSubtotals(draft: draft);
 
 /// What the app knows about a store.
@@ -77,7 +77,7 @@ Future<List<TxnSummaryDto>> needsCategorizing() =>
 /// which envelopes they came out of. Re-previewing instead would derive tax
 /// from a rate and silently rewrite a total that was recorded as tax-free.
 Future<void> categorize({
-  required PlatformInt64 id,
+  required int id,
   required List<SplitDraftDto> splits,
 }) => RustLib.instance.api.crateApiEntryCategorize(id: id, splits: splits);
 
@@ -122,7 +122,7 @@ Future<RateReleaseDto?> rateRelease() =>
 /// the UI thread while somebody is typing rather than arriving a frame later.
 /// The adding itself is the core's, because a frontend that adds money has to
 /// do it again for every platform.
-PlatformInt64 totalOf({required Int64List parts}) =>
+int totalOf({required List<int> parts}) =>
     RustLib.instance.api.crateApiEntryTotalOf(parts: parts);
 
 class AreaDto {
@@ -170,7 +170,7 @@ class AreaDto {
 /// a category is picked. The rate is a property of the category, not of the
 /// store: at one till, groceries are 3% and shampoo is 7.45%.
 class CategoryRateDto {
-  final PlatformInt64 categoryId;
+  final int categoryId;
   final int ratePpm;
 
   const CategoryRateDto({required this.categoryId, required this.ratePpm});
@@ -201,7 +201,7 @@ class ContextDto {
   /// else here — never that it is untaxed.
   final int? restaurantRatePpm;
   final List<CategoryRateDto> categoryRates;
-  final PlatformInt64? defaultCategoryId;
+  final int? defaultCategoryId;
   final String detailLevel;
   final List<String> recentMerchants;
 
@@ -246,7 +246,7 @@ class ContextDto {
 }
 
 class LocationDto {
-  final PlatformInt64 id;
+  final int id;
   final String name;
   final int taxRatePpm;
   final bool isHome;
@@ -274,9 +274,9 @@ class LocationDto {
 }
 
 class MerchantDto {
-  final PlatformInt64 id;
+  final int id;
   final String name;
-  final PlatformInt64? defaultCategoryId;
+  final int? defaultCategoryId;
 
   const MerchantDto({
     required this.id,
@@ -299,9 +299,9 @@ class MerchantDto {
 
 /// What would be written, and why it might not be.
 class PreviewDto {
-  final PlatformInt64 subtotal;
-  final PlatformInt64 tax;
-  final PlatformInt64 total;
+  final int subtotal;
+  final int tax;
+  final int total;
   final bool taxIsEstimated;
 
   /// The location's general rate — what the store charges on most things.
@@ -311,7 +311,7 @@ class PreviewDto {
   /// two. Never label a tax figure with `tax_rate_ppm`: on a grocery receipt
   /// that prints a percentage which does not match the money beside it.
   final int? appliedRatePpm;
-  final PlatformInt64 unassigned;
+  final int unassigned;
   final String detailLevel;
   final List<SplitRowDto> rows;
 
@@ -403,11 +403,11 @@ class RateReleaseDto {
 /// remainder, which is the only shape the inbox sends; a percentage split can
 /// join it here the day a screen offers one.
 class SplitDraftDto {
-  final PlatformInt64? categoryId;
+  final int? categoryId;
 
   /// An exact amount in cents, or null for "whatever the others did not
   /// claim".
-  final PlatformInt64? cents;
+  final int? cents;
   final String? note;
 
   const SplitDraftDto({this.categoryId, this.cents, this.note});
@@ -426,11 +426,11 @@ class SplitDraftDto {
 }
 
 class SplitRowDto {
-  final PlatformInt64? categoryId;
+  final int? categoryId;
   final String? categoryName;
-  final PlatformInt64 subtotal;
-  final PlatformInt64 tax;
-  final PlatformInt64 amount;
+  final int subtotal;
+  final int tax;
+  final int amount;
 
   const SplitRowDto({
     this.categoryId,
@@ -462,7 +462,7 @@ class SplitRowDto {
 
 /// A receipt entered the way it is read.
 class SubtotalDraftDto {
-  final PlatformInt64? id;
+  final int? id;
 
   /// `YYYY-MM-DD`. The frontend owns "today" — it knows the user's timezone
   /// and may read the clock; the core may not.
@@ -515,12 +515,12 @@ class SubtotalDraftDto {
 
 /// One category's subtotal, as copied off a receipt.
 class SubtotalRowDto {
-  final PlatformInt64? categoryId;
-  final PlatformInt64 subtotal;
+  final int? categoryId;
+  final int subtotal;
 
   /// The tax on this row when the user has corrected it off the receipt;
   /// null leaves it to the rate.
-  final PlatformInt64? tax;
+  final int? tax;
   final String? note;
 
   const SubtotalRowDto({

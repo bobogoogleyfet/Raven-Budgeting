@@ -1,3 +1,11 @@
 rust_input: crate::api
 rust_root: rust/
 dart_output: lib/src/rust
+# Every i64 crosses as a plain Dart `int`, on every platform.
+#
+# Without this the bridge types them as `PlatformInt64`, which is `int` in a
+# native build and `BigInt` in a web one, so the same line of Dart compiles for
+# Linux and is a type error in the browser. A plain `int` on the web is a
+# JavaScript double, exact to 2^53: nine quadrillion for an id, ninety
+# trillion dollars for a sum of cents. Nothing in these books comes near either.
+type_64bit_int: true

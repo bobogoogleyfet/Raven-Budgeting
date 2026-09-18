@@ -96,12 +96,12 @@ abstract class RustLibApi extends BaseApi {
   Future<String?> crateApiSyncCanJoin();
 
   Future<void> crateApiEntryCategorize({
-    required PlatformInt64 id,
+    required int id,
     required List<SplitDraftDto> splits,
   });
 
   Future<CategoryDto> crateApiCategoriesCreateCategory({
-    required PlatformInt64 groupId,
+    required int groupId,
     required String name,
     required bool taxable,
   });
@@ -110,9 +110,7 @@ abstract class RustLibApi extends BaseApi {
     required String name,
   });
 
-  Future<void> crateApiTransactionsDeleteTransaction({
-    required PlatformInt64 id,
-  });
+  Future<void> crateApiTransactionsDeleteTransaction({required int id});
 
   Future<LocationDto> crateApiEntryEnsureLocation({required String name});
 
@@ -126,7 +124,7 @@ abstract class RustLibApi extends BaseApi {
   Future<FilterValuesDto> crateApiTransactionsFilterValues();
 
   Future<void> crateApiBudgetForgetContribution({
-    required PlatformInt64 categoryId,
+    required int categoryId,
     required String month,
   });
 
@@ -165,8 +163,8 @@ abstract class RustLibApi extends BaseApi {
     int? offset,
     String? from,
     String? to,
-    Int64List? categoryIds,
-    Int64List? merchantIds,
+    List<int>? categoryIds,
+    List<int>? merchantIds,
     bool? includeNoMerchant,
     String? sort,
   });
@@ -193,20 +191,18 @@ abstract class RustLibApi extends BaseApi {
   Future<RateReleaseDto?> crateApiEntryRateRelease();
 
   Future<void> crateApiBudgetRecordContribution({
-    required PlatformInt64 categoryId,
+    required int categoryId,
     required String month,
-    required PlatformInt64 amountCents,
+    required int amountCents,
   });
 
   Future<RefreshDto> crateApiRatesRefreshRates();
 
-  Future<PlatformInt64> crateApiEntrySaveSubtotals({
-    required SubtotalDraftDto draft,
-  });
+  Future<int> crateApiEntrySaveSubtotals({required SubtotalDraftDto draft});
 
   Future<SupersededDto> crateApiBudgetSetBudget({
-    required PlatformInt64 categoryId,
-    required PlatformInt64 amountCents,
+    required int categoryId,
+    required int amountCents,
     required String period,
     int? everyNMonths,
     required String month,
@@ -230,13 +226,13 @@ abstract class RustLibApi extends BaseApi {
 
   Future<String> crateApiSyncThisDevice();
 
-  PlatformInt64 crateApiEntryTotalOf({required Int64List parts});
+  int crateApiEntryTotalOf({required List<int> parts});
 
   Future<TxnTotalsDto> crateApiTransactionsTransactionTotals({
     String? from,
     String? to,
-    Int64List? categoryIds,
-    Int64List? merchantIds,
+    List<int>? categoryIds,
+    List<int>? merchantIds,
     bool? includeNoMerchant,
   });
 }
@@ -336,14 +332,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<void> crateApiEntryCategorize({
-    required PlatformInt64 id,
+    required int id,
     required List<SplitDraftDto> splits,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_i_64(id, serializer);
+          sse_encode_CastedPrimitive_i_64(id, serializer);
           sse_encode_list_split_draft_dto(splits, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -368,7 +364,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<CategoryDto> crateApiCategoriesCreateCategory({
-    required PlatformInt64 groupId,
+    required int groupId,
     required String name,
     required bool taxable,
   }) {
@@ -376,7 +372,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_i_64(groupId, serializer);
+          sse_encode_CastedPrimitive_i_64(groupId, serializer);
           sse_encode_String(name, serializer);
           sse_encode_bool(taxable, serializer);
           pdeCallFfi(
@@ -437,14 +433,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<void> crateApiTransactionsDeleteTransaction({
-    required PlatformInt64 id,
-  }) {
+  Future<void> crateApiTransactionsDeleteTransaction({required int id}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_i_64(id, serializer);
+          sse_encode_CastedPrimitive_i_64(id, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -585,14 +579,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<void> crateApiBudgetForgetContribution({
-    required PlatformInt64 categoryId,
+    required int categoryId,
     required String month,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_i_64(categoryId, serializer);
+          sse_encode_CastedPrimitive_i_64(categoryId, serializer);
           sse_encode_String(month, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -941,8 +935,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     int? offset,
     String? from,
     String? to,
-    Int64List? categoryIds,
-    Int64List? merchantIds,
+    List<int>? categoryIds,
+    List<int>? merchantIds,
     bool? includeNoMerchant,
     String? sort,
   }) {
@@ -954,8 +948,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_opt_box_autoadd_u_32(offset, serializer);
           sse_encode_opt_String(from, serializer);
           sse_encode_opt_String(to, serializer);
-          sse_encode_opt_list_prim_i_64_strict(categoryIds, serializer);
-          sse_encode_opt_list_prim_i_64_strict(merchantIds, serializer);
+          sse_encode_opt_list_CastedPrimitive_i_64(categoryIds, serializer);
+          sse_encode_opt_list_CastedPrimitive_i_64(merchantIds, serializer);
           sse_encode_opt_box_autoadd_bool(includeNoMerchant, serializer);
           sse_encode_opt_String(sort, serializer);
           pdeCallFfi(
@@ -1184,17 +1178,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<void> crateApiBudgetRecordContribution({
-    required PlatformInt64 categoryId,
+    required int categoryId,
     required String month,
-    required PlatformInt64 amountCents,
+    required int amountCents,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_i_64(categoryId, serializer);
+          sse_encode_CastedPrimitive_i_64(categoryId, serializer);
           sse_encode_String(month, serializer);
-          sse_encode_i_64(amountCents, serializer);
+          sse_encode_CastedPrimitive_i_64(amountCents, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1247,9 +1241,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "refresh_rates", argNames: []);
 
   @override
-  Future<PlatformInt64> crateApiEntrySaveSubtotals({
-    required SubtotalDraftDto draft,
-  }) {
+  Future<int> crateApiEntrySaveSubtotals({required SubtotalDraftDto draft}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -1263,7 +1255,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_i_64,
+          decodeSuccessData: sse_decode_CastedPrimitive_i_64,
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiEntrySaveSubtotalsConstMeta,
@@ -1278,8 +1270,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<SupersededDto> crateApiBudgetSetBudget({
-    required PlatformInt64 categoryId,
-    required PlatformInt64 amountCents,
+    required int categoryId,
+    required int amountCents,
     required String period,
     int? everyNMonths,
     required String month,
@@ -1289,8 +1281,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_i_64(categoryId, serializer);
-          sse_encode_i_64(amountCents, serializer);
+          sse_encode_CastedPrimitive_i_64(categoryId, serializer);
+          sse_encode_CastedPrimitive_i_64(amountCents, serializer);
           sse_encode_String(period, serializer);
           sse_encode_opt_box_autoadd_u_32(everyNMonths, serializer);
           sse_encode_String(month, serializer);
@@ -1468,16 +1460,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "this_device", argNames: []);
 
   @override
-  PlatformInt64 crateApiEntryTotalOf({required Int64List parts}) {
+  int crateApiEntryTotalOf({required List<int> parts}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_list_prim_i_64_strict(parts, serializer);
+          sse_encode_list_CastedPrimitive_i_64(parts, serializer);
           return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 39)!;
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_i_64,
+          decodeSuccessData: sse_decode_CastedPrimitive_i_64,
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiEntryTotalOfConstMeta,
@@ -1494,8 +1486,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<TxnTotalsDto> crateApiTransactionsTransactionTotals({
     String? from,
     String? to,
-    Int64List? categoryIds,
-    Int64List? merchantIds,
+    List<int>? categoryIds,
+    List<int>? merchantIds,
     bool? includeNoMerchant,
   }) {
     return handler.executeNormal(
@@ -1504,8 +1496,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_opt_String(from, serializer);
           sse_encode_opt_String(to, serializer);
-          sse_encode_opt_list_prim_i_64_strict(categoryIds, serializer);
-          sse_encode_opt_list_prim_i_64_strict(merchantIds, serializer);
+          sse_encode_opt_list_CastedPrimitive_i_64(categoryIds, serializer);
+          sse_encode_opt_list_CastedPrimitive_i_64(merchantIds, serializer);
           sse_encode_opt_box_autoadd_bool(includeNoMerchant, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -1536,6 +1528,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           "includeNoMerchant",
         ],
       );
+
+  @protected
+  int dco_decode_CastedPrimitive_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError(
+      'Not implemented in this codec, please use the other one',
+    );
+  }
 
   @protected
   String dco_decode_String(dynamic raw) {
@@ -1586,12 +1586,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_i_64(raw);
-  }
-
-  @protected
   LocationDto dco_decode_box_autoadd_location_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_location_dto(raw);
@@ -1622,21 +1616,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 16)
       throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return BudgetRowDto(
-      categoryId: dco_decode_i_64(arr[0]),
+      categoryId: dco_decode_CastedPrimitive_i_64(arr[0]),
       categoryName: dco_decode_String(arr[1]),
       groupName: dco_decode_String(arr[2]),
-      budgeted: dco_decode_opt_box_autoadd_i_64(arr[3]),
-      perMonth: dco_decode_opt_box_autoadd_i_64(arr[4]),
-      funded: dco_decode_opt_box_autoadd_i_64(arr[5]),
-      spentCycle: dco_decode_opt_box_autoadd_i_64(arr[6]),
-      remaining: dco_decode_opt_box_autoadd_i_64(arr[7]),
-      overspentBy: dco_decode_opt_box_autoadd_i_64(arr[8]),
-      spentThisMonth: dco_decode_i_64(arr[9]),
+      budgeted: dco_decode_opt_CastedPrimitive_i_64(arr[3]),
+      perMonth: dco_decode_opt_CastedPrimitive_i_64(arr[4]),
+      funded: dco_decode_opt_CastedPrimitive_i_64(arr[5]),
+      spentCycle: dco_decode_opt_CastedPrimitive_i_64(arr[6]),
+      remaining: dco_decode_opt_CastedPrimitive_i_64(arr[7]),
+      overspentBy: dco_decode_opt_CastedPrimitive_i_64(arr[8]),
+      spentThisMonth: dco_decode_CastedPrimitive_i_64(arr[9]),
       groupIsObligation: dco_decode_bool(arr[10]),
-      contributedThisMonth: dco_decode_opt_box_autoadd_i_64(arr[11]),
+      contributedThisMonth: dco_decode_opt_CastedPrimitive_i_64(arr[11]),
       isSinkingFund: dco_decode_bool(arr[12]),
       funding: dco_decode_String(arr[13]),
-      fundingBy: dco_decode_i_64(arr[14]),
+      fundingBy: dco_decode_CastedPrimitive_i_64(arr[14]),
       monthsRemaining: dco_decode_opt_box_autoadd_u_32(arr[15]),
     );
   }
@@ -1648,11 +1642,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 6)
       throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return BudgetTotalsDto(
-      perMonth: dco_decode_i_64(arr[0]),
-      funded: dco_decode_i_64(arr[1]),
-      spentCycle: dco_decode_i_64(arr[2]),
-      remaining: dco_decode_i_64(arr[3]),
-      overspentBy: dco_decode_i_64(arr[4]),
+      perMonth: dco_decode_CastedPrimitive_i_64(arr[0]),
+      funded: dco_decode_CastedPrimitive_i_64(arr[1]),
+      spentCycle: dco_decode_CastedPrimitive_i_64(arr[2]),
+      remaining: dco_decode_CastedPrimitive_i_64(arr[3]),
+      overspentBy: dco_decode_CastedPrimitive_i_64(arr[4]),
       categories: dco_decode_u_32(arr[5]),
     );
   }
@@ -1664,7 +1658,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 4)
       throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return CategoryDto(
-      id: dco_decode_i_64(arr[0]),
+      id: dco_decode_CastedPrimitive_i_64(arr[0]),
       name: dco_decode_String(arr[1]),
       groupName: dco_decode_String(arr[2]),
       isBudgeted: dco_decode_bool(arr[3]),
@@ -1678,7 +1672,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 3)
       throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return CategoryGroupDto(
-      id: dco_decode_i_64(arr[0]),
+      id: dco_decode_CastedPrimitive_i_64(arr[0]),
       name: dco_decode_String(arr[1]),
       isHidden: dco_decode_bool(arr[2]),
     );
@@ -1691,7 +1685,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 2)
       throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
     return CategoryRateDto(
-      categoryId: dco_decode_i_64(arr[0]),
+      categoryId: dco_decode_CastedPrimitive_i_64(arr[0]),
       ratePpm: dco_decode_u_32(arr[1]),
     );
   }
@@ -1709,7 +1703,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       foodRatePpm: dco_decode_opt_box_autoadd_u_32(arr[3]),
       restaurantRatePpm: dco_decode_opt_box_autoadd_u_32(arr[4]),
       categoryRates: dco_decode_list_category_rate_dto(arr[5]),
-      defaultCategoryId: dco_decode_opt_box_autoadd_i_64(arr[6]),
+      defaultCategoryId: dco_decode_opt_CastedPrimitive_i_64(arr[6]),
       detailLevel: dco_decode_String(arr[7]),
       recentMerchants: dco_decode_list_String(arr[8]),
     );
@@ -1722,7 +1716,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 2)
       throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
     return FilterValueDto(
-      id: dco_decode_i_64(arr[0]),
+      id: dco_decode_CastedPrimitive_i_64(arr[0]),
       name: dco_decode_String(arr[1]),
     );
   }
@@ -1756,6 +1750,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       enabled: dco_decode_bool(arr[0]),
       phrase: dco_decode_String(arr[1]),
     );
+  }
+
+  @protected
+  List<int> dco_decode_list_CastedPrimitive_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_CastedPrimitive_i_64).toList();
   }
 
   @protected
@@ -1813,12 +1813,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  Int64List dco_decode_list_prim_i_64_strict(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dcoDecodeInt64List(raw);
-  }
-
-  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as List<int>;
@@ -1861,7 +1855,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 4)
       throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return LocationDto(
-      id: dco_decode_i_64(arr[0]),
+      id: dco_decode_CastedPrimitive_i_64(arr[0]),
       name: dco_decode_String(arr[1]),
       taxRatePpm: dco_decode_u_32(arr[2]),
       isHome: dco_decode_bool(arr[3]),
@@ -1875,9 +1869,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 3)
       throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return MerchantDto(
-      id: dco_decode_i_64(arr[0]),
+      id: dco_decode_CastedPrimitive_i_64(arr[0]),
       name: dco_decode_String(arr[1]),
-      defaultCategoryId: dco_decode_opt_box_autoadd_i_64(arr[2]),
+      defaultCategoryId: dco_decode_opt_CastedPrimitive_i_64(arr[2]),
     );
   }
 
@@ -1888,9 +1882,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 2)
       throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
     return MonthTotalsDto(
-      budgeted: dco_decode_i_64(arr[0]),
-      spent: dco_decode_i_64(arr[1]),
+      budgeted: dco_decode_CastedPrimitive_i_64(arr[0]),
+      spent: dco_decode_CastedPrimitive_i_64(arr[1]),
     );
+  }
+
+  @protected
+  int? dco_decode_opt_CastedPrimitive_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_CastedPrimitive_i_64(raw);
   }
 
   @protected
@@ -1903,12 +1903,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool? dco_decode_opt_box_autoadd_bool(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_bool(raw);
-  }
-
-  @protected
-  PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
   }
 
   @protected
@@ -1930,9 +1924,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  Int64List? dco_decode_opt_list_prim_i_64_strict(dynamic raw) {
+  List<int>? dco_decode_opt_list_CastedPrimitive_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_list_prim_i_64_strict(raw);
+    return raw == null ? null : dco_decode_list_CastedPrimitive_i_64(raw);
   }
 
   @protected
@@ -1942,13 +1936,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 11)
       throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return PreviewDto(
-      subtotal: dco_decode_i_64(arr[0]),
-      tax: dco_decode_i_64(arr[1]),
-      total: dco_decode_i_64(arr[2]),
+      subtotal: dco_decode_CastedPrimitive_i_64(arr[0]),
+      tax: dco_decode_CastedPrimitive_i_64(arr[1]),
+      total: dco_decode_CastedPrimitive_i_64(arr[2]),
       taxIsEstimated: dco_decode_bool(arr[3]),
       taxRatePpm: dco_decode_u_32(arr[4]),
       appliedRatePpm: dco_decode_opt_box_autoadd_u_32(arr[5]),
-      unassigned: dco_decode_i_64(arr[6]),
+      unassigned: dco_decode_CastedPrimitive_i_64(arr[6]),
       detailLevel: dco_decode_String(arr[7]),
       rows: dco_decode_list_split_row_dto(arr[8]),
       warnings: dco_decode_list_String(arr[9]),
@@ -1991,8 +1985,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 3)
       throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return SplitDraftDto(
-      categoryId: dco_decode_opt_box_autoadd_i_64(arr[0]),
-      cents: dco_decode_opt_box_autoadd_i_64(arr[1]),
+      categoryId: dco_decode_opt_CastedPrimitive_i_64(arr[0]),
+      cents: dco_decode_opt_CastedPrimitive_i_64(arr[1]),
       note: dco_decode_opt_String(arr[2]),
     );
   }
@@ -2004,11 +1998,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 5)
       throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return SplitRowDto(
-      categoryId: dco_decode_opt_box_autoadd_i_64(arr[0]),
+      categoryId: dco_decode_opt_CastedPrimitive_i_64(arr[0]),
       categoryName: dco_decode_opt_String(arr[1]),
-      subtotal: dco_decode_i_64(arr[2]),
-      tax: dco_decode_i_64(arr[3]),
-      amount: dco_decode_i_64(arr[4]),
+      subtotal: dco_decode_CastedPrimitive_i_64(arr[2]),
+      tax: dco_decode_CastedPrimitive_i_64(arr[3]),
+      amount: dco_decode_CastedPrimitive_i_64(arr[4]),
     );
   }
 
@@ -2019,7 +2013,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 8)
       throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return SubtotalDraftDto(
-      id: dco_decode_opt_box_autoadd_i_64(arr[0]),
+      id: dco_decode_opt_CastedPrimitive_i_64(arr[0]),
       txnDate: dco_decode_String(arr[1]),
       merchant: dco_decode_opt_String(arr[2]),
       location: dco_decode_opt_String(arr[3]),
@@ -2037,9 +2031,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 4)
       throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return SubtotalRowDto(
-      categoryId: dco_decode_opt_box_autoadd_i_64(arr[0]),
-      subtotal: dco_decode_i_64(arr[1]),
-      tax: dco_decode_opt_box_autoadd_i_64(arr[2]),
+      categoryId: dco_decode_opt_CastedPrimitive_i_64(arr[0]),
+      subtotal: dco_decode_CastedPrimitive_i_64(arr[1]),
+      tax: dco_decode_opt_CastedPrimitive_i_64(arr[2]),
       note: dco_decode_opt_String(arr[3]),
     );
   }
@@ -2076,10 +2070,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 7)
       throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return TxnSummaryDto(
-      id: dco_decode_i_64(arr[0]),
+      id: dco_decode_CastedPrimitive_i_64(arr[0]),
       txnDate: dco_decode_String(arr[1]),
       merchantName: dco_decode_opt_String(arr[2]),
-      total: dco_decode_i_64(arr[3]),
+      total: dco_decode_CastedPrimitive_i_64(arr[3]),
       taxIsEstimated: dco_decode_bool(arr[4]),
       needsReview: dco_decode_bool(arr[5]),
       categories: dco_decode_list_String(arr[6]),
@@ -2093,9 +2087,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 4)
       throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return TxnTotalsDto(
-      subtotal: dco_decode_i_64(arr[0]),
-      tax: dco_decode_i_64(arr[1]),
-      total: dco_decode_i_64(arr[2]),
+      subtotal: dco_decode_CastedPrimitive_i_64(arr[0]),
+      tax: dco_decode_CastedPrimitive_i_64(arr[1]),
+      total: dco_decode_CastedPrimitive_i_64(arr[2]),
       expenses: dco_decode_u_32(arr[3]),
     );
   }
@@ -2116,6 +2110,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void dco_decode_unit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return;
+  }
+
+  @protected
+  int sse_decode_CastedPrimitive_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_64(deserializer);
+    return inner.toInt();
   }
 
   @protected
@@ -2172,12 +2173,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_i_64(deserializer));
-  }
-
-  @protected
   LocationDto sse_decode_box_autoadd_location_dto(
     SseDeserializer deserializer,
   ) {
@@ -2210,23 +2205,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   BudgetRowDto sse_decode_budget_row_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_categoryId = sse_decode_i_64(deserializer);
+    var var_categoryId = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_categoryName = sse_decode_String(deserializer);
     var var_groupName = sse_decode_String(deserializer);
-    var var_budgeted = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_perMonth = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_funded = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_spentCycle = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_remaining = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_overspentBy = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_spentThisMonth = sse_decode_i_64(deserializer);
+    var var_budgeted = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_perMonth = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_funded = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_spentCycle = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_remaining = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_overspentBy = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_spentThisMonth = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_groupIsObligation = sse_decode_bool(deserializer);
-    var var_contributedThisMonth = sse_decode_opt_box_autoadd_i_64(
+    var var_contributedThisMonth = sse_decode_opt_CastedPrimitive_i_64(
       deserializer,
     );
     var var_isSinkingFund = sse_decode_bool(deserializer);
     var var_funding = sse_decode_String(deserializer);
-    var var_fundingBy = sse_decode_i_64(deserializer);
+    var var_fundingBy = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_monthsRemaining = sse_decode_opt_box_autoadd_u_32(deserializer);
     return BudgetRowDto(
       categoryId: var_categoryId,
@@ -2251,11 +2246,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   BudgetTotalsDto sse_decode_budget_totals_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_perMonth = sse_decode_i_64(deserializer);
-    var var_funded = sse_decode_i_64(deserializer);
-    var var_spentCycle = sse_decode_i_64(deserializer);
-    var var_remaining = sse_decode_i_64(deserializer);
-    var var_overspentBy = sse_decode_i_64(deserializer);
+    var var_perMonth = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_funded = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_spentCycle = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_remaining = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_overspentBy = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_categories = sse_decode_u_32(deserializer);
     return BudgetTotalsDto(
       perMonth: var_perMonth,
@@ -2270,7 +2265,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   CategoryDto sse_decode_category_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_i_64(deserializer);
+    var var_id = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_name = sse_decode_String(deserializer);
     var var_groupName = sse_decode_String(deserializer);
     var var_isBudgeted = sse_decode_bool(deserializer);
@@ -2285,7 +2280,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   CategoryGroupDto sse_decode_category_group_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_i_64(deserializer);
+    var var_id = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_name = sse_decode_String(deserializer);
     var var_isHidden = sse_decode_bool(deserializer);
     return CategoryGroupDto(id: var_id, name: var_name, isHidden: var_isHidden);
@@ -2294,7 +2289,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   CategoryRateDto sse_decode_category_rate_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_categoryId = sse_decode_i_64(deserializer);
+    var var_categoryId = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_ratePpm = sse_decode_u_32(deserializer);
     return CategoryRateDto(categoryId: var_categoryId, ratePpm: var_ratePpm);
   }
@@ -2308,7 +2303,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_foodRatePpm = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_restaurantRatePpm = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_categoryRates = sse_decode_list_category_rate_dto(deserializer);
-    var var_defaultCategoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_defaultCategoryId = sse_decode_opt_CastedPrimitive_i_64(
+      deserializer,
+    );
     var var_detailLevel = sse_decode_String(deserializer);
     var var_recentMerchants = sse_decode_list_String(deserializer);
     return ContextDto(
@@ -2327,7 +2324,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   FilterValueDto sse_decode_filter_value_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_i_64(deserializer);
+    var var_id = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_name = sse_decode_String(deserializer);
     return FilterValueDto(id: var_id, name: var_name);
   }
@@ -2357,6 +2354,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_enabled = sse_decode_bool(deserializer);
     var var_phrase = sse_decode_String(deserializer);
     return LanSyncDto(enabled: var_enabled, phrase: var_phrase);
+  }
+
+  @protected
+  List<int> sse_decode_list_CastedPrimitive_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <int>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_CastedPrimitive_i_64(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -2476,13 +2485,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var len_ = sse_decode_i_32(deserializer);
-    return deserializer.buffer.getInt64List(len_);
-  }
-
-  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -2555,7 +2557,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   LocationDto sse_decode_location_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_i_64(deserializer);
+    var var_id = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_name = sse_decode_String(deserializer);
     var var_taxRatePpm = sse_decode_u_32(deserializer);
     var var_isHome = sse_decode_bool(deserializer);
@@ -2570,9 +2572,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   MerchantDto sse_decode_merchant_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_i_64(deserializer);
+    var var_id = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_name = sse_decode_String(deserializer);
-    var var_defaultCategoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_defaultCategoryId = sse_decode_opt_CastedPrimitive_i_64(
+      deserializer,
+    );
     return MerchantDto(
       id: var_id,
       name: var_name,
@@ -2583,9 +2587,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   MonthTotalsDto sse_decode_month_totals_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_budgeted = sse_decode_i_64(deserializer);
-    var var_spent = sse_decode_i_64(deserializer);
+    var var_budgeted = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_spent = sse_decode_CastedPrimitive_i_64(deserializer);
     return MonthTotalsDto(budgeted: var_budgeted, spent: var_spent);
+  }
+
+  @protected
+  int? sse_decode_opt_CastedPrimitive_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_CastedPrimitive_i_64(deserializer));
+    } else {
+      return null;
+    }
   }
 
   @protected
@@ -2605,17 +2620,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_bool(deserializer));
-    } else {
-      return null;
-    }
-  }
-
-  @protected
-  PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    if (sse_decode_bool(deserializer)) {
-      return (sse_decode_box_autoadd_i_64(deserializer));
     } else {
       return null;
     }
@@ -2659,13 +2663,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  Int64List? sse_decode_opt_list_prim_i_64_strict(
+  List<int>? sse_decode_opt_list_CastedPrimitive_i_64(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     if (sse_decode_bool(deserializer)) {
-      return (sse_decode_list_prim_i_64_strict(deserializer));
+      return (sse_decode_list_CastedPrimitive_i_64(deserializer));
     } else {
       return null;
     }
@@ -2674,13 +2678,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   PreviewDto sse_decode_preview_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_subtotal = sse_decode_i_64(deserializer);
-    var var_tax = sse_decode_i_64(deserializer);
-    var var_total = sse_decode_i_64(deserializer);
+    var var_subtotal = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_tax = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_total = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_taxIsEstimated = sse_decode_bool(deserializer);
     var var_taxRatePpm = sse_decode_u_32(deserializer);
     var var_appliedRatePpm = sse_decode_opt_box_autoadd_u_32(deserializer);
-    var var_unassigned = sse_decode_i_64(deserializer);
+    var var_unassigned = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_detailLevel = sse_decode_String(deserializer);
     var var_rows = sse_decode_list_split_row_dto(deserializer);
     var var_warnings = sse_decode_list_String(deserializer);
@@ -2733,8 +2737,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   SplitDraftDto sse_decode_split_draft_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_categoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_cents = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_categoryId = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_cents = sse_decode_opt_CastedPrimitive_i_64(deserializer);
     var var_note = sse_decode_opt_String(deserializer);
     return SplitDraftDto(
       categoryId: var_categoryId,
@@ -2746,11 +2750,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   SplitRowDto sse_decode_split_row_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_categoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_categoryId = sse_decode_opt_CastedPrimitive_i_64(deserializer);
     var var_categoryName = sse_decode_opt_String(deserializer);
-    var var_subtotal = sse_decode_i_64(deserializer);
-    var var_tax = sse_decode_i_64(deserializer);
-    var var_amount = sse_decode_i_64(deserializer);
+    var var_subtotal = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_tax = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_amount = sse_decode_CastedPrimitive_i_64(deserializer);
     return SplitRowDto(
       categoryId: var_categoryId,
       categoryName: var_categoryName,
@@ -2763,7 +2767,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   SubtotalDraftDto sse_decode_subtotal_draft_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_id = sse_decode_opt_CastedPrimitive_i_64(deserializer);
     var var_txnDate = sse_decode_String(deserializer);
     var var_merchant = sse_decode_opt_String(deserializer);
     var var_location = sse_decode_opt_String(deserializer);
@@ -2786,9 +2790,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   SubtotalRowDto sse_decode_subtotal_row_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_categoryId = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_subtotal = sse_decode_i_64(deserializer);
-    var var_tax = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_categoryId = sse_decode_opt_CastedPrimitive_i_64(deserializer);
+    var var_subtotal = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_tax = sse_decode_opt_CastedPrimitive_i_64(deserializer);
     var var_note = sse_decode_opt_String(deserializer);
     return SubtotalRowDto(
       categoryId: var_categoryId,
@@ -2822,10 +2826,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   TxnSummaryDto sse_decode_txn_summary_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_i_64(deserializer);
+    var var_id = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_txnDate = sse_decode_String(deserializer);
     var var_merchantName = sse_decode_opt_String(deserializer);
-    var var_total = sse_decode_i_64(deserializer);
+    var var_total = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_taxIsEstimated = sse_decode_bool(deserializer);
     var var_needsReview = sse_decode_bool(deserializer);
     var var_categories = sse_decode_list_String(deserializer);
@@ -2843,9 +2847,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   TxnTotalsDto sse_decode_txn_totals_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_subtotal = sse_decode_i_64(deserializer);
-    var var_tax = sse_decode_i_64(deserializer);
-    var var_total = sse_decode_i_64(deserializer);
+    var var_subtotal = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_tax = sse_decode_CastedPrimitive_i_64(deserializer);
+    var var_total = sse_decode_CastedPrimitive_i_64(deserializer);
     var var_expenses = sse_decode_u_32(deserializer);
     return TxnTotalsDto(
       subtotal: var_subtotal,
@@ -2876,6 +2880,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getInt32();
+  }
+
+  @protected
+  void sse_encode_CastedPrimitive_i_64(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(sseEncodeCastedPrimitiveI64(self), serializer);
   }
 
   @protected
@@ -2917,15 +2927,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_box_autoadd_i_64(
-    PlatformInt64 self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self, serializer);
-  }
-
-  @protected
   void sse_encode_box_autoadd_location_dto(
     LocationDto self,
     SseSerializer serializer,
@@ -2961,21 +2962,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_budget_row_dto(BudgetRowDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.categoryId, serializer);
+    sse_encode_CastedPrimitive_i_64(self.categoryId, serializer);
     sse_encode_String(self.categoryName, serializer);
     sse_encode_String(self.groupName, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.budgeted, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.perMonth, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.funded, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.spentCycle, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.remaining, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.overspentBy, serializer);
-    sse_encode_i_64(self.spentThisMonth, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.budgeted, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.perMonth, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.funded, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.spentCycle, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.remaining, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.overspentBy, serializer);
+    sse_encode_CastedPrimitive_i_64(self.spentThisMonth, serializer);
     sse_encode_bool(self.groupIsObligation, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.contributedThisMonth, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.contributedThisMonth, serializer);
     sse_encode_bool(self.isSinkingFund, serializer);
     sse_encode_String(self.funding, serializer);
-    sse_encode_i_64(self.fundingBy, serializer);
+    sse_encode_CastedPrimitive_i_64(self.fundingBy, serializer);
     sse_encode_opt_box_autoadd_u_32(self.monthsRemaining, serializer);
   }
 
@@ -2985,18 +2986,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.perMonth, serializer);
-    sse_encode_i_64(self.funded, serializer);
-    sse_encode_i_64(self.spentCycle, serializer);
-    sse_encode_i_64(self.remaining, serializer);
-    sse_encode_i_64(self.overspentBy, serializer);
+    sse_encode_CastedPrimitive_i_64(self.perMonth, serializer);
+    sse_encode_CastedPrimitive_i_64(self.funded, serializer);
+    sse_encode_CastedPrimitive_i_64(self.spentCycle, serializer);
+    sse_encode_CastedPrimitive_i_64(self.remaining, serializer);
+    sse_encode_CastedPrimitive_i_64(self.overspentBy, serializer);
     sse_encode_u_32(self.categories, serializer);
   }
 
   @protected
   void sse_encode_category_dto(CategoryDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.id, serializer);
+    sse_encode_CastedPrimitive_i_64(self.id, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_String(self.groupName, serializer);
     sse_encode_bool(self.isBudgeted, serializer);
@@ -3008,7 +3009,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.id, serializer);
+    sse_encode_CastedPrimitive_i_64(self.id, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_bool(self.isHidden, serializer);
   }
@@ -3019,7 +3020,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.categoryId, serializer);
+    sse_encode_CastedPrimitive_i_64(self.categoryId, serializer);
     sse_encode_u_32(self.ratePpm, serializer);
   }
 
@@ -3032,7 +3033,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_u_32(self.foodRatePpm, serializer);
     sse_encode_opt_box_autoadd_u_32(self.restaurantRatePpm, serializer);
     sse_encode_list_category_rate_dto(self.categoryRates, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.defaultCategoryId, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.defaultCategoryId, serializer);
     sse_encode_String(self.detailLevel, serializer);
     sse_encode_list_String(self.recentMerchants, serializer);
   }
@@ -3043,7 +3044,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.id, serializer);
+    sse_encode_CastedPrimitive_i_64(self.id, serializer);
     sse_encode_String(self.name, serializer);
   }
 
@@ -3069,6 +3070,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_bool(self.enabled, serializer);
     sse_encode_String(self.phrase, serializer);
+  }
+
+  @protected
+  void sse_encode_list_CastedPrimitive_i_64(
+    List<int> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_CastedPrimitive_i_64(item, serializer);
+    }
   }
 
   @protected
@@ -3174,16 +3187,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_list_prim_i_64_strict(
-    Int64List self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_32(self.length, serializer);
-    serializer.buffer.putInt64List(self);
-  }
-
-  @protected
   void sse_encode_list_prim_u_8_loose(
     List<int> self,
     SseSerializer serializer,
@@ -3256,7 +3259,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_location_dto(LocationDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.id, serializer);
+    sse_encode_CastedPrimitive_i_64(self.id, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_u_32(self.taxRatePpm, serializer);
     sse_encode_bool(self.isHome, serializer);
@@ -3265,9 +3268,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_merchant_dto(MerchantDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.id, serializer);
+    sse_encode_CastedPrimitive_i_64(self.id, serializer);
     sse_encode_String(self.name, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.defaultCategoryId, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.defaultCategoryId, serializer);
   }
 
   @protected
@@ -3276,8 +3279,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.budgeted, serializer);
-    sse_encode_i_64(self.spent, serializer);
+    sse_encode_CastedPrimitive_i_64(self.budgeted, serializer);
+    sse_encode_CastedPrimitive_i_64(self.spent, serializer);
+  }
+
+  @protected
+  void sse_encode_opt_CastedPrimitive_i_64(
+    int? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_CastedPrimitive_i_64(self, serializer);
+    }
   }
 
   @protected
@@ -3297,19 +3313,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_bool(self, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_opt_box_autoadd_i_64(
-    PlatformInt64? self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    sse_encode_bool(self != null, serializer);
-    if (self != null) {
-      sse_encode_box_autoadd_i_64(self, serializer);
     }
   }
 
@@ -3350,28 +3353,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_opt_list_prim_i_64_strict(
-    Int64List? self,
+  void sse_encode_opt_list_CastedPrimitive_i_64(
+    List<int>? self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     sse_encode_bool(self != null, serializer);
     if (self != null) {
-      sse_encode_list_prim_i_64_strict(self, serializer);
+      sse_encode_list_CastedPrimitive_i_64(self, serializer);
     }
   }
 
   @protected
   void sse_encode_preview_dto(PreviewDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.subtotal, serializer);
-    sse_encode_i_64(self.tax, serializer);
-    sse_encode_i_64(self.total, serializer);
+    sse_encode_CastedPrimitive_i_64(self.subtotal, serializer);
+    sse_encode_CastedPrimitive_i_64(self.tax, serializer);
+    sse_encode_CastedPrimitive_i_64(self.total, serializer);
     sse_encode_bool(self.taxIsEstimated, serializer);
     sse_encode_u_32(self.taxRatePpm, serializer);
     sse_encode_opt_box_autoadd_u_32(self.appliedRatePpm, serializer);
-    sse_encode_i_64(self.unassigned, serializer);
+    sse_encode_CastedPrimitive_i_64(self.unassigned, serializer);
     sse_encode_String(self.detailLevel, serializer);
     sse_encode_list_split_row_dto(self.rows, serializer);
     sse_encode_list_String(self.warnings, serializer);
@@ -3405,19 +3408,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_opt_box_autoadd_i_64(self.categoryId, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.cents, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.categoryId, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.cents, serializer);
     sse_encode_opt_String(self.note, serializer);
   }
 
   @protected
   void sse_encode_split_row_dto(SplitRowDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_opt_box_autoadd_i_64(self.categoryId, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.categoryId, serializer);
     sse_encode_opt_String(self.categoryName, serializer);
-    sse_encode_i_64(self.subtotal, serializer);
-    sse_encode_i_64(self.tax, serializer);
-    sse_encode_i_64(self.amount, serializer);
+    sse_encode_CastedPrimitive_i_64(self.subtotal, serializer);
+    sse_encode_CastedPrimitive_i_64(self.tax, serializer);
+    sse_encode_CastedPrimitive_i_64(self.amount, serializer);
   }
 
   @protected
@@ -3426,7 +3429,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_opt_box_autoadd_i_64(self.id, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.id, serializer);
     sse_encode_String(self.txnDate, serializer);
     sse_encode_opt_String(self.merchant, serializer);
     sse_encode_opt_String(self.location, serializer);
@@ -3442,9 +3445,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_opt_box_autoadd_i_64(self.categoryId, serializer);
-    sse_encode_i_64(self.subtotal, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.tax, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.categoryId, serializer);
+    sse_encode_CastedPrimitive_i_64(self.subtotal, serializer);
+    sse_encode_opt_CastedPrimitive_i_64(self.tax, serializer);
     sse_encode_opt_String(self.note, serializer);
   }
 
@@ -3472,10 +3475,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.id, serializer);
+    sse_encode_CastedPrimitive_i_64(self.id, serializer);
     sse_encode_String(self.txnDate, serializer);
     sse_encode_opt_String(self.merchantName, serializer);
-    sse_encode_i_64(self.total, serializer);
+    sse_encode_CastedPrimitive_i_64(self.total, serializer);
     sse_encode_bool(self.taxIsEstimated, serializer);
     sse_encode_bool(self.needsReview, serializer);
     sse_encode_list_String(self.categories, serializer);
@@ -3484,9 +3487,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_txn_totals_dto(TxnTotalsDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_64(self.subtotal, serializer);
-    sse_encode_i_64(self.tax, serializer);
-    sse_encode_i_64(self.total, serializer);
+    sse_encode_CastedPrimitive_i_64(self.subtotal, serializer);
+    sse_encode_CastedPrimitive_i_64(self.tax, serializer);
+    sse_encode_CastedPrimitive_i_64(self.total, serializer);
     sse_encode_u_32(self.expenses, serializer);
   }
 

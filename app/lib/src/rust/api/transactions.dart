@@ -25,8 +25,8 @@ Future<List<TxnSummaryDto>> listTransactions({
   int? offset,
   String? from,
   String? to,
-  Int64List? categoryIds,
-  Int64List? merchantIds,
+  List<int>? categoryIds,
+  List<int>? merchantIds,
   bool? includeNoMerchant,
   String? sort,
 }) => RustLib.instance.api.crateApiTransactionsListTransactions(
@@ -44,8 +44,8 @@ Future<List<TxnSummaryDto>> listTransactions({
 Future<TxnTotalsDto> transactionTotals({
   String? from,
   String? to,
-  Int64List? categoryIds,
-  Int64List? merchantIds,
+  List<int>? categoryIds,
+  List<int>? merchantIds,
   bool? includeNoMerchant,
 }) => RustLib.instance.api.crateApiTransactionsTransactionTotals(
   from: from,
@@ -66,12 +66,12 @@ Future<FilterValuesDto> filterValues() =>
 /// already gone is an error rather than a silent success — two windows open on
 /// one database is a normal thing, and "that receipt is no longer there" is
 /// worth saying.
-Future<void> deleteTransaction({required PlatformInt64 id}) =>
+Future<void> deleteTransaction({required int id}) =>
     RustLib.instance.api.crateApiTransactionsDeleteTransaction(id: id);
 
 /// One value a filterable column actually holds.
 class FilterValueDto {
-  final PlatformInt64 id;
+  final int id;
   final String name;
 
   const FilterValueDto({required this.id, required this.name});
@@ -124,7 +124,7 @@ class FilterValuesDto {
 
 /// One row of the expense list.
 class TxnSummaryDto {
-  final PlatformInt64 id;
+  final int id;
 
   /// `YYYY-MM-DD`, as the core formats it. Not reparsed on the way through:
   /// turning it into a `DateTime` and back is how a UTC shift gets
@@ -133,7 +133,7 @@ class TxnSummaryDto {
 
   /// `None` for a quick-added expense, which has no store.
   final String? merchantName;
-  final PlatformInt64 total;
+  final int total;
 
   /// True only when the tax was computed rather than read off the receipt.
   final bool taxIsEstimated;
@@ -187,9 +187,9 @@ class TxnSummaryDto {
 /// the total covers rows no page ever loaded. Never in Dart: money there is a
 /// type that makes arithmetic a compile error, on purpose.
 class TxnTotalsDto {
-  final PlatformInt64 subtotal;
-  final PlatformInt64 tax;
-  final PlatformInt64 total;
+  final int subtotal;
+  final int tax;
+  final int total;
 
   /// Expenses in the sum — the size of the whole filtered set, which is also
   /// what the pager counts through.

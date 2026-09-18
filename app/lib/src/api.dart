@@ -3,14 +3,9 @@
 /// Generated bindings in, app types out. This is the only file that imports
 /// `src/rust/`, and the only place [fromCore] is called — so every monetary
 /// value in the app is traceable to something the core computed.
-///
-/// It also absorbs one ergonomic wrinkle: `Vec<i64>` arguments arrive in Dart
-/// as `Int64List`. Converting once here beats every caller remembering to.
 library;
 
 import 'dart:typed_data' show Uint8List;
-
-import 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 
 import 'money.dart';
 import 'rust/api/budget.dart' as rust_budget;
@@ -243,15 +238,6 @@ class TxnTotals {
   final int expenses;
 }
 
-/// `flutter_rust_bridge`'s own `Int64List`, not `dart:typed_data`'s.
-///
-/// They are different classes with the same name — the bridge's is a strict
-/// wrapper that yields `BigInt` on read — and passing the wrong one is a type
-/// error naming the same type twice, which is a genuinely baffling message
-/// until you know. Only ids go through here; money never does.
-Int64List? _ids(List<int>? ids) =>
-    ids == null ? null : Int64List.fromList(ids);
-
 /// Every category that is not archived.
 Future<List<rust_categories.CategoryDto>> listCategories() =>
     rust_categories.listCategories();
@@ -263,8 +249,8 @@ Future<List<TxnSummary>> listTransactions(TxnQuery query) async {
     offset: query.offset,
     from: query.from,
     to: query.to,
-    categoryIds: _ids(query.categoryIds),
-    merchantIds: _ids(query.merchantIds),
+    categoryIds: query.categoryIds,
+    merchantIds: query.merchantIds,
     includeNoMerchant: query.includeNoMerchant,
     sort: query.sort.wire,
   );
@@ -297,8 +283,8 @@ Future<TxnTotals> transactionTotals(TxnQuery query) async {
   final t = await rust_txn.transactionTotals(
     from: query.from,
     to: query.to,
-    categoryIds: _ids(query.categoryIds),
-    merchantIds: _ids(query.merchantIds),
+    categoryIds: query.categoryIds,
+    merchantIds: query.merchantIds,
     includeNoMerchant: query.includeNoMerchant,
   );
   return TxnTotals(
@@ -756,7 +742,7 @@ Future<rust_categories.CategoryGroupDto> createCategoryGroup(String name) =>
 /// money has to do it again for every platform, and the copies drift.
 Cents totalOf(List<Cents> parts) => fromCore(
       rust_entry.totalOf(
-        parts: Int64List.fromList([for (final part in parts) part.value]),
+        parts: [for (final part in parts) part.value],
       ),
     );
 

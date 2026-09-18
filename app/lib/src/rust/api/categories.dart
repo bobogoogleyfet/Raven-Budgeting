@@ -22,7 +22,7 @@ Future<List<CategoryGroupDto>> listCategoryGroups() =>
 /// assumed: the column defaults to taxable, and a car payment taxed at 7.45%
 /// is $537.25 where the statement says $500.00.
 Future<CategoryDto> createCategory({
-  required PlatformInt64 groupId,
+  required int groupId,
   required String name,
   required bool taxable,
 }) => RustLib.instance.api.crateApiCategoriesCreateCategory(
@@ -46,11 +46,10 @@ Future<CategoryGroupDto> createCategoryGroup({required String name}) =>
 /// directly: its ids are `#[serde(transparent)]` newtypes, and serde is not in
 /// play at an FFI boundary, so each would surface in Dart as a wrapper class.
 ///
-/// `id` is an `i64` **in a struct field**, which the bridge maps to
-/// `PlatformInt64` (`typedef = int` on native). A bare `Vec<i64>` would arrive
-/// as `BigInt` instead — exact, but needing an unwrap at every use.
+/// `id` is an `i64`, which reaches Dart as a plain `int` on every platform —
+/// `type_64bit_int` in `flutter_rust_bridge.yaml` says why.
 class CategoryDto {
-  final PlatformInt64 id;
+  final int id;
   final String name;
   final String groupName;
   final bool isBudgeted;
@@ -79,7 +78,7 @@ class CategoryDto {
 
 /// One of the groups a category can belong to.
 class CategoryGroupDto {
-  final PlatformInt64 id;
+  final int id;
   final String name;
 
   /// The System group holds the three categories the app itself depends on,
