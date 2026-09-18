@@ -46,6 +46,10 @@ pub const MIGRATION_SOURCES: &[(&str, &str)] = &[
         include_str!("schema/007_group_obligation.sql"),
     ),
     ("008_sync.sql", include_str!("schema/008_sync.sql")),
+    (
+        "009_sync_baseline.sql",
+        include_str!("schema/009_sync_baseline.sql"),
+    ),
 ];
 
 /// The `user_version` a fully migrated database reports.
@@ -74,7 +78,7 @@ mod tests {
 
     #[test]
     fn schema_version_tracks_the_file_list() {
-        assert_eq!(SCHEMA_VERSION, 8);
+        assert_eq!(SCHEMA_VERSION, 9);
         assert_eq!(MIGRATION_SOURCES[0].0, "001_init.sql");
         assert_eq!(MIGRATION_SOURCES[1].0, "002_food_rate.sql");
         assert_eq!(MIGRATION_SOURCES[2].0, "003_utah_rates.sql");
@@ -83,6 +87,7 @@ mod tests {
         assert_eq!(MIGRATION_SOURCES[5].0, "006_budget_contribution.sql");
         assert_eq!(MIGRATION_SOURCES[6].0, "007_group_obligation.sql");
         assert_eq!(MIGRATION_SOURCES[7].0, "008_sync.sql");
+        assert_eq!(MIGRATION_SOURCES[8].0, "009_sync_baseline.sql");
         assert!(MIGRATION_SOURCES.iter().all(|(_, sql)| !sql.is_empty()));
     }
 }

@@ -62,12 +62,16 @@ const MIGRATION_HASHES: &[(&str, &str)] = &[
         "008_sync.sql",
         "2c680e2d4d778dfbd40bb3f537431197af975c373393291e6334a479316205a5",
     ),
+    (
+        "009_sync_baseline.sql",
+        "c794fedbb806d05b949c6defe0d6551b28bacc4321c41166a8fff0733de5f380",
+    ),
 ];
 
 /// `PRAGMA user_version` after `to_latest()`. `rusqlite_migration` sets it to
 /// the number of applied migrations, so this must track `MIGRATION_HASHES`.
 /// `pacc doctor` prints it.
-const EXPECTED_USER_VERSION: i64 = 8;
+const EXPECTED_USER_VERSION: i64 = 9;
 
 fn sha256_hex(bytes: &str) -> String {
     let digest = Sha256::digest(bytes.as_bytes());
@@ -191,6 +195,10 @@ fn every_shipped_migration_carries_sql() {
     // specifically: only the first migration creates tables, and every one
     // after it alters or indexes them. Requiring CREATE TABLE would make this
     // a test that the schema never evolves.
+    //
+    // A backfill counts too. 009 changes no shape at all — it writes the rows
+    // 008 could not — and that is still a migration's job, because it has to
+    // happen exactly once per database, before anything reads the result.
     for (name, sql) in MIGRATION_SOURCES {
         let upper = sql.to_ascii_uppercase();
         assert!(
@@ -198,11 +206,12 @@ fn every_shipped_migration_carries_sql() {
                 "CREATE TABLE",
                 "ALTER TABLE",
                 "CREATE INDEX",
-                "CREATE TRIGGER"
+                "CREATE TRIGGER",
+                "INSERT OR IGNORE INTO"
             ]
             .iter()
             .any(|stmt| upper.contains(stmt)),
-            "{name} changes no schema — is it truncated?"
+            "{name} changes no schema and fills in no rows — is it truncated?"
         );
     }
 }

@@ -45,11 +45,31 @@ pub struct Applied {
     pub unknown_kinds: Vec<String>,
 }
 
+/// Who a bundle for a device with nothing yet is addressed to.
+///
+/// Parenthesised so it can never be a real device's name, which is always a
+/// uuid. Nothing is ever recorded under it: there is no watermark to find, so
+/// the bundle carries everything, and no device's own changes to leave out.
+pub const NEW_DEVICE: &str = "(new device)";
+
+/// Everything this device holds, for a device about to join it.
+///
+/// An ordinary export is addressed to a peer and carries only what that peer
+/// has not been sent — which, handed to a device joining by file, is the last
+/// few changes and none of the ledger they belong to. The device that writes a
+/// file for joining cannot know who will read it, so it addresses nobody.
+pub fn export_everything(db: &Db, now_millis: u64) -> Result<Bundle> {
+    export(db, NEW_DEVICE, now_millis)
+}
+
 /// Everything this device has that `peer` has not been sent.
 pub fn export(db: &Db, peer: &str, now_millis: u64) -> Result<Bundle> {
     let from = device::id(db)?;
     let at = device::observe(db, &Hlc::zero(from.clone()), now_millis)?;
     let since = watermark(db, peer, "sent_through")?;
+    // Whether this is everything here, which it is only when nothing was left
+    // out for being already sent or for being the peer's own.
+    let mut complete = since.is_none();
 
     let mut changes = Vec::new();
     for spec in entity::ENTITIES {
@@ -68,6 +88,7 @@ pub fn export(db: &Db, peer: &str, now_millis: u64) -> Result<Bundle> {
             // would make every bundle carry the whole shared history forever,
             // growing with each exchange rather than with each change.
             if hlc.device == peer {
+                complete = false;
                 continue;
             }
             changes.push(Change {
@@ -92,8 +113,27 @@ pub fn export(db: &Db, peer: &str, now_millis: u64) -> Result<Bundle> {
         from,
         at,
         covers,
+        seen: seen_from_each(db)?,
+        complete: Some(complete),
         changes,
     })
+}
+
+/// The latest timestamp applied from each device, for [`Bundle::seen`].
+fn seen_from_each(db: &Db) -> Result<std::collections::BTreeMap<DeviceId, Hlc>> {
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT device, seen_through FROM sync_peer WHERE seen_through IS NOT NULL")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    // A mark that does not parse is left out rather than guessed at: leaving
+    // it out only means the receiver judges by its own records, as it did
+    // before bundles carried this at all.
+    Ok(rows
+        .into_iter()
+        .filter_map(|(device, text)| text.parse::<Hlc>().ok().map(|hlc| (device, hlc)))
+        .collect())
 }
 
 /// Record that a bundle was handed over, so the next one carries only what has
@@ -127,7 +167,23 @@ pub fn import(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
     // What the peer had already seen from us. Anything we changed after this
     // they had not seen when they wrote theirs, which is what makes two edits
     // concurrent rather than sequential.
-    let they_had_seen = watermark(db, &bundle.from, "sent_through")?;
+    //
+    // Two sources, and the later wins. Our own record of what we sent them is
+    // the usual one. Theirs of what they applied from us covers what ours
+    // cannot: a file made for a new device reaches it by hand, so this device
+    // never learned who read it, and without the acknowledgement every
+    // correction the joiner made would look like a disagreement with a
+    // version it had in fact been given.
+    let acknowledged = bundle.seen.get(&ours).map(ToString::to_string);
+    let they_had_seen = std::cmp::max(
+        watermark(db, &bundle.from, "sent_through")?,
+        acknowledged.clone(),
+    );
+    // What we had already applied from them. A change at or below this is one
+    // we have been sent before — a file imported twice, or a peer re-sending
+    // what it never heard we had — so it is old news rather than a rival to
+    // whatever we have done since.
+    let already_had = watermark(db, &bundle.from, "seen_through")?;
 
     let mut out = Applied::default();
 
@@ -154,7 +210,10 @@ pub fn import(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
                 // being behind.
                 Some(existing) if existing >= incoming.as_str() => {
                     out.ignored += 1;
-                    if we_changed_it_since {
+                    let news = already_had
+                        .as_deref()
+                        .is_none_or(|had| incoming.as_str() > had);
+                    if we_changed_it_since && news {
                         record_conflict(db, spec.name, &change.uuid, &change.hlc, &change.body)?;
                         out.conflicts += 1;
                     }
@@ -198,14 +257,25 @@ pub fn import(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
         return Ok(out);
     }
 
+    // Their acknowledgement also advances what we have sent them, so the
+    // next bundle does not hand a joiner its whole starting copy a second
+    // time. Only ever forward: an acknowledgement older than our own record
+    // is a peer restored from an older backup, not a reason to resend.
     let high = bundle.changes.iter().map(|c| c.hlc.to_string()).max();
     db.conn().execute(
-        "INSERT INTO sync_peer (device, seen_through, synced_at)
-         VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        "INSERT INTO sync_peer (device, seen_through, sent_through, synced_at)
+         VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
          ON CONFLICT (device) DO UPDATE
              SET seen_through = MAX(COALESCE(seen_through, ''), COALESCE(excluded.seen_through, '')),
+                 sent_through = CASE
+                                    WHEN excluded.sent_through IS NULL THEN sent_through
+                                    WHEN sent_through IS NULL
+                                      OR excluded.sent_through > sent_through
+                                    THEN excluded.sent_through
+                                    ELSE sent_through
+                                END,
                  synced_at    = excluded.synced_at",
-        rusqlite::params![bundle.from, high],
+        rusqlite::params![bundle.from, high, acknowledged],
     )?;
 
     Ok(out)
@@ -336,6 +406,19 @@ pub fn can_join(db: &Db) -> Result<std::result::Result<(), JoinRefused>> {
 pub fn join(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
     if let Err(refused) = can_join(db)? {
         return Err(CoreError::Invalid(refused.to_string()));
+    }
+    // Before anything is thrown away. A join keeps only what the bundle
+    // carries, and an ordinary exchange file carries only what changed since
+    // the last exchange — so joining from one would trade this device's seed
+    // for a handful of recent changes whose categories and places are not
+    // even in it.
+    if bundle.complete == Some(false) {
+        return Err(CoreError::Invalid(format!(
+            "this file only holds what {} changed since it last synced with another device, \
+             not a whole copy, and joining keeps nothing but what the file holds; on that \
+             device, make a file for a new device and join from that one instead",
+            bundle.from
+        )));
     }
 
     // The three rows the schema will not let go of, and the group they live

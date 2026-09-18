@@ -68,6 +68,32 @@ pub struct Bundle {
     /// syncing directly: a laptop that has seen the phone's edits can pass
     /// them on to a tablet, and say truthfully how far along it is.
     pub covers: BTreeMap<DeviceId, Hlc>,
+    /// How far the sender has got with each device it has heard from: the
+    /// latest timestamp it has applied from each.
+    ///
+    /// The receiver reads its own entry as an acknowledgement. Deciding
+    /// whether two edits disagree needs "had they seen my version when they
+    /// wrote theirs?", and the receiver's own record of what it sent is not
+    /// always there to answer it: a device that joined from a file was handed
+    /// that file by a person, so the device that wrote it never learned who
+    /// read it. Without this, the joiner's first correction to anything would
+    /// arrive looking like a disagreement with a version it had in fact seen.
+    ///
+    /// Optional on the wire. An older release neither writes it nor reads it,
+    /// and a bundle without it is judged exactly as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub seen: BTreeMap<DeviceId, Hlc>,
+    /// Whether this bundle is everything the sender holds, rather than what
+    /// has changed since the last exchange with one particular device.
+    ///
+    /// Joining throws a device's own records away and keeps only what the
+    /// bundle carries, so joining from an ordinary exchange file — the
+    /// natural thing to reach for — would leave a device with the last few
+    /// changes and none of the ledger they belong to. `Some(false)` lets the
+    /// join refuse that file and say which one to make instead. `None` is an
+    /// older release, which did not say; its bundles are taken as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complete: Option<bool>,
     /// Ordered oldest first, so applying them in order is applying them in the
     /// order they happened.
     pub changes: Vec<Change>,
@@ -154,6 +180,8 @@ mod tests {
             from: "laptop".to_string(),
             at: hlc(9_000, "laptop"),
             covers: BTreeMap::new(),
+            seen: BTreeMap::new(),
+            complete: None,
             changes,
         }
     }
@@ -204,6 +232,27 @@ mod tests {
         let original = bundle(vec![change("something_new", "u-9", 1_000, "phone")]);
         let bytes = render(&original).expect("render");
         assert_eq!(parse(&bytes).expect("parse").changes.len(), 1);
+    }
+
+    #[test]
+    fn a_bundle_from_before_acknowledgements_still_parses() {
+        // Two devices are updated on different days. The older one's bundles
+        // say nothing about what it has seen or whether they are complete, and
+        // the newer one has to read them as it always did rather than refuse.
+        let older = br#"{"format":1,"from":"laptop",
+            "at":{"millis":9000,"counter":0,"device":"laptop"},
+            "covers":{},"changes":[]}"#;
+        let parsed = parse(older).expect("parse");
+        assert!(parsed.seen.is_empty());
+        assert_eq!(parsed.complete, None);
+
+        // And a bundle with nothing to acknowledge is written in the old shape,
+        // so an older reader is handed nothing it has never seen.
+        let text = String::from_utf8(render(&bundle(vec![])).expect("render")).expect("utf8");
+        assert!(
+            !text.contains("seen") && !text.contains("complete"),
+            "{text}"
+        );
     }
 
     #[test]

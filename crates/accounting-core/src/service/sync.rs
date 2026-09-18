@@ -28,6 +28,19 @@ pub fn export_file(db: &Db, peer: &str, phrase: &str, now_millis: u64) -> Result
     crypto::seal(&plain, phrase)
 }
 
+/// Write everything this device holds, sealed with `phrase`, for a device that
+/// will join from it.
+///
+/// Not an exchange, so there is nothing to mark afterwards: the file is
+/// addressed to nobody, because the device that reads it has not been met
+/// yet. It introduces itself on its first file back, and that file
+/// acknowledges what this one carried.
+pub fn export_for_new_device(db: &Db, phrase: &str, now_millis: u64) -> Result<Vec<u8>> {
+    let bundle = merge::export_everything(db, now_millis)?;
+    let plain = bundle::render(&bundle).map_err(|e| CoreError::Invalid(e.to_string()))?;
+    crypto::seal(&plain, phrase)
+}
+
 /// Record that a bundle reached its peer.
 pub fn mark_delivered(db: &Db, peer: &str, phrase: &str, bytes: &[u8]) -> Result<()> {
     let plain = crypto::open(bytes, phrase)?;
