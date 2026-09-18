@@ -23,6 +23,15 @@
 //!   setting it afterwards leaves the connection with foreign keys *off* and
 //!   every `REFERENCES` clause in the schema decorative.
 //!
+//! # In a browser the journal is not ours to choose
+//!
+//! The web build keeps its file in IndexedDB, through a VFS that holds the
+//! whole database in memory and writes changed pages back when SQLite says a
+//! commit is done. That VFS refuses every `synchronous` setting but `OFF`, and
+//! has no shared memory for a WAL index, so there the connection keeps SQLite's
+//! default rollback journal and turns syncing off. `Durability` is the one
+//! place that difference is decided.
+//!
 //! # Aggregate invariants
 //!
 //! `SUM(txn_split.amount_cents) = txn.total_cents` cannot be a CHECK
@@ -109,12 +118,8 @@ impl Db {
     /// The order of these statements is explained in the module docs. Do not
     /// rearrange them.
     fn configure(&mut self, on_disk: bool) -> Result<()> {
-        if on_disk {
-            // WAL lets a reader (a report, `pacc doctor`) run while a write is
-            // in flight, and survives a crash mid-write. An in-memory database
-            // has no journal file to write, so SQLite silently keeps "memory"
-            // mode; asking for it there is noise, not an error.
-            //
+        let durability = Durability::for_connection(on_disk, IN_BROWSER);
+        if durability.wal {
             // pragma_update, not execute: this PRAGMA returns a row.
             self.conn.pragma_update(None, "journal_mode", "WAL")?;
         }
@@ -122,12 +127,8 @@ impl Db {
         // Before to_latest(). Inside a transaction this is ignored outright.
         self.conn.pragma_update(None, "foreign_keys", "ON")?;
 
-        // NORMAL is the documented-safe pairing with WAL: a commit no longer
-        // fsyncs, but the WAL still guarantees no corruption on power loss —
-        // at most the last few committed transactions are lost. FULL costs an
-        // fsync per receipt for a durability window nobody types fast enough
-        // to notice.
-        self.conn.pragma_update(None, "synchronous", "NORMAL")?;
+        self.conn
+            .pragma_update(None, "synchronous", durability.synchronous)?;
 
         self.conn.busy_timeout(BUSY_TIMEOUT)?;
 
@@ -210,7 +211,8 @@ impl Db {
             .query_row("PRAGMA user_version", [], |r| r.get(0))?)
     }
 
-    /// `PRAGMA journal_mode` — `"wal"` on disk, `"memory"` in memory.
+    /// `PRAGMA journal_mode` — `"wal"` on disk, `"memory"` in memory, and
+    /// `"delete"` in a browser, where `Durability` leaves WAL off.
     pub fn journal_mode(&self) -> Result<String> {
         Ok(self
             .conn
@@ -224,6 +226,59 @@ impl Db {
             .conn
             .query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
         Ok(v != 0)
+    }
+}
+
+/// Whether this build runs in a web page, where the database lives in
+/// IndexedDB rather than in a file. `wasm32-unknown-unknown` is the only wasm
+/// target the app ships to, and the only one with a browser around it.
+const IN_BROWSER: bool = cfg!(all(target_family = "wasm", target_os = "unknown"));
+
+/// How a connection keeps its writes: the journal it asks for, and how hard it
+/// pushes a commit to storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Durability {
+    /// Whether to ask for `journal_mode = WAL`.
+    wal: bool,
+    /// The `synchronous` pragma's value.
+    synchronous: &'static str,
+}
+
+impl Durability {
+    /// The settings for a connection to a file (`on_disk`) or to memory, in a
+    /// browser or not.
+    ///
+    /// A function of its two inputs rather than a `cfg!` at the call site, so
+    /// that the browser's answer is tested on the machines the tests run on —
+    /// the web build has no test runner of its own.
+    fn for_connection(on_disk: bool, in_browser: bool) -> Self {
+        if in_browser {
+            // The IndexedDB VFS answers any other `synchronous` with an error,
+            // which would fail every open. OFF there does not mean "never
+            // written": SQLite still sends the VFS its sync notice in place of
+            // the fsync it skips, and that notice is what starts the write to
+            // IndexedDB. What it gives up is waiting for that write, so a tab
+            // closed in the instant after a save can lose the save. No WAL,
+            // because the WAL index is memory shared between processes and a
+            // web page has none to share.
+            return Durability {
+                wal: false,
+                synchronous: "OFF",
+            };
+        }
+        Durability {
+            // WAL lets a reader (a report, `pacc doctor`) run while a write is
+            // in flight, and survives a crash mid-write. An in-memory database
+            // has no journal file to write, so SQLite silently keeps "memory"
+            // mode; asking for it there is noise, not an error.
+            wal: on_disk,
+            // NORMAL is the documented-safe pairing with WAL: a commit no
+            // longer fsyncs, but the WAL still guarantees no corruption on
+            // power loss — at most the last few committed transactions are
+            // lost. FULL costs an fsync per receipt for a durability window
+            // nobody types fast enough to notice.
+            synchronous: "NORMAL",
+        }
     }
 }
 
@@ -281,6 +336,45 @@ mod tests {
             usize::try_from(db.user_version().unwrap()).unwrap(),
             SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn a_file_on_a_desktop_or_phone_is_wal_and_normal() {
+        assert_eq!(
+            Durability::for_connection(true, false),
+            Durability {
+                wal: true,
+                synchronous: "NORMAL"
+            }
+        );
+        // Memory has no journal file for WAL to replace.
+        assert_eq!(
+            Durability::for_connection(false, false),
+            Durability {
+                wal: false,
+                synchronous: "NORMAL"
+            }
+        );
+    }
+
+    #[test]
+    fn a_browser_gets_the_only_settings_its_storage_accepts() {
+        for on_disk in [true, false] {
+            assert_eq!(
+                Durability::for_connection(on_disk, true),
+                Durability {
+                    wal: false,
+                    synchronous: "OFF"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn the_native_build_does_not_think_it_is_in_a_browser() {
+        // The tests run natively. If this fails, every desktop and phone
+        // database has quietly lost WAL.
+        assert!(Durability::for_connection(true, IN_BROWSER).wal);
     }
 
     #[test]

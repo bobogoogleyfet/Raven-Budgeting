@@ -33,6 +33,19 @@ tempfile.workspace = true
 # ones. See crates/accounting-core/tests/migrations.rs.
 sha2 = "0.10"
 
+# The web build. Neither is a new capability; each is a crate already in the
+# tree being told it is in a browser, where the standard library has no clock
+# and no source of randomness and says so by panicking at the first call.
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+# chacha20poly1305's `OsRng`, which salts and nonces every sync bundle, reaches
+# the OS through getrandom 0.2. In a browser that is `crypto.getRandomValues`,
+# and only with this feature; without it the build fails rather than falling
+# back to something weaker, which is the right way round.
+getrandom = { version = "0.2", features = ["js"] }
+# rust_xlsxwriter stamps each workbook's creation time from `SystemTime::now`,
+# which panics in a browser. `wasm` makes it ask JavaScript's `Date` instead.
+rust_xlsxwriter = { workspace = true, features = ["wasm"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 
