@@ -500,8 +500,12 @@ pub fn join(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
         // longer exists, and keeping them would have this device offering the
         // peer its own deleted seed back.
         tx.execute("DELETE FROM sync_change", [])?;
-        Ok(())
-    })?;
 
-    import(db, bundle, now_millis)
+        // Inside the same transaction as the wipe, which is what makes the
+        // promise above true. Applied after it commits, a file that failed
+        // halfway through — a row the schema refuses, a disk that filled —
+        // left the device with its own records gone and only part of the
+        // other device's in their place, and nothing to undo it with.
+        import(db, bundle, now_millis)
+    })
 }

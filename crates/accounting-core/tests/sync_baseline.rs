@@ -458,6 +458,43 @@ fn joining_from_an_ordinary_exchange_file_is_refused_before_anything_is_lost() {
 }
 
 #[test]
+fn a_join_that_fails_partway_leaves_the_device_as_it_was() {
+    // A join wipes the device and then applies the file. If applying fails
+    // after the wipe has been committed, the device has neither its own
+    // records nor the other's, so both have to be one transaction.
+    let desk = seeded_db();
+    fill(&desk);
+    let mut file = over_the_wire(&merge::export_everything(&desk, 1_000).expect("export"));
+    // A place with no name, which the schema refuses outright. Last in the
+    // dependency order that matters here, so plenty is applied before it.
+    let hlc = file.changes[0].hlc.clone();
+    file.changes.push(accounting_core::sync::Change {
+        entity: "location".to_string(),
+        uuid: "01ffffff-0000-7000-8000-000000000000".to_string(),
+        hlc,
+        body: serde_json::json!({
+            "uuid": "01ffffff-0000-7000-8000-000000000000",
+            "name": null,
+        }),
+    });
+
+    let browser = seeded_db();
+    let before = contents(&browser);
+    merge::join(&browser, &file, 2_000).expect_err("the schema refuses the row");
+
+    assert_eq!(
+        contents(&browser),
+        before,
+        "its own records are all still here"
+    );
+    assert!(merge::peers(&browser).expect("peers").is_empty());
+    assert!(
+        merge::can_join(&browser).expect("check").is_ok(),
+        "and it can try again"
+    );
+}
+
+#[test]
 fn a_change_sent_again_is_not_a_disagreement_with_what_was_done_after_it() {
     // A file imported, then the same history sent again because the sender
     // never heard it arrived — a browser download nobody confirmed. The
