@@ -32,6 +32,21 @@ Future<SyncStatusDto> syncStatus() =>
 Future<Uint8List> exportBundle({String? peer, required String phrase}) =>
     RustLib.instance.api.crateApiSyncExportBundle(peer: peer, phrase: phrase);
 
+/// Build the sealed file a device with nothing of its own joins from: every
+/// record here, addressed to nobody.
+///
+/// Not the same file as [`export_bundle`]'s once this device is paired. That
+/// one carries only what its peer has not been sent, and a join keeps nothing
+/// but what the file holds, so joining from it would leave the new device
+/// with the last few changes and none of the ledger — the core refuses such a
+/// file, and this is the one to make instead.
+///
+/// Never marked as delivered, and there is no one to mark it against: the
+/// device that reads it has not been met. It introduces itself on its first
+/// file back, which also acknowledges what this one carried.
+Future<Uint8List> exportForNewDevice({required String phrase}) =>
+    RustLib.instance.api.crateApiSyncExportForNewDevice(phrase: phrase);
+
 /// Record that a bundle reached its peer, so the next one carries only what
 /// has changed since.
 ///

@@ -26,6 +26,8 @@ typedef BundleWriter = Future<void> Function(String path, Uint8List bytes);
 typedef BundleReader = Future<Uint8List> Function(String path);
 typedef DirectoryFinder = Future<String> Function();
 typedef FileDownloader = Future<void> Function(String name, Uint8List bytes);
+typedef WholeExporter = Future<Uint8List> Function({required String phrase});
+typedef RefusalLoader = Future<String?> Function();
 
 /// Settings: the handful of answers the app asked for once and then relied on.
 ///
@@ -77,7 +79,10 @@ class SettingsScreen extends StatelessWidget {
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: SyncSection(browser: browser),
+          child: SyncSection(
+            browser: browser,
+            onStandingChanged: lan?.recheckStanding,
+          ),
         ),
         if (lan != null)
           Padding(
@@ -183,19 +188,38 @@ class BrowserStorageNote extends StatelessWidget {
 /// from one at all. There, exporting is a download and importing is the
 /// browser's own file picker — the only two ways a file crosses into or out
 /// of a page.
+///
+/// # Joining, and the file it needs
+///
+/// A device that has only just been opened has seeded its own chart of
+/// accounts under uuids of its own, so importing another device's file would
+/// put two of every category side by side. It *joins* instead: throws its seed
+/// away and takes the other device's copy. Over Wi-Fi that is the Join button
+/// in the section below; a browser has no Wi-Fi sync, so for it a file is the
+/// only way, and this section offers the same step with a file.
+///
+/// The file has to be the right one. What Export writes on a paired device is
+/// only what its peer has not been sent, and a join keeps nothing else, so the
+/// other device writes a copy of everything for this instead — "For a new
+/// device". The core refuses the wrong file before anything is thrown away,
+/// and this section passes on why.
 class SyncSection extends StatefulWidget {
   const SyncSection({
     super.key,
     this.loadStatus = syncStatus,
     this.export = exportBundle,
+    this.exportWhole = exportForNewDevice,
     this.markSent = markDelivered,
     this.import = importBundle,
+    this.join = joinBundle,
+    this.loadRefusal = joinRefusal,
     this.writeFile = writeNewFile,
     this.readFile = readFileBytes,
     this.defaultDirectory = documentsDirectory,
     this.browser = kIsWeb,
     this.download = downloadFile,
     this.pick = pickFile,
+    this.onStandingChanged,
   });
 
   /// Every call this section makes is injectable, and defaults to the real
@@ -203,8 +227,11 @@ class SyncSection extends StatefulWidget {
   /// the generated bindings directly could only be tested by starting Rust.
   final SyncStatusLoader loadStatus;
   final BundleExporter export;
+  final WholeExporter exportWhole;
   final DeliveryMarker markSent;
   final BundleImporter import;
+  final BundleImporter join;
+  final RefusalLoader loadRefusal;
   final BundleWriter writeFile;
   final BundleReader readFile;
   final DirectoryFinder defaultDirectory;
@@ -215,6 +242,11 @@ class SyncSection extends StatefulWidget {
   final bool browser;
   final FileDownloader download;
   final FilePicker pick;
+
+  /// Called once a file has changed who this device syncs with — a join, or
+  /// the import that pairs it — so the Wi-Fi service, which reads that only
+  /// after its own exchanges, stops treating the device as unpaired.
+  final Future<void> Function()? onStandingChanged;
 
   @override
   State<SyncSection> createState() => _SyncSectionState();
@@ -228,9 +260,15 @@ class _SyncSectionState extends State<SyncSection> {
   final TextEditingController _exportPath = TextEditingController();
   final TextEditingController _importPhrase = TextEditingController();
   final TextEditingController _importPath = TextEditingController();
+  final TextEditingController _joinPhrase = TextEditingController();
+  final TextEditingController _joinPath = TextEditingController();
 
   SyncStatus? _status;
   String? _statusProblem;
+
+  /// Why this device cannot join another, in the core's words; null when it
+  /// can, or when it is paired and the question does not arise.
+  String? _refusal;
 
   /// The device this file is for, when there is more than one to choose from.
   /// Left null with one peer or none: the core resolves that case itself, and
@@ -239,14 +277,20 @@ class _SyncSectionState extends State<SyncSection> {
 
   bool _showExportPhrase = false;
   bool _showImportPhrase = false;
+  bool _showJoinPhrase = false;
   bool _exporting = false;
+  bool _exportingWhole = false;
   bool _importing = false;
+  bool _joining = false;
 
   String? _exportNote;
   bool _exportFailed = false;
   String? _importNote;
   bool _importFailed = false;
   Applied? _imported;
+  String? _joinNote;
+  bool _joinFailed = false;
+  Applied? _joined;
 
   /// In a browser, the bundle last downloaded for a peer, until somebody says
   /// it was saved. See [_doExport] for why the page cannot tell.
@@ -268,16 +312,32 @@ class _SyncSectionState extends State<SyncSection> {
     _exportPath.dispose();
     _importPhrase.dispose();
     _importPath.dispose();
+    _joinPhrase.dispose();
+    _joinPath.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     try {
       final status = await widget.loadStatus();
+      // Asked only of a device that is not paired: a paired one is not
+      // offered a join at all, and the core's answer for it would only say so.
+      String? refusal;
+      if (!status.isPaired) {
+        try {
+          refusal = await widget.loadRefusal();
+        } catch (error) {
+          // Unanswerable is not the same as allowed. Joining throws this
+          // device's records away, so the button stays off and says why.
+          refusal = 'could not check whether this device has records of its '
+              'own: $error';
+        }
+      }
       if (!mounted) return;
       setState(() {
         _status = status;
         _statusProblem = null;
+        _refusal = refusal;
         // A peer that has gone away — or a second one that has appeared —
         // must not leave a stale name selected, since that name is what the
         // watermark would be written against.
@@ -511,6 +571,7 @@ class _SyncSectionState extends State<SyncSection> {
       // Conflicts recorded by this import are waiting for a human, and the
       // sending device is now a peer even if it was not one a moment ago.
       await _load();
+      await widget.onStandingChanged?.call();
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -520,6 +581,179 @@ class _SyncSectionState extends State<SyncSection> {
       }
     } finally {
       if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  /// Write a copy of everything here, for a device that will join from it.
+  ///
+  /// Shares the export's phrase and path: it is the same phrase, and a second
+  /// pair of boxes for the same two answers would be two places to mistype
+  /// them. Never marked as sent — there is nobody to mark it against until
+  /// the new device's first file comes back, and that file acknowledges what
+  /// this one carried.
+  Future<void> _doExportWhole() async {
+    final phrase = _exportPhrase.text;
+    final path = widget.browser ? '' : _exportPath.text.trim();
+    if (phrase.isEmpty) {
+      setState(() {
+        _exportFailed = true;
+        _exportNote = 'Enter the pairing phrase. The new device needs the same '
+            'phrase to open the file, and it is the only thing protecting it '
+            'on the way over.';
+      });
+      return;
+    }
+    if (!widget.browser && path.isEmpty) {
+      setState(() {
+        _exportFailed = true;
+        _exportNote = 'Say where to write the file.';
+      });
+      return;
+    }
+
+    setState(() {
+      _exportingWhole = true;
+      _exportNote = null;
+      _exportFailed = false;
+      _unconfirmed = null;
+    });
+    try {
+      final bytes = await widget.exportWhole(phrase: phrase);
+      final String written;
+      if (widget.browser) {
+        written = newDeviceFileName();
+        await widget.download(written, bytes);
+      } else {
+        written = path;
+        await widget.writeFile(path, bytes);
+      }
+      if (!mounted) return;
+      setState(() {
+        _exportFailed = false;
+        _exportNote = '${widget.browser ? 'Downloaded' : 'Wrote'} $written '
+            '(${formatBytes(bytes.length)}), a copy of everything on this '
+            'device. On the new device, choose Join with a file and pick it. '
+            'Nothing here was marked as sent: the new device introduces itself '
+            'with its first file back.';
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _exportFailed = true;
+          _exportNote = 'Could not write the file: $error';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _exportingWhole = false);
+    }
+  }
+
+  /// Take another device's records from a file, replacing everything here.
+  ///
+  /// The file is chosen before the question is asked, not after: a browser
+  /// opens its picker only from a gesture it can still see, and a dialog in
+  /// between is enough to lose it. Reading a file changes nothing, so asking
+  /// second costs nothing — and it lets the question name the file.
+  Future<void> _doJoin(BuildContext context) async {
+    final phrase = _joinPhrase.text;
+    final path = widget.browser ? '' : _joinPath.text.trim();
+    if (phrase.isEmpty) {
+      setState(() {
+        _joinFailed = true;
+        _joinNote = 'Enter the pairing phrase the file was sealed with — the '
+            'same one the other device used.';
+      });
+      return;
+    }
+    if (!widget.browser && path.isEmpty) {
+      setState(() {
+        _joinFailed = true;
+        _joinNote = 'Say which file to join from.';
+      });
+      return;
+    }
+
+    // Before anything is awaited, for the reason above.
+    final Future<PickedFile?>? picking =
+        widget.browser ? widget.pick() : null;
+    final String name;
+    final Uint8List bytes;
+    try {
+      if (picking != null) {
+        final picked = await picking;
+        // Closing the picker is a change of mind, not a failure.
+        if (picked == null || !mounted) return;
+        name = picked.name;
+        bytes = picked.bytes;
+      } else {
+        name = path;
+        bytes = await widget.readFile(path);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _joinFailed = true;
+          _joinNote = 'Could not read the file: $error';
+        });
+      }
+      return;
+    }
+    if (!context.mounted) return;
+
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Join with this file?'),
+        content: Text(
+          'Everything on this device is replaced by the records in $name — '
+          'categories, budgets and receipts alike. Do this only on a device '
+          'with nothing of its own yet.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Join'),
+          ),
+        ],
+      ),
+    );
+    if (!(agreed ?? false) || !mounted) return;
+
+    setState(() {
+      _joining = true;
+      _joinNote = null;
+      _joinFailed = false;
+      _joined = null;
+    });
+    try {
+      final applied = await widget.join(bytes: bytes, phrase: phrase);
+      if (!mounted) return;
+      setState(() {
+        _joined = applied;
+        _joinFailed = false;
+        _joinNote = 'Joined from $name. This device now carries the other '
+            'device’s records, and the two keep up with each other by file '
+            'from here: export to send what changes here, import what the '
+            'other device sends back.';
+      });
+      await _load();
+      await widget.onStandingChanged?.call();
+    } catch (error) {
+      // The core's refusals are sentences meant for this: the device has work
+      // of its own, is already paired, or the file is an ordinary exchange
+      // rather than a copy of everything. Nothing was replaced in any of them.
+      if (mounted) {
+        setState(() {
+          _joinFailed = true;
+          _joinNote = 'Nothing was changed. ${_sentence(_reason(error))}';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _joining = false);
     }
   }
 
@@ -549,15 +783,25 @@ class _SyncSectionState extends State<SyncSection> {
                 ?.copyWith(color: theme.colorScheme.error),
           ),
         if (status != null) ..._identity(theme, status),
+        // First for a device that is not paired yet, because for one with
+        // nothing of its own it is the first thing to do; and kept on screen
+        // after a join, only to say how it went.
+        if (status != null && (!status.isPaired || _joinNote != null))
+          ..._joinSection(context, theme, status),
         const SizedBox(height: 24),
         Text('Export', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
-          widget.browser
-              ? 'Puts everything the other device has not been sent into one '
-                  'sealed file, which your browser downloads.'
-              : 'Writes everything the other device has not been sent into '
-                  'one sealed file.',
+          [
+            widget.browser
+                ? 'Puts everything the other device has not been sent into '
+                    'one sealed file, which your browser downloads.'
+                : 'Writes everything the other device has not been sent into '
+                    'one sealed file.',
+            'A device with nothing of its own yet — a new phone, or this app '
+                'in a browser — needs a copy of everything instead: make it '
+                'with For a new device, and join from it there.',
+          ].join(' '),
           style: theme.textTheme.bodySmall
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
@@ -603,14 +847,29 @@ class _SyncSectionState extends State<SyncSection> {
           ),
         ],
         const SizedBox(height: 12),
-        Row(
+        // A Wrap rather than a Row: two buttons side by side are wider than a
+        // phone held upright once the text is enlarged, and a Row would clip.
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
             FilledButton(
-              onPressed: _exporting ? null : () => _doExport(),
+              onPressed: _exporting || _exportingWhole ? null : () => _doExport(),
               child: Text(
                 widget.browser
                     ? (_exporting ? 'Preparing…' : 'Download')
                     : (_exporting ? 'Writing…' : 'Export'),
+              ),
+            ),
+            OutlinedButton(
+              key: const Key('export-whole'),
+              onPressed: _exporting || _exportingWhole
+                  ? null
+                  : () => _doExportWhole(),
+              child: Text(
+                _exportingWhole
+                    ? (widget.browser ? 'Preparing…' : 'Writing…')
+                    : 'For a new device',
               ),
             ),
           ],
@@ -640,10 +899,19 @@ class _SyncSectionState extends State<SyncSection> {
         Text('Import', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
-          widget.browser
-              ? 'Applies a file the other device wrote. Enter the phrase '
-                  'first, then choose the file.'
-              : 'Applies a file the other device wrote.',
+          [
+            widget.browser
+                ? 'Applies a file the other device wrote. Enter the phrase '
+                    'first, then choose the file.'
+                : 'Applies a file the other device wrote.',
+            // An unpaired device that could join is the one that must not
+            // import: both devices seeded the same categories under different
+            // ids, so importing puts two of each side by side.
+            if (status != null && !status.isPaired && _refusal == null)
+              'This device is not paired yet, so if it has nothing of its own, '
+                  'join with a file above instead — importing would put the '
+                  'other device’s categories beside this one’s.',
+          ].join(' '),
           style: theme.textTheme.bodySmall
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
@@ -701,6 +969,142 @@ class _SyncSectionState extends State<SyncSection> {
     );
   }
 
+  /// Taking another device's records from a file, for a device with none of
+  /// its own.
+  ///
+  /// Shown with its button off, and the core's reason beside it, when this
+  /// device cannot join: a greyed button with no explanation reads as broken,
+  /// and the reasons are ones a person can act on — export or merge the work
+  /// that is here, or import rather than join a device it already syncs with.
+  List<Widget> _joinSection(
+    BuildContext context,
+    ThemeData theme,
+    SyncStatus status,
+  ) {
+    final refusal = _refusal;
+    final offered = !status.isPaired;
+    return [
+      const SizedBox(height: 24),
+      Text('Join with a file', style: theme.textTheme.titleSmall),
+      // How to do it, only while it can still be done: once joined, the
+      // outcome below is all there is left to say.
+      if (offered) ...[
+        const SizedBox(height: 4),
+        Text(
+          [
+            'For a device with nothing of its own yet. It takes a copy of '
+                'everything on the other device — categories, budgets and '
+                'receipts — in place of what is here, and from then on the two '
+                'keep up with each other by file. On the other device, make '
+                'the file with For a new device.',
+            if (widget.browser) 'Enter the phrase first, then choose the file.',
+          ].join(' '),
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+      ],
+      if (offered && refusal != null) ...[
+        const SizedBox(height: 12),
+        Card(
+          key: const Key('join-refusal'),
+          margin: EdgeInsets.zero,
+          color: theme.colorScheme.tertiaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This device can’t join',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _sentence(refusal),
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+      // No boxes to fill in for a join that cannot happen; the button stays,
+      // off, so the card above is plainly the reason it is off.
+      if (offered && refusal == null) ...[
+        const SizedBox(height: 12),
+        phraseField(
+          fieldKey: const Key('join-phrase'),
+          controller: _joinPhrase,
+          label: 'Pairing phrase',
+          shown: _showJoinPhrase,
+          onToggle: () => setState(() => _showJoinPhrase = !_showJoinPhrase),
+          helper: 'The phrase the other device sealed the file with.',
+        ),
+        if (!widget.browser) ...[
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('join-path'),
+            controller: _joinPath,
+            decoration: const InputDecoration(
+              labelText: 'Read from',
+              helperText: 'The full path of the file the other device wrote '
+                  'for a new device.',
+              helperMaxLines: 2,
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ],
+      if (offered) ...[
+        const SizedBox(height: 12),
+        FilledButton.tonal(
+          key: const Key('join-button'),
+          onPressed:
+              _joining || refusal != null ? null : () => _doJoin(context),
+          child: Text(
+            _joining
+                ? 'Joining…'
+                : (widget.browser ? 'Choose file and join…' : 'Join'),
+          ),
+        ),
+      ],
+      if (_joinNote != null) ...[
+        const SizedBox(height: 8),
+        Semantics(
+          liveRegion: true,
+          child: Text(
+            _joinNote!,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: _joinFailed
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+      if (_joined != null) ...importOutcome(theme, _joined!),
+    ];
+  }
+
+  /// A refusal as the core worded it, without the category label it files
+  /// every refusal under. "invalid input:" is true of a file that holds only
+  /// recent changes, and tells the person reading it nothing they can use.
+  String _reason(Object error) {
+    const label = 'invalid input: ';
+    final text = '$error';
+    return text.startsWith(label) ? text.substring(label.length) : text;
+  }
+
+  /// The core's reasons are clauses, written to follow "cannot join:"; on a
+  /// card of their own they read as a sentence.
+  String _sentence(String reason) {
+    if (reason.isEmpty) return reason;
+    final capital = reason[0].toUpperCase() + reason.substring(1);
+    return capital.endsWith('.') ? capital : '$capital.';
+  }
+
   /// Who this device is, and who it syncs with.
   List<Widget> _identity(ThemeData theme, SyncStatus status) {
     final quiet =
@@ -720,8 +1124,9 @@ class _SyncSectionState extends State<SyncSection> {
       const SizedBox(height: 4),
       if (status.peers.isEmpty)
         Text(
-          'No other device yet. Export a file and import it there to start a '
-          'pairing.',
+          'No other device yet. If this one has nothing of its own, join '
+          'another device’s copy with a file; otherwise export a file and '
+          'import it there to start a pairing.',
           style: quiet,
         )
       else
@@ -918,6 +1323,14 @@ String defaultFileName([DateTime? now]) {
   return 'pacc-${when.year}${two(when.month)}${two(when.day)}'
       '-${two(when.hour)}${two(when.minute)}.paccsync';
 }
+
+/// A name for a copy of everything, made for a device that will join.
+///
+/// Named apart from an ordinary exchange file because the two look identical
+/// in a downloads folder and only one of them can be joined from; the new
+/// device's picker shows the name and nothing else.
+String newDeviceFileName([DateTime? now]) =>
+    defaultFileName(now).replaceFirst('pacc-', 'pacc-new-device-');
 
 /// Keeping up with the other device over Wi-Fi, with nobody moving a file.
 ///

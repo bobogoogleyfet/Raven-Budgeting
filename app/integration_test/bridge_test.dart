@@ -400,11 +400,13 @@ void main() {
     // Never the phrase, in the message or anywhere near it.
     expect('$refused'.contains('kett'), isFalse);
 
-    // The right phrase opens it. This device applying its own bundle takes
-    // nothing — its timestamps are not newer than themselves — which is the
-    // proof that seal, parse and merge all ran.
+    // The right phrase opens it: a wrong one would have thrown, as above.
+    // What it holds is this device's own history, so reading it back takes
+    // nothing and disagrees with nothing — it used to record every entry in
+    // it as a conflict.
     final applied = await importBundle(bytes: bytes, phrase: 'seven rusty kettles');
     expect(applied.applied, 0);
+    expect(applied.conflicts, 0);
     expect(applied.deferred, isEmpty);
     expect(applied.unknownKinds, isEmpty);
   });
@@ -437,6 +439,29 @@ void main() {
     // a different name.
     final status = await syncStatus();
     expect(status.peers.where((peer) => peer != status.thisDevice), isEmpty);
+  });
+
+  test('a file for a new device is sealed, and is not one to join from here',
+      () async {
+    await openDatabase(appDataDir: dataDir.path, demo: false);
+    final before = await listCategories();
+
+    final bytes = await exportForNewDevice(phrase: 'seven rusty kettles');
+    expect(String.fromCharCodes(bytes.take(8)), 'PACCSYNC');
+    expect(() => exportForNewDevice(phrase: ''), throwsA(isA<Object>()));
+
+    // Joining it back here would throw this device's records away for its
+    // own copy of them. Refused — for that reason, or because this test
+    // database has already been paired or given work by the tests above —
+    // and either way before anything is replaced.
+    Object? refused;
+    try {
+      await joinBundle(bytes: bytes, phrase: 'seven rusty kettles');
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused, isNotNull);
+    expect((await listCategories()).length, before.length);
   });
 
   test('a file that is not a rate workbook is refused and the rates stay',

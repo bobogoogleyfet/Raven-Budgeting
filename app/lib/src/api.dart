@@ -840,6 +840,18 @@ Future<SyncStatus> syncStatus() async {
 Future<Uint8List> exportBundle({String? peer, required String phrase}) =>
     rust_sync.exportBundle(peer: peer, phrase: phrase);
 
+/// Build the sealed file a device with nothing of its own joins from: every
+/// record here, addressed to nobody.
+///
+/// Once this device is paired, [exportBundle] carries only what its peer has
+/// not been sent, and a join keeps nothing but what the file holds — so a new
+/// device joining from that file would get the last few changes and none of
+/// the ledger. This is the file to hand it instead. Nothing is marked as sent:
+/// the device that reads it has not been met, and it introduces itself with
+/// its first file back.
+Future<Uint8List> exportForNewDevice({required String phrase}) =>
+    rust_sync.exportForNewDevice(phrase: phrase);
+
 /// Record that a bundle reached its peer, so the next one carries only what
 /// changed after it.
 ///

@@ -150,6 +150,13 @@ What is different in a browser:
   Import opens the browser's file picker. A page cannot tell a saved download
   from a cancelled one, so an export is not counted as sent until you press
   *Mark as sent*. There is no Wi-Fi sync: a page has no sockets.
+- **A new browser starts by joining with a file.** On the desktop or phone
+  that has your records, Settings → Sync → *For a new device* writes a copy
+  of everything; in the browser, *Join with a file* takes that copy in place
+  of the starting categories it seeded. The ordinary export file will not do
+  for this — once a device is paired it holds only what changed since the
+  last exchange — and joining from it is refused before anything is replaced.
+  After joining, the two exchange files as usual.
 - **Rates come from a file you download.** The Tax Commission's server does
   not allow pages from other sites to read it, and the policy would not let
   the page ask. In Settings, *Import rate workbook…* installs the quarter's

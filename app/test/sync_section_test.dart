@@ -18,6 +18,10 @@ class Calls {
   final List<String?> markedFor = [];
   final List<String> downloaded = [];
   final List<Uint8List> imported = [];
+  final List<Uint8List> joined = [];
+
+  /// How many times the Wi-Fi service was told the standing may have moved.
+  int standingRechecks = 0;
 }
 
 Applied applied({
@@ -50,8 +54,16 @@ Future<Calls> pump(
   bool browser = false,
   PickedFile? picked,
   Object? downloadError,
+  String? refusal,
+  Object? refusalError,
+  Object? joinError,
+  Applied? joinResult,
+  Object? wholeError,
 }) async {
   final calls = Calls();
+  // What the status reports changes once a join succeeds, as the real one
+  // does: the device it joined is its peer from then on.
+  var currentPeers = peers;
   // Tall enough that the whole section is laid out: a Column that overflows
   // fails the test with a layout error rather than with the thing it is about.
   tester.view.physicalSize = const Size(1000, 3000);
@@ -67,10 +79,27 @@ Future<Calls> pump(
               if (statusError != null) throw statusError;
               return SyncStatus(
                 thisDevice: 'laptop-91ab',
-                peers: peers,
+                peers: currentPeers,
                 openConflicts: openConflicts,
               );
             },
+            loadRefusal: () async {
+              if (refusalError != null) throw refusalError;
+              return refusal;
+            },
+            exportWhole: ({required String phrase}) async {
+              calls.log.add('whole');
+              if (wholeError != null) throw wholeError;
+              return Uint8List.fromList(List.filled(4096, 5));
+            },
+            join: ({required Uint8List bytes, required String phrase}) async {
+              calls.log.add('join');
+              calls.joined.add(bytes);
+              if (joinError != null) throw joinError;
+              currentPeers = const ['desk-01a0'];
+              return joinResult ?? applied(taken: 116);
+            },
+            onStandingChanged: () async => calls.standingRechecks++,
             export: ({String? peer, required String phrase}) async {
               calls.log.add('export');
               if (exportError != null) throw exportError;
@@ -491,5 +520,243 @@ void main() {
     await pump(tester, openConflicts: 0);
 
     expect(find.textContaining('waiting to be looked at'), findsNothing);
+  });
+
+  group('a copy for a new device', () {
+    testWidgets('writes everything and marks nothing as sent', (tester) async {
+      final calls = await pump(tester);
+
+      await tester.enterText(
+          find.byKey(const Key('export-phrase')), 'seven rusty kettles');
+      await tester.enterText(
+          find.byKey(const Key('export-path')), '/tmp/pacc/whole.paccsync');
+      await tester.tap(find.byKey(const Key('export-whole')));
+      await tester.pumpAndSettle();
+
+      // Addressed to nobody: the device that reads it has not been met, so
+      // there is no peer to record it against, and recording it against the
+      // phone would stop the phone being sent any of it.
+      expect(calls.log, ['whole', 'write']);
+      expect(calls.written, ['/tmp/pacc/whole.paccsync']);
+      expect(
+        find.textContaining('a copy of everything on this device'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('choose Join with a file'), findsOneWidget);
+    });
+
+    testWidgets('asks for the phrase first, and calls nothing', (tester) async {
+      final calls = await pump(tester);
+
+      await tester.tap(find.byKey(const Key('export-whole')));
+      await tester.pumpAndSettle();
+
+      expect(calls.log, isEmpty);
+      expect(find.textContaining('Enter the pairing phrase'), findsOneWidget);
+    });
+
+    testWidgets('in a browser, downloads under a name of its own',
+        (tester) async {
+      final calls = await pump(tester, browser: true);
+
+      await tester.enterText(
+          find.byKey(const Key('export-phrase')), 'seven rusty kettles');
+      await tester.tap(find.byKey(const Key('export-whole')));
+      await tester.pumpAndSettle();
+
+      // Beside the ordinary exchange files in a downloads folder, the name is
+      // the only thing that says which one a new device can join from.
+      expect(calls.log, ['whole', 'download']);
+      expect(calls.downloaded.single, startsWith('pacc-new-device-'));
+      expect(find.widgetWithText(OutlinedButton, 'Mark as sent'), findsNothing);
+    });
+  });
+
+  group('joining with a file', () {
+    /// Say yes to the question. Looked for inside the dialog, because the
+    /// section's own button behind it is labelled Join too.
+    Future<void> confirm(WidgetTester tester) async {
+      await tester.tap(find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Join'),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> fillIn(WidgetTester tester, {bool path = true}) async {
+      await tester.enterText(
+          find.byKey(const Key('join-phrase')), 'seven rusty kettles');
+      if (path) {
+        await tester.enterText(
+            find.byKey(const Key('join-path')), '/tmp/pacc/whole.paccsync');
+      }
+    }
+
+    testWidgets('is offered to a device that is not paired', (tester) async {
+      await pump(tester, peers: const []);
+
+      expect(find.text('Join with a file'), findsOneWidget);
+      final join = tester.widget<FilledButton>(find.byKey(const Key('join-button')));
+      expect(join.onPressed, isNotNull);
+      // And the import that would double its categories says so.
+      expect(find.textContaining('join with a file above instead'), findsOneWidget);
+    });
+
+    testWidgets('is not offered to one that already syncs', (tester) async {
+      await pump(tester, peers: const ['phone-7f2c']);
+
+      expect(find.text('Join with a file'), findsNothing);
+      expect(find.byKey(const Key('join-button')), findsNothing);
+    });
+
+    testWidgets('says why a device cannot join, and does not let it',
+        (tester) async {
+      final calls = await pump(
+        tester,
+        peers: const [],
+        refusal: 'this device already has 3 expense(s) and 1 budget line(s) '
+            'of its own; joining replaces everything here with the other '
+            'device\'s copy, so export or merge this work first',
+      );
+
+      expect(find.byKey(const Key('join-refusal')), findsOneWidget);
+      expect(find.text('This device can’t join'), findsOneWidget);
+      expect(
+        find.textContaining('This device already has 3 expense(s)'),
+        findsOneWidget,
+      );
+      final join = tester.widget<FilledButton>(find.byKey(const Key('join-button')));
+      expect(join.onPressed, isNull);
+      expect(find.byKey(const Key('join-phrase')), findsNothing);
+      expect(calls.log, isEmpty);
+      // Nor is the import steered towards a join it cannot make.
+      expect(find.textContaining('join with a file above instead'), findsNothing);
+    });
+
+    testWidgets('an unanswerable check keeps the button off', (tester) async {
+      await pump(tester, peers: const [], refusalError: 'bridge not ready');
+
+      expect(find.textContaining('Could not check whether'), findsOneWidget);
+      final join = tester.widget<FilledButton>(find.byKey(const Key('join-button')));
+      expect(join.onPressed, isNull);
+    });
+
+    testWidgets('reads the file, asks, and only then replaces anything',
+        (tester) async {
+      final calls = await pump(tester, peers: const []);
+
+      await fillIn(tester);
+      await tester.tap(find.byKey(const Key('join-button')));
+      await tester.pumpAndSettle();
+
+      expect(calls.log, ['read /tmp/pacc/whole.paccsync']);
+      expect(find.text('Join with this file?'), findsOneWidget);
+      expect(find.textContaining('/tmp/pacc/whole.paccsync'), findsWidgets);
+
+      await confirm(tester);
+
+      expect(calls.log, ['read /tmp/pacc/whole.paccsync', 'join']);
+      expect(calls.joined.single, [1, 2, 3]);
+      expect(find.textContaining('Joined from /tmp/pacc/whole.paccsync'),
+          findsOneWidget);
+      expect(find.text('Applied 116'), findsOneWidget);
+      // Paired now: nothing left to join with, the outcome still on screen,
+      // and the Wi-Fi service told its standing has moved.
+      expect(find.byKey(const Key('join-button')), findsNothing);
+      expect(find.text('desk-01a0'), findsOneWidget);
+      expect(calls.standingRechecks, 1);
+    });
+
+    testWidgets('cancelling the question changes nothing', (tester) async {
+      final calls = await pump(tester, peers: const []);
+
+      await fillIn(tester);
+      await tester.tap(find.byKey(const Key('join-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(calls.log, ['read /tmp/pacc/whole.paccsync']);
+      expect(calls.standingRechecks, 0);
+    });
+
+    testWidgets('a refused file is explained in the core’s words',
+        (tester) async {
+      final calls = await pump(
+        tester,
+        peers: const [],
+        joinError: 'invalid input: this file only holds what desk-01a0 '
+            'changed since it last synced with another device, not a whole '
+            'copy, and joining keeps nothing but what the file holds; on that '
+            'device, make a file for a new device and join from that one '
+            'instead',
+      );
+
+      await fillIn(tester);
+      await tester.tap(find.byKey(const Key('join-button')));
+      await tester.pumpAndSettle();
+      await confirm(tester);
+
+      expect(calls.log.last, 'join');
+      expect(
+        find.textContaining('Nothing was changed. This file only holds what'),
+        findsOneWidget,
+      );
+      // The category the core files it under means nothing to a person.
+      expect(labels(tester).any((l) => l.contains('invalid input')), isFalse);
+      // Still unpaired, so still offered.
+      expect(find.byKey(const Key('join-button')), findsOneWidget);
+    });
+
+    testWidgets('no phrase, no file read', (tester) async {
+      final calls = await pump(tester, peers: const []);
+
+      await tester.tap(find.byKey(const Key('join-button')));
+      await tester.pumpAndSettle();
+
+      expect(calls.log, isEmpty);
+      expect(find.textContaining('Enter the pairing phrase'), findsOneWidget);
+    });
+
+    testWidgets('in a browser the file is chosen first, then the question',
+        (tester) async {
+      // The picker opens only from a gesture the browser can still see, so it
+      // has to come before the dialog rather than after it.
+      final calls = await pump(
+        tester,
+        browser: true,
+        peers: const [],
+        picked: PickedFile(
+          name: 'pacc-new-device-20260918-1200.paccsync',
+          bytes: Uint8List.fromList(const [4, 5, 6]),
+        ),
+      );
+
+      expect(find.byKey(const Key('join-path')), findsNothing);
+      await fillIn(tester, path: false);
+      await tester.tap(find.widgetWithText(FilledButton, 'Choose file and join…'));
+      await tester.pumpAndSettle();
+
+      expect(calls.log, ['pick']);
+      expect(
+        find.textContaining('pacc-new-device-20260918-1200.paccsync'),
+        findsWidgets,
+      );
+      await confirm(tester);
+
+      expect(calls.log, ['pick', 'join']);
+      expect(calls.joined.single, [4, 5, 6]);
+    });
+
+    testWidgets('closing the picker asks nothing', (tester) async {
+      final calls = await pump(tester, browser: true, peers: const []);
+
+      await fillIn(tester, path: false);
+      await tester.tap(find.widgetWithText(FilledButton, 'Choose file and join…'));
+      await tester.pumpAndSettle();
+
+      expect(calls.log, ['pick']);
+      expect(find.text('Join with this file?'), findsNothing);
+    });
   });
 }

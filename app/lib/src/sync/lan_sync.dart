@@ -351,6 +351,16 @@ class LanSync {
     await _queue(() => _pullFrom(peer));
   }
 
+  /// Ask the core again who this device syncs with, after something outside
+  /// this service changed the answer — a file joined or imported on the
+  /// settings screen.
+  ///
+  /// Without it a device that has just joined by file goes on showing "not
+  /// paired" here and refusing every exchange offered to it until the app is
+  /// restarted, because the standing is otherwise re-read only after an
+  /// exchange this service ran itself.
+  Future<void> recheckStanding() => _queue(_refreshStanding);
+
   /// Stop everything and release the sockets.
   Future<void> dispose() async {
     _disposed = true;
