@@ -26,7 +26,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEMO_DIR="${PACC_DEMO_DIR:-${TMPDIR:-/tmp}/pacc-demo-$(id -u)}"
 DEMO_DB="$DEMO_DIR/pacc.db"
 
-ANDROID_PKG=com.tannerhathaway.app
+# The demo's own package, beside the real app rather than over it: the
+# `--dart-define=PACC_DEMO=true` below is what gives the build this id (see
+# android/app/build.gradle.kts). Installing a demo as com.tannerhathaway.app
+# replaces the real app and deletes the real database a few lines further down.
+ANDROID_PKG=com.tannerhathaway.app.demo
 
 DEVICE=linux
 BUILD_ONLY=0
@@ -282,13 +286,27 @@ case "$DEVICE" in
   android)
     # Mobile ignores $PACC_DB — it asks Android for its own support directory
     # (main.dart:35) — so the only way in is to put the file where the app
-    # will look. `run-as` is what makes that legal on a debug build.
+    # will look. `run-as` is what makes that legal on a debug build. That
+    # directory is the demo package's, so the real app and its data are
+    # never touched.
     command -v adb >/dev/null || { echo "adb is not on PATH" >&2; exit 1; }
     SERIAL="$(adb devices | awk '$2=="device"{print $1; exit}')"
     [ -n "$SERIAL" ] || { echo "no authorized android device; check the phone for the USB dialog" >&2; exit 1; }
     echo "==> installing the app on $SERIAL"
     ( cd "$REPO/app" && flutter build apk --debug --dart-define=PACC_DEMO=true )
-    adb -s "$SERIAL" install -r "$REPO/app/build/app/outputs/flutter-apk/app-debug.apk"
+    APK="$REPO/app/build/app/outputs/flutter-apk/app-debug.apk"
+
+    # Ask the APK what it is before it goes anywhere near the phone. Everything
+    # after this deletes a database, and if the build ever came out under the
+    # real app's id, that database would be the real one.
+    AAPT2="$(ls -d "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)"
+    [ -x "$AAPT2" ] || { echo "cannot find aapt2 to check the APK's package; set ANDROID_HOME" >&2; exit 1; }
+    BUILT="$("$AAPT2" dump packagename "$APK")"
+    [ "$BUILT" = "$ANDROID_PKG" ] || {
+      echo "the demo APK came out as $BUILT, not $ANDROID_PKG — refusing to install it over the real app" >&2
+      exit 1
+    }
+    adb -s "$SERIAL" install -r "$APK"
 
     # Ship one checkpointed file. `backup` is VACUUM INTO, which folds the WAL
     # in — copying pacc.db alone would land a database missing its most recent

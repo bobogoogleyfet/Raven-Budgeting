@@ -1,8 +1,25 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// The demo is a separate app, not a mode of this one. Same package means the
+// demo installs over the real app and lands in its private directory, which is
+// where the real database lives — so it takes a package of its own and sits
+// beside the real app instead of replacing it.
+//
+// Keyed on the same PACC_DEMO flag the Dart side reads, so no build can be a
+// demo to Dart and the real app to Android. Flutter hands its --dart-define
+// values to Gradle as one comma-separated list of base64 "KEY=VALUE" strings.
+val isDemo: Boolean = project.findProperty("dart-defines")
+    ?.toString()
+    ?.split(",")
+    ?.filter { it.isNotEmpty() }
+    ?.any { String(Base64.getDecoder().decode(it)) == "PACC_DEMO=true" }
+    ?: false
 
 android {
     namespace = "com.tannerhathaway.app"
@@ -27,6 +44,9 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        if (isDemo) applicationIdSuffix = ".demo"
+        manifestPlaceholders["appLabel"] = if (isDemo) "Raven Demo" else "Raven Budgeting"
     }
 
     buildTypes {

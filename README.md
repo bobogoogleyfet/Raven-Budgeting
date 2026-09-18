@@ -101,6 +101,10 @@ scripts/demo.sh --build-only       # just the database
 It writes to `$TMPDIR/pacc-demo-$(id -u)/pacc.db` — named for your user
 because `/tmp` is shared — never to the database the app normally opens, and
 rebuilds it from nothing every run. Set `PACC_DEMO_DIR` to put it elsewhere.
+On a phone the demo is its own app, **Raven Demo**
+(`com.tannerhathaway.app.demo`), installed beside Raven Budgeting rather than
+over it, so the two can be on the phone at once and the demo never sees the
+real app's data.
 The amounts wander so the screens do not read as generated, but they wander
 identically every time: a demo that shows different figures on each run
 cannot be rehearsed.
