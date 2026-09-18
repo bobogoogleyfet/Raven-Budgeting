@@ -150,13 +150,13 @@ What is different in a browser:
   Import opens the browser's file picker. A page cannot tell a saved download
   from a cancelled one, so an export is not counted as sent until you press
   *Mark as sent*. There is no Wi-Fi sync: a page has no sockets.
-- **Rates are the ones it was built with.** The Tax Commission's server
-  does not allow pages from other sites to read it, and the policy would not
-  let the page ask. A new quarter reaches the web app by rebuilding and
-  republishing.
-- **One tab at a time.** A second tab waits, says why, and opens by itself
-  when the first one closes; two tabs writing the same database would corrupt
-  it.
+- **Rates come from a file you download.** The Tax Commission's server does
+  not allow pages from other sites to read it, and the policy would not let
+  the page ask. In Settings, *Import rate workbook…* installs the quarter's
+  spreadsheet once you have downloaded it from tax.utah.gov.
+- **One tab at a time.** Each tab keeps its own copy of the database in memory
+  and writes it back, so two at once would corrupt it. A second tab is turned
+  away with a message saying so; close the other and reload.
 - Characters outside Roboto — CJK, emoji — show as boxes. The engine would
   otherwise fetch fallback fonts from Google.
 

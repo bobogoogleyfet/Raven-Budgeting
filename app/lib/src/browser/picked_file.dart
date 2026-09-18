@@ -1,5 +1,9 @@
 import 'dart:typed_data' show Uint8List;
 
+/// Asks for one file, or null when the user closes the picker. The browser's
+/// is `pickFile` in `browser.dart`; tests pass their own.
+typedef FilePicker = Future<PickedFile?> Function();
+
 /// A file somebody chose in the browser's own picker.
 ///
 /// The name comes along because it is the only thing the page is told about
