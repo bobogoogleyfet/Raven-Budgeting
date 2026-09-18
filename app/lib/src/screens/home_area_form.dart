@@ -55,7 +55,7 @@ class HomeAreaForm extends StatefulWidget {
     this.save = setHomeLocation,
     this.embedded = false,
     this.canRefresh = !kIsWeb,
-    this.install,
+    this.install = installRateWorkbook,
     this.pick = pickFile,
   });
 
