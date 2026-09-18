@@ -18,4 +18,10 @@ pub async fn init_app() {
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     let _ = env_logger::try_init();
     flutter_rust_bridge::setup_default_user_utils();
+    // The wasm arm logs at TRACE, which in a browser puts every migration's
+    // SQL in the console on a first visit. INFO keeps what this crate says on
+    // purpose — which file it opened, what a rate refresh did — and drops the
+    // libraries' chatter.
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    log::set_max_level(log::LevelFilter::Info);
 }
