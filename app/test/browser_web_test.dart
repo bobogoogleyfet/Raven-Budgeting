@@ -13,25 +13,6 @@ import 'package:app/src/browser/browser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('a second claim waits while the first is held', () async {
-    // One page stands in for two tabs: a Web Lock is per origin, not per tab,
-    // so a second request from the same page queues exactly as another tab's
-    // would.
-    expect(await claimDatabase(whileWaiting: () => fail('first should not wait')),
-        isTrue);
-
-    var waited = false;
-    final second = claimDatabase(whileWaiting: () => waited = true);
-    // Still queued behind the first claim, which this page never releases.
-    final outcome = await Future.any<Object?>([
-      second,
-      Future<Object?>.delayed(const Duration(milliseconds: 300), () => 'queued'),
-    ]);
-
-    expect(waited, isTrue);
-    expect(outcome, 'queued');
-  });
-
   test('asking to keep storage never throws, whatever the answer', () async {
     await askToKeepStorage();
   });

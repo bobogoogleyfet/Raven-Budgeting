@@ -26,7 +26,6 @@ typedef BundleWriter = Future<void> Function(String path, Uint8List bytes);
 typedef BundleReader = Future<Uint8List> Function(String path);
 typedef DirectoryFinder = Future<String> Function();
 typedef FileDownloader = Future<void> Function(String name, Uint8List bytes);
-typedef FilePicker = Future<PickedFile?> Function();
 
 /// Settings: the handful of answers the app asked for once and then relied on.
 ///

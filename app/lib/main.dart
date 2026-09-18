@@ -36,36 +36,25 @@ Future<void> main() async {
     // A native build that cannot start has a terminal or a crash log to say
     // why. A page has neither, and a blank tab is the least useful answer
     // there is — so in a browser the reason goes on screen instead.
+    //
+    // The usual reason is another tab: only one may have the database open,
+    // and `openDatabase` refuses the second with a sentence saying so. Its
+    // words are shown as they are, and reloading is what gets this tab in
+    // once the other one has closed.
     if (!kIsWeb) rethrow;
     runApp(
       BlockedApp(
         icon: Icons.error_outline,
         title: 'Raven could not start',
         message: '$error',
+        actionLabel: 'Reload',
+        onAction: reloadPage,
       ),
     );
   }
 }
 
 Future<void> _start() async {
-  // Before anything touches the database, because in a browser a second tab
-  // opening it would damage it (see `claimDatabase`). A native build is
-  // always the only one and goes straight through.
-  final bool sole = await claimDatabase(
-    whileWaiting: () => runApp(const BlockedApp.otherTab()),
-  );
-  if (!sole) {
-    runApp(
-      const BlockedApp(
-        icon: Icons.browser_not_supported_outlined,
-        title: 'Raven cannot run safely in this browser',
-        message: 'It cannot make sure only one tab uses your data at a time, '
-            'and two at once would damage it. Open Raven in a current version '
-            'of Chrome, Edge, Firefox or Safari.',
-      ),
-    );
-    return;
-  }
   // Asked before the first write rather than after, and not awaited: the
   // answer changes nothing about what happens next.
   unawaited(askToKeepStorage());

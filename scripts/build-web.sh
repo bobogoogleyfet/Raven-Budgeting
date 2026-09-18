@@ -14,7 +14,8 @@
 # shipping as a page that is either broken by its own policy or no longer
 # carrying one.
 #
-# $FLUTTER names the flutter binary when it is not the one on $PATH.
+# $FLUTTER names the flutter binary when it is not the one on $PATH, and
+# $WASM_BINDGEN the wasm-bindgen that build-web-bridge.sh should use.
 #
 set -euo pipefail
 
@@ -27,7 +28,7 @@ BRIDGE=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-bridge) BRIDGE=0; shift ;;
-    -h|--help) sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+    -h|--help) sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
