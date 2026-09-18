@@ -160,10 +160,28 @@ pub fn mark_sent(db: &Db, peer: &str, bundle: &Bundle) -> Result<()> {
 
 /// Apply a bundle.
 pub fn import(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
+    let ours = device::id(db)?;
+    // Our own file, read back: checking it opened, or picking the wrong file
+    // in a folder both devices write to. Everything in it came from here, so
+    // there is nothing to take — and nothing to disagree with, which is the
+    // part that has to be decided before anything is looked at. Every entry
+    // in it carries our own name and is newer than anything we have sent, so
+    // judged like a peer's it reads as one long list of edits made here that
+    // "they" had not seen, and every one of them was recorded as a conflict.
+    //
+    // It must not record us as a peer either. The damage there is silent and
+    // total: `default_peer` would start returning our own name, and export
+    // skips changes authored by the peer it is addressing, so every later
+    // bundle would be empty. Sync would appear to work and carry nothing.
+    if bundle.from == ours {
+        return Ok(Applied {
+            ignored: bundle.changes.len(),
+            ..Applied::default()
+        });
+    }
     // Before anything is applied, so every edit this device makes afterwards
     // sorts after everything in the bundle.
     device::observe(db, &bundle.at, now_millis)?;
-    let ours = device::id(db)?;
     // What the peer had already seen from us. Anything we changed after this
     // they had not seen when they wrote theirs, which is what makes two edits
     // concurrent rather than sequential.
@@ -244,17 +262,6 @@ pub fn import(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
         if entity::spec(&change.entity).is_none() && !out.unknown_kinds.contains(&change.entity) {
             out.unknown_kinds.push(change.entity.clone());
         }
-    }
-
-    // Never record ourselves as a peer. Re-importing the file you just
-    // exported is an ordinary thing to do — checking it opened, recovering
-    // after a failed copy — and it must not leave this device in its own
-    // peer list. The damage is silent and total: `default_peer` would start
-    // returning our own name, and export skips changes authored by the peer it
-    // is addressing, so every later bundle would be empty. Sync would appear
-    // to work and carry nothing.
-    if bundle.from == ours {
-        return Ok(out);
     }
 
     // Their acknowledgement also advances what we have sent them, so the
@@ -406,6 +413,16 @@ pub fn can_join(db: &Db) -> Result<std::result::Result<(), JoinRefused>> {
 pub fn join(db: &Db, bundle: &Bundle, now_millis: u64) -> Result<Applied> {
     if let Err(refused) = can_join(db)? {
         return Err(CoreError::Invalid(refused.to_string()));
+    }
+    // A device's own file carries nothing it does not already have, and
+    // [`import`] takes nothing from one — so joining from it would throw this
+    // device's records away and put nothing in their place.
+    if bundle.from == device::id(db)? {
+        return Err(CoreError::Invalid(
+            "this file was written by this device, so it holds nothing to join; \
+             use a file made on the device whose records you want"
+                .to_string(),
+        ));
     }
     // Before anything is thrown away. A join keeps only what the bundle
     // carries, and an ordinary exchange file carries only what changed since

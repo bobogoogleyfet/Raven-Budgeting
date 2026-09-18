@@ -381,6 +381,85 @@ fn re_importing_your_own_bundle_does_not_make_you_your_own_peer() {
 }
 
 #[test]
+fn re_importing_your_own_bundle_records_no_disagreements_and_touches_nothing() {
+    // Every entry in our own file carries our own name and is newer than
+    // anything we have sent anybody, so judged as a peer's it reads as a list
+    // of edits made here that "they" had not seen — and each one used to be
+    // recorded as a conflict, flagging receipts for review over a file that
+    // came from this very device.
+    use accounting_core::sync::merge;
+    use common::{amounts, day, split, txn};
+
+    let laptop = seeded_db();
+    let groceries = categories::resolve(&laptop, "Groceries")
+        .expect("resolve")
+        .id;
+    common::save(
+        &laptop,
+        &txn(
+            day("2026-08-20"),
+            amounts(1_359, 0),
+            vec![split(groceries, 1_359, 0)],
+        ),
+    );
+    let out = merge::export(&laptop, "somebody-else", 1_000).expect("export");
+    assert!(!out.changes.is_empty());
+    let log_before: Vec<(String, String)> = {
+        let mut stmt = laptop
+            .conn()
+            .prepare("SELECT entity_uuid, hlc FROM sync_change ORDER BY entity_uuid")
+            .expect("prepare");
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .expect("query")
+            .collect::<rusqlite::Result<_>>()
+            .expect("collect")
+    };
+
+    let parsed = bundle::parse(&bundle::render(&out).expect("render")).expect("parse");
+    let applied = merge::import(&laptop, &parsed, 1_100).expect("import our own");
+
+    assert_eq!(applied.conflicts, 0);
+    assert_eq!(applied.applied, 0);
+    assert_eq!(
+        applied.ignored,
+        out.changes.len(),
+        "all of it is already here"
+    );
+    assert!(conflicts(&laptop).is_empty());
+    let flagged: i64 = laptop
+        .conn()
+        .query_row("SELECT count(*) FROM txn WHERE needs_review = 1", [], |r| {
+            r.get(0)
+        })
+        .expect("count");
+    assert_eq!(flagged, 0, "no receipt was sent back to the Inbox");
+    let log_after: Vec<(String, String)> = {
+        let mut stmt = laptop
+            .conn()
+            .prepare("SELECT entity_uuid, hlc FROM sync_change ORDER BY entity_uuid")
+            .expect("prepare");
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .expect("query")
+            .collect::<rusqlite::Result<_>>()
+            .expect("collect")
+    };
+    assert_eq!(log_after, log_before, "nothing was re-stamped");
+
+    // Joining from it would throw this device's records away for nothing.
+    let fresh = seeded_db();
+    let own = merge::export_everything(&fresh, 1_000).expect("export");
+    let error = merge::join(&fresh, &own, 1_000).expect_err("refused");
+    assert!(
+        error.to_string().contains("written by this device"),
+        "{error}"
+    );
+    assert!(
+        categories::resolve(&fresh, "Groceries").is_ok(),
+        "still seeded"
+    );
+}
+
+#[test]
 fn a_freshly_seeded_device_can_join_and_adopts_the_other_chart_of_accounts() {
     // The case every real pairing starts from: both devices have been opened,
     // so both have seeded the same default categories under different uuids.
