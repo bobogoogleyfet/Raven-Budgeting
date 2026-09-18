@@ -1,12 +1,11 @@
 {
     "name": "Raven Budgeting",
-    "short_name": "Raven Budgeting",
+    "short_name": "Raven",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#2C3E50",
+    "theme_color": "#2C3E50",
+    "description": "A local-first expense tracker and budgeting app.",
     "prefer_related_applications": false,
     "icons": [
         {

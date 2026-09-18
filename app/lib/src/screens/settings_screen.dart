@@ -1,10 +1,10 @@
-import 'dart:io';
 import 'dart:typed_data' show Uint8List;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../api.dart';
+import '../browser/browser.dart';
 import '../sync/lan_sync.dart';
 import 'home_area_form.dart';
 
@@ -25,6 +25,8 @@ typedef BundleImporter = Future<Applied> Function({
 typedef BundleWriter = Future<void> Function(String path, Uint8List bytes);
 typedef BundleReader = Future<Uint8List> Function(String path);
 typedef DirectoryFinder = Future<String> Function();
+typedef FileDownloader = Future<void> Function(String name, Uint8List bytes);
+typedef FilePicker = Future<PickedFile?> Function();
 
 /// Settings: the handful of answers the app asked for once and then relied on.
 ///
@@ -38,9 +40,19 @@ typedef DirectoryFinder = Future<String> Function();
 /// inside a scroller, because a section you cannot reach is a section that
 /// does not exist.
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key, this.databasePath, this.lan});
+  const SettingsScreen({
+    super.key,
+    this.databasePath,
+    this.lan,
+    this.browser = kIsWeb,
+  });
 
   final String? databasePath;
+
+  /// Whether the app is a page in a browser, where everything lives in the
+  /// browser's storage and nowhere else. Injectable so a test can see the
+  /// page as a browser shows it.
+  final bool browser;
 
   /// The running local-network service, when there is one. Null in a test that
   /// is only interested in the rest of the page: the app itself always has one,
@@ -59,9 +71,14 @@ class SettingsScreen extends StatelessWidget {
           embedded: true,
         ),
         const Divider(height: 32),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: SyncSection(),
+        if (browser)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: BrowserStorageNote(),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: SyncSection(browser: browser),
         ),
         if (lan != null)
           Padding(
@@ -91,6 +108,54 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+/// What a browser does with the data, said once where sync is set up.
+///
+/// A page's storage is the browser's to keep or throw away. Safari clears a
+/// site's storage after seven days without a visit, whatever the site asked
+/// for; every browser clears it when somebody clears their browsing data; and
+/// a private window forgets it on closing. None of that asks the app first.
+/// So the page says so plainly, beside the one thing that protects against
+/// it: another device holding a copy, kept current with the sync file below.
+///
+/// Deliberately a note and not a nag. It does not count days or interrupt
+/// anything; the people it is for need to read it once.
+class BrowserStorageNote extends StatelessWidget {
+  const BrowserStorageNote({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Kept in this browser only',
+              style: theme.textTheme.titleSmall
+                  ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Everything you enter is stored in this browser, on this device, '
+              'and nowhere else. Browsers can clear it without asking — Safari '
+              'does after seven days without a visit, and clearing browsing '
+              'data does it anywhere. Keep another device up to date by '
+              'exporting a sync file to it regularly, so your records are '
+              'never only here.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Exchanging changes with another device, through a file.
 ///
 /// # Why this is two buttons and not one
@@ -114,6 +179,11 @@ class SettingsScreen extends StatelessWidget {
 /// answer on mobile, where the destination genuinely comes from a document
 /// picker. This is a text field for now: no new dependency, and a full path is
 /// something a desktop user can paste.
+///
+/// A browser is the exception, because a page cannot write to a path or read
+/// from one at all. There, exporting is a download and importing is the
+/// browser's own file picker — the only two ways a file crosses into or out
+/// of a page.
 class SyncSection extends StatefulWidget {
   const SyncSection({
     super.key,
@@ -124,6 +194,9 @@ class SyncSection extends StatefulWidget {
     this.writeFile = writeNewFile,
     this.readFile = readFileBytes,
     this.defaultDirectory = documentsDirectory,
+    this.browser = kIsWeb,
+    this.download = downloadFile,
+    this.pick = pickFile,
   });
 
   /// Every call this section makes is injectable, and defaults to the real
@@ -137,9 +210,19 @@ class SyncSection extends StatefulWidget {
   final BundleReader readFile;
   final DirectoryFinder defaultDirectory;
 
+  /// Download and pick rather than write and read paths. The last two are
+  /// used only when this is set, and the three before them only when it is
+  /// not.
+  final bool browser;
+  final FileDownloader download;
+  final FilePicker pick;
+
   @override
   State<SyncSection> createState() => _SyncSectionState();
 }
+
+/// A downloaded bundle that nobody has yet said was kept.
+typedef _Unconfirmed = ({String? peer, String phrase, Uint8List bytes});
 
 class _SyncSectionState extends State<SyncSection> {
   final TextEditingController _exportPhrase = TextEditingController();
@@ -166,11 +249,18 @@ class _SyncSectionState extends State<SyncSection> {
   bool _importFailed = false;
   Applied? _imported;
 
+  /// In a browser, the bundle last downloaded for a peer, until somebody says
+  /// it was saved. See [_doExport] for why the page cannot tell.
+  _Unconfirmed? _unconfirmed;
+  bool _marking = false;
+
   @override
   void initState() {
     super.initState();
     _load();
-    _fillInDefaultPath();
+    // A page has no directory to suggest: its exports are downloads, and the
+    // browser decides where those land.
+    if (!widget.browser) _fillInDefaultPath();
   }
 
   @override
@@ -206,7 +296,7 @@ class _SyncSectionState extends State<SyncSection> {
     try {
       final dir = await widget.defaultDirectory();
       if (!mounted) return;
-      final suggestion = '$dir${Platform.pathSeparator}${defaultFileName()}';
+      final suggestion = '$dir$pathSeparator${defaultFileName()}';
       setState(() {
         if (_exportPath.text.isEmpty) _exportPath.text = suggestion;
       });
@@ -225,9 +315,16 @@ class _SyncSectionState extends State<SyncSection> {
   /// *is* the delivery: the transport is a folder or a stick whose far end the
   /// app cannot see, so the last moment it can honestly vouch for is the
   /// moment the bytes are on disk.
+  ///
+  /// A browser cannot vouch even for that. A download is handed to the
+  /// browser, which may save it, ask where to save it, or be told "cancel" —
+  /// and tells the page none of it. Recording it as sent on the strength of
+  /// the click would mean a cancelled download's contents never reach the
+  /// other device. So in a browser the bundle is held until the user says it
+  /// was kept, and only then marked; not saying so costs a re-send, not data.
   Future<void> _doExport() async {
     final phrase = _exportPhrase.text;
-    final path = _exportPath.text.trim();
+    final path = widget.browser ? '' : _exportPath.text.trim();
     if (phrase.isEmpty) {
       setState(() {
         _exportFailed = true;
@@ -237,7 +334,7 @@ class _SyncSectionState extends State<SyncSection> {
       });
       return;
     }
-    if (path.isEmpty) {
+    if (!widget.browser && path.isEmpty) {
       setState(() {
         _exportFailed = true;
         _exportNote = 'Say where to write the file.';
@@ -259,16 +356,31 @@ class _SyncSectionState extends State<SyncSection> {
       _exporting = true;
       _exportNote = null;
       _exportFailed = false;
+      _unconfirmed = null;
     });
     try {
       final bytes = await widget.export(peer: _peer, phrase: phrase);
-      await widget.writeFile(path, bytes);
+      final String written;
+      if (widget.browser) {
+        written = defaultFileName();
+        await widget.download(written, bytes);
+      } else {
+        written = path;
+        await widget.writeFile(path, bytes);
+      }
 
       final paired = status?.isPaired ?? true;
       final addressee = _peer ?? (status?.peers.isNotEmpty ?? false ? status!.peers.first : null);
-      String note = 'Wrote $path (${formatBytes(bytes.length)})'
+      String note = '${widget.browser ? 'Downloaded' : 'Wrote'} $written '
+          '(${formatBytes(bytes.length)})'
           '${addressee == null ? '' : ' for $addressee'}.';
-      if (paired) {
+      if (paired && widget.browser) {
+        _unconfirmed = (peer: _peer, phrase: phrase, bytes: bytes);
+        note = '$note Your browser decides where downloads go and does not '
+            'say whether this one was kept. Once it is saved, mark it as sent '
+            'and the next file carries only what changes from now on; until '
+            'then, the next file carries this history again.';
+      } else if (paired) {
         try {
           // Only now, and only for a peer that exists: the file is on disk, so
           // from here it is the other device's to read.
@@ -308,9 +420,43 @@ class _SyncSectionState extends State<SyncSection> {
     }
   }
 
+  /// The user says the download was kept, which is the moment a browser
+  /// export becomes a delivery.
+  Future<void> _confirmSent() async {
+    final sent = _unconfirmed;
+    if (sent == null) return;
+    setState(() => _marking = true);
+    try {
+      await widget.markSent(
+        peer: sent.peer,
+        phrase: sent.phrase,
+        bytes: sent.bytes,
+      );
+      if (!mounted) return;
+      setState(() {
+        _unconfirmed = null;
+        _exportFailed = false;
+        _exportNote = 'Marked as sent — the next file carries only what '
+            'changes from now on. Move it however you like; it is sealed with '
+            'the phrase, so it protects itself on the way.';
+      });
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _exportFailed = true;
+          _exportNote = 'Could not record it as sent, so the next file will '
+              'carry this history again: $error';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _marking = false);
+    }
+  }
+
   Future<void> _doImport() async {
     final phrase = _importPhrase.text;
-    final path = _importPath.text.trim();
+    final path = widget.browser ? '' : _importPath.text.trim();
     if (phrase.isEmpty) {
       setState(() {
         _importFailed = true;
@@ -319,12 +465,33 @@ class _SyncSectionState extends State<SyncSection> {
       });
       return;
     }
-    if (path.isEmpty) {
+    if (!widget.browser && path.isEmpty) {
       setState(() {
         _importFailed = true;
         _importNote = 'Say which file to read.';
       });
       return;
+    }
+
+    // Before anything is awaited: a browser opens its picker only from a
+    // gesture it can still see, and one `await` is enough to lose it.
+    final Future<PickedFile?>? picking =
+        widget.browser ? widget.pick() : null;
+    PickedFile? picked;
+    if (picking != null) {
+      try {
+        picked = await picking;
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _importFailed = true;
+            _importNote = 'Could not read the file: $error';
+          });
+        }
+        return;
+      }
+      // Closing the picker is a change of mind, not a failure.
+      if (picked == null || !mounted) return;
     }
 
     setState(() {
@@ -334,12 +501,12 @@ class _SyncSectionState extends State<SyncSection> {
       _imported = null;
     });
     try {
-      final bytes = await widget.readFile(path);
+      final bytes = picked?.bytes ?? await widget.readFile(path);
       final applied = await widget.import(bytes: bytes, phrase: phrase);
       if (!mounted) return;
       setState(() {
         _imported = applied;
-        _importNote = 'Read $path.';
+        _importNote = 'Read ${picked?.name ?? path}.';
         _importFailed = false;
       });
       // Conflicts recorded by this import are waiting for a human, and the
@@ -387,8 +554,11 @@ class _SyncSectionState extends State<SyncSection> {
         Text('Export', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
-          'Writes everything the other device has not been sent into one '
-          'sealed file.',
+          widget.browser
+              ? 'Puts everything the other device has not been sent into one '
+                  'sealed file, which your browser downloads.'
+              : 'Writes everything the other device has not been sent into '
+                  'one sealed file.',
           style: theme.textTheme.bodySmall
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
@@ -420,23 +590,29 @@ class _SyncSectionState extends State<SyncSection> {
               'encrypted with, and it is not stored anywhere — nothing can '
               'read a file whose phrase is lost.',
         ),
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('export-path'),
-          controller: _exportPath,
-          decoration: const InputDecoration(
-            labelText: 'Write to',
-            helperText: 'The full path of the file to write. It must not '
-                'already exist.',
-            border: OutlineInputBorder(),
+        if (!widget.browser) ...[
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('export-path'),
+            controller: _exportPath,
+            decoration: const InputDecoration(
+              labelText: 'Write to',
+              helperText: 'The full path of the file to write. It must not '
+                  'already exist.',
+              border: OutlineInputBorder(),
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 12),
         Row(
           children: [
             FilledButton(
               onPressed: _exporting ? null : () => _doExport(),
-              child: Text(_exporting ? 'Writing…' : 'Export'),
+              child: Text(
+                widget.browser
+                    ? (_exporting ? 'Preparing…' : 'Download')
+                    : (_exporting ? 'Writing…' : 'Export'),
+              ),
             ),
           ],
         ),
@@ -454,11 +630,21 @@ class _SyncSectionState extends State<SyncSection> {
             ),
           ),
         ],
+        if (_unconfirmed != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: _marking ? null : () => _confirmSent(),
+            child: Text(_marking ? 'Recording…' : 'Mark as sent'),
+          ),
+        ],
         const SizedBox(height: 24),
         Text('Import', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
-          'Applies a file the other device wrote.',
+          widget.browser
+              ? 'Applies a file the other device wrote. Enter the phrase '
+                  'first, then choose the file.'
+              : 'Applies a file the other device wrote.',
           style: theme.textTheme.bodySmall
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
@@ -472,22 +658,28 @@ class _SyncSectionState extends State<SyncSection> {
               setState(() => _showImportPhrase = !_showImportPhrase),
           helper: 'The phrase the file was sealed with.',
         ),
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('import-path'),
-          controller: _importPath,
-          decoration: const InputDecoration(
-            labelText: 'Read from',
-            helperText: 'The full path of the file to apply.',
-            border: OutlineInputBorder(),
+        if (!widget.browser) ...[
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('import-path'),
+            controller: _importPath,
+            decoration: const InputDecoration(
+              labelText: 'Read from',
+              helperText: 'The full path of the file to apply.',
+              border: OutlineInputBorder(),
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 12),
         Row(
           children: [
             FilledButton.tonal(
               onPressed: _importing ? null : () => _doImport(),
-              child: Text(_importing ? 'Reading…' : 'Import'),
+              child: Text(
+                _importing
+                    ? 'Reading…'
+                    : (widget.browser ? 'Choose file…' : 'Import'),
+              ),
             ),
           ],
         ),
@@ -727,38 +919,6 @@ String defaultFileName([DateTime? now]) {
   return 'pacc-${when.year}${two(when.month)}${two(when.day)}'
       '-${two(when.hour)}${two(when.minute)}.paccsync';
 }
-
-/// Where to suggest writing a bundle.
-///
-/// `path_provider`, not a guess: only the platform knows where a user's
-/// documents are, and on Android the answer is not a path any rule could
-/// derive.
-Future<String> documentsDirectory() async =>
-    (await getApplicationDocumentsDirectory()).path;
-
-/// Write a bundle that did not exist a moment ago.
-///
-/// Refuses to overwrite, exactly as `pacc sync export` does: a file you cannot
-/// get back is data until its owner says otherwise, and the one thing a stale
-/// sync file looks like is a fresh one. `dart:io` has no exclusive-create
-/// mode, so the check is a courtesy rather than a lock — two exports racing
-/// for one name is not a case worth more machinery than that.
-///
-/// `flush: true` because the caller marks the bundle delivered on the strength
-/// of this returning, and "the bytes are in the page cache" is not the same
-/// promise as "the bytes are on the stick you are about to pull out".
-Future<void> writeNewFile(String path, Uint8List bytes) async {
-  final file = File(path);
-  if (await file.exists()) {
-    throw '$path already exists, and a sync file is never overwritten. '
-        'Give this one another name, or delete that one first.';
-  }
-  await file.parent.create(recursive: true);
-  await file.writeAsBytes(bytes, flush: true);
-}
-
-/// Read a bundle off disk.
-Future<Uint8List> readFileBytes(String path) => File(path).readAsBytes();
 
 /// Keeping up with the other device over Wi-Fi, with nobody moving a file.
 ///

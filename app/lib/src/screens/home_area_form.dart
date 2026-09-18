@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../api.dart';
@@ -49,6 +50,7 @@ class HomeAreaForm extends StatefulWidget {
     this.refresh = refreshRates,
     this.save = setHomeLocation,
     this.embedded = false,
+    this.canRefresh = !kIsWeb,
   });
 
   final String submitLabel;
@@ -67,6 +69,13 @@ class HomeAreaForm extends StatefulWidget {
   final AreaLoader loadAreas;
   final ReleaseLoader loadRelease;
   final RateRefresher refresh;
+
+  /// Whether this build can fetch a rate table at all. A browser cannot: the
+  /// Tax Commission's server sends no CORS headers, and the page's
+  /// Content-Security-Policy forbids talking to anything but its own origin.
+  /// A button that could only ever fail is not offered; the web build carries
+  /// the table it was built with.
+  final bool canRefresh;
   final HomeSetter save;
 
   @override
@@ -321,11 +330,13 @@ class _HomeAreaFormState extends State<HomeAreaForm> {
                       ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 ),
               ),
-            const SizedBox(width: 12),
-            TextButton(
-              onPressed: _refreshing ? null : () => _checkNow(),
-              child: Text(_refreshing ? 'Checking…' : 'Check for new rates'),
-            ),
+            if (widget.canRefresh) ...[
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: _refreshing ? null : () => _checkNow(),
+                child: Text(_refreshing ? 'Checking…' : 'Check for new rates'),
+              ),
+            ],
           ],
         ),
         if (_refreshNote != null)
