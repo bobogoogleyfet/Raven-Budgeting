@@ -45,7 +45,7 @@ pub struct RefreshDto {
 ///
 /// Holding it across a thirty-second captive-portal timeout would freeze every
 /// other call the user made in the meantime.
-pub fn refresh_rates() -> Result<RefreshDto, String> {
+pub async fn refresh_rates() -> Result<RefreshDto, String> {
     let today = chrono::Local::now().date_naive();
 
     let due = {
@@ -74,7 +74,7 @@ pub fn refresh_rates() -> Result<RefreshDto, String> {
 
     let quarter = rates_service::wanted_quarter(today);
     let url = accounting_core::rates::workbook_url(quarter);
-    let bytes = match download(&url) {
+    let bytes = match fetch(url.clone()).await {
         Ok(bytes) => bytes,
         Err(problem) => {
             log::info!("rate refresh could not fetch {url}: {problem}");
@@ -117,6 +117,22 @@ pub fn refresh_rates() -> Result<RefreshDto, String> {
                 problem: Some(problem),
             })
         }
+    }
+}
+
+/// [`download`], on a thread of its own.
+///
+/// Everything else in this crate blocks on the executor's worker thread, which
+/// is what the thread pool it replaced did too (see `api`). A download is the
+/// one call that can block for thirty seconds rather than a few milliseconds,
+/// and tokio's workers also carry the calls queued behind it, so this one goes
+/// to tokio's pool for blocking work instead. A panic in it is re-raised here,
+/// so it still reaches Dart as the bridge's `PanicException`.
+async fn fetch(url: String) -> Result<Vec<u8>, String> {
+    match flutter_rust_bridge::spawn_blocking_with(move || download(&url), ()).await {
+        Ok(result) => result,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => Err(to_message(error)),
     }
 }
 

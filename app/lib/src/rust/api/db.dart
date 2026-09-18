@@ -14,10 +14,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 ///
 /// Returns the resolved path, so the UI can show which file it is looking at.
 ///
-/// Deliberately not `#[frb(sync)]`: every generated function is a `Future`
-/// that runs on a worker isolate, which is what makes a blocking SQLite call
-/// acceptable to a UI. Marking it `sync` would put the migration on the UI
-/// isolate instead.
+/// Deliberately not `#[frb(sync)]`: on a desktop or a phone an `async`
+/// function runs on one of the executor's threads (see `api`), which is what
+/// makes a blocking SQLite call acceptable to a UI. Marking it `sync` would
+/// put the migration on the UI thread instead.
 ///
 /// `app_data_dir` is the platform's per-app directory, which only Dart can ask
 /// for (`path_provider`) and Rust has no business guessing. Desktop passes

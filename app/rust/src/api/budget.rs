@@ -76,7 +76,7 @@ pub struct MonthTotalsDto {
 }
 
 /// The month's totals, for the figure the overview leads with.
-pub fn month_totals(month: String) -> Result<MonthTotalsDto, String> {
+pub async fn month_totals(month: String) -> Result<MonthTotalsDto, String> {
     let as_of: YearMonth = month.parse().map_err(to_message)?;
     let db = db::locked()?;
     let totals = budgets::month_totals(&db, as_of).map_err(to_message)?;
@@ -91,7 +91,7 @@ pub fn month_totals(month: String) -> Result<MonthTotalsDto, String> {
 /// Includes categories with no budget line — the screen's most useful job is
 /// offering to budget something that is not budgeted yet, and a row that is
 /// missing cannot make that offer.
-pub fn budget_status(month: String) -> Result<Vec<BudgetRowDto>, String> {
+pub async fn budget_status(month: String) -> Result<Vec<BudgetRowDto>, String> {
     let as_of: YearMonth = month.parse().map_err(to_message)?;
     let db = db::locked()?;
     let rows = budgets::budget_status(&db, as_of).map_err(to_message)?;
@@ -152,7 +152,7 @@ pub struct BudgetTotalsDto {
 /// Added up in the core, from the same rows `budget_status` returns. Not in the
 /// UI: money there is a type that makes arithmetic a compile error, on purpose,
 /// so that a total can never be a frontend's own idea of one.
-pub fn budget_totals(month: String) -> Result<BudgetTotalsDto, String> {
+pub async fn budget_totals(month: String) -> Result<BudgetTotalsDto, String> {
     let as_of: YearMonth = month.parse().map_err(to_message)?;
     let db = db::locked()?;
     let rows = budgets::budget_status(&db, as_of).map_err(to_message)?;
@@ -177,7 +177,7 @@ pub fn budget_totals(month: String) -> Result<BudgetTotalsDto, String> {
 /// Never a transaction: money moved into savings has not been spent, and filing
 /// it as spending would count it against the budget now and again when the bill
 /// is finally paid.
-pub fn record_contribution(
+pub async fn record_contribution(
     category_id: i64,
     month: String,
     amount_cents: i64,
@@ -194,7 +194,7 @@ pub fn record_contribution(
 }
 
 /// Forget a recorded contribution, returning the month to "nothing recorded".
-pub fn forget_contribution(category_id: i64, month: String) -> Result<(), String> {
+pub async fn forget_contribution(category_id: i64, month: String) -> Result<(), String> {
     let month: YearMonth = month.parse().map_err(to_message)?;
     let db = db::locked()?;
     budgets::forget_contribution(&db, CategoryId::new(category_id), month).map_err(to_message)
@@ -221,7 +221,7 @@ pub struct SupersededDto {
 /// `every_n_months` is read only when `period` is `everyN`. An unknown period
 /// is refused rather than defaulted: a budget silently landing on the wrong
 /// schedule is a number nobody checks again.
-pub fn set_budget(
+pub async fn set_budget(
     category_id: i64,
     amount_cents: i64,
     period: String,

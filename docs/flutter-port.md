@@ -300,10 +300,17 @@ discover later.
 - **Pin all four packages to one version** — the Dart package, the Rust crate,
   the codegen and the macros. Minor versions may change the handler ABI, and
   the symptom is a content-hash mismatch at runtime.
-- **Keep the API synchronous.** Async Rust across this bridge requires `Send`
-  futures, which is what makes SQLx and SeaORM painful here. Our core is
-  synchronous by rule, so sync functions on a thread pool is both the simpler
-  path and the one the core was designed for.
+- **Keep the core synchronous, and mark every bridged function `async`.**
+  Async Rust across this bridge requires `Send` futures, which is what makes
+  SQLx and SeaORM painful here; our core is synchronous by rule. But an
+  ordinary `fn` is run on the bridge's thread pool, which in a browser is Web
+  Workers sharing memory — and that needs cross-origin isolation headers
+  GitHub Pages cannot send. So each bridged function is a `pub async fn` whose
+  body is the same blocking call it always was: tokio's workers run it on a
+  desktop or phone, the page's event loop runs it on the web, and no pool is
+  ever made. A test in `app/rust/src/api/mod.rs` fails if an ordinary `fn`
+  creeps back in. `#[frb(sync)]` is still fine for something that must answer
+  on the UI thread.
 
 ## Known constraints
 

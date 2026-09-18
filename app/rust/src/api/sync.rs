@@ -72,13 +72,13 @@ pub struct AppliedDto {
 
 /// This device's name within the sync group, minting one if it has never had
 /// one.
-pub fn this_device() -> Result<String, String> {
+pub async fn this_device() -> Result<String, String> {
     let db = db::locked()?;
     sync_service::this_device(&db).map_err(to_message)
 }
 
 /// This device's name, its peers, and anything waiting for a human.
-pub fn sync_status() -> Result<SyncStatusDto, String> {
+pub async fn sync_status() -> Result<SyncStatusDto, String> {
     let db = db::locked()?;
     let this_device = sync_service::this_device(&db).map_err(to_message)?;
     let peers = sync_service::known_peers(&db).map_err(to_message)?;
@@ -102,7 +102,7 @@ pub fn sync_status() -> Result<SyncStatusDto, String> {
 /// refuses and names them, because guessing would send one device's history to
 /// another. With none this is the first bundle of a pairing, addressed to
 /// [`UNPAIRED`] since a bundle has to name somebody.
-pub fn export_bundle(peer: Option<String>, phrase: String) -> Result<Vec<u8>, String> {
+pub async fn export_bundle(peer: Option<String>, phrase: String) -> Result<Vec<u8>, String> {
     let phrase = checked_phrase(phrase)?;
     let db = db::locked()?;
     let addressed_to = match resolve_peer(&db, peer)? {
@@ -125,7 +125,7 @@ pub fn export_bundle(peer: Option<String>, phrase: String) -> Result<Vec<u8>, St
 /// real device's watermark stayed empty. The first bundle of a pairing is
 /// simply sent again after the reply comes back, which costs one re-send and
 /// no correctness.
-pub fn mark_delivered(peer: Option<String>, phrase: String, bytes: Vec<u8>) -> Result<(), String> {
+pub async fn mark_delivered(peer: Option<String>, phrase: String, bytes: Vec<u8>) -> Result<(), String> {
     let phrase = checked_phrase(phrase)?;
     let db = db::locked()?;
     let Some(peer) = resolve_peer(&db, peer)? else {
@@ -135,7 +135,7 @@ pub fn mark_delivered(peer: Option<String>, phrase: String, bytes: Vec<u8>) -> R
 }
 
 /// Apply a sealed file written by another device.
-pub fn import_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, String> {
+pub async fn import_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, String> {
     let phrase = checked_phrase(phrase)?;
     let db = db::locked()?;
     let applied =
@@ -151,7 +151,7 @@ pub fn import_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, Strin
 /// of everything. Joining throws this device's copy away and takes the other's
 /// instead, which is why [`can_join`] is asked first and why nothing in the
 /// app reaches this without somebody pressing a button that says so.
-pub fn join_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, String> {
+pub async fn join_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, String> {
     let phrase = checked_phrase(phrase)?;
     let db = db::locked()?;
     let applied =
@@ -165,7 +165,7 @@ pub fn join_bundle(bytes: Vec<u8>, phrase: String) -> Result<AppliedDto, String>
 /// told what joining would cost it, and "false" is not something a screen can
 /// phrase for a user. `None` reads as "nothing stands in the way", which is
 /// the only case with nothing to say.
-pub fn can_join() -> Result<Option<String>, String> {
+pub async fn can_join() -> Result<Option<String>, String> {
     let db = db::locked()?;
     Ok(sync_service::can_join(&db)
         .map_err(to_message)?
@@ -185,7 +185,7 @@ pub struct LanSyncDto {
 }
 
 /// What this device has been told about syncing over the local network.
-pub fn lan_sync() -> Result<LanSyncDto, String> {
+pub async fn lan_sync() -> Result<LanSyncDto, String> {
     let db = db::locked()?;
     let enabled = settings::get(&db, LAN_ENABLED_KEY).map_err(to_message)?;
     let phrase = settings::get(&db, LAN_PHRASE_KEY).map_err(to_message)?;
@@ -219,7 +219,7 @@ pub fn lan_sync() -> Result<LanSyncDto, String> {
 /// Enabling with an empty phrase is refused rather than saved: the switch
 /// would read as on while nothing could ever be sealed, and the failure would
 /// only show up as silence.
-pub fn set_lan_sync(enabled: bool, phrase: String) -> Result<(), String> {
+pub async fn set_lan_sync(enabled: bool, phrase: String) -> Result<(), String> {
     if enabled {
         checked_phrase(phrase.clone())?;
     }

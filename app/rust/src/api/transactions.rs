@@ -89,7 +89,7 @@ fn build_filter(
 /// applied before a sort would order whichever fifty happened to come back,
 /// which is a different page from the first fifty of the ordered set — and an
 /// offset into that would be a page of nothing in particular.
-pub fn list_transactions(
+pub async fn list_transactions(
     limit: u32,
     offset: Option<u32>,
     from: Option<String>,
@@ -135,7 +135,7 @@ pub struct TxnTotalsDto {
 }
 
 /// Add up every expense the filter matches, however the list is paged.
-pub fn transaction_totals(
+pub async fn transaction_totals(
     from: Option<String>,
     to: Option<String>,
     category_ids: Option<Vec<i64>>,
@@ -158,7 +158,7 @@ pub fn transaction_totals(
 }
 
 /// The values the filter menus are built from.
-pub fn filter_values() -> Result<FilterValuesDto, String> {
+pub async fn filter_values() -> Result<FilterValuesDto, String> {
     let db = db::locked()?;
     let values = transactions::filter_values(&db).map_err(to_message)?;
     let named = |v: transactions::FilterValue| FilterValueDto {
@@ -179,7 +179,7 @@ pub fn filter_values() -> Result<FilterValuesDto, String> {
 /// already gone is an error rather than a silent success — two windows open on
 /// one database is a normal thing, and "that receipt is no longer there" is
 /// worth saying.
-pub fn delete_transaction(id: i64) -> Result<(), String> {
+pub async fn delete_transaction(id: i64) -> Result<(), String> {
     let db = db::locked()?;
     transactions::delete(&db, TxnId::new(id)).map_err(to_message)
 }

@@ -7,7 +7,7 @@
 /// never cleared — `try_init` returns `Err` on the second call where `init`
 /// would panic.
 #[flutter_rust_bridge::frb(init)]
-pub fn init_app() {
+pub async fn init_app() {
     // `setup_default_user_utils()` installs a log sink via
     // `setup_log_to_console`, which has arms for Android, iOS/macOS and wasm
     // and then ends in `// TODO add more platforms`. On Linux and Windows it

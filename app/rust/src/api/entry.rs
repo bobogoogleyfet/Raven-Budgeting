@@ -182,7 +182,7 @@ fn to_preview_dto(
 /// Safe to call on every keystroke, and the only way the UI learns what a
 /// receipt's numbers are. Because saving runs this same function first, the UI
 /// cannot display one set of numbers and store another.
-pub fn preview_subtotals(draft: SubtotalDraftDto) -> Result<PreviewDto, String> {
+pub async fn preview_subtotals(draft: SubtotalDraftDto) -> Result<PreviewDto, String> {
     let draft = to_draft(draft)?;
     let db = db::locked()?;
     let preview = entry::preview_subtotals(&db, &draft).map_err(to_message)?;
@@ -193,7 +193,7 @@ pub fn preview_subtotals(draft: SubtotalDraftDto) -> Result<PreviewDto, String> 
 }
 
 /// Write the receipt. Returns the transaction's id.
-pub fn save_subtotals(draft: SubtotalDraftDto) -> Result<i64, String> {
+pub async fn save_subtotals(draft: SubtotalDraftDto) -> Result<i64, String> {
     let draft = to_draft(draft)?;
     let db = db::locked()?;
     // The timestamp is this layer's to supply — the core never reads the clock
@@ -212,7 +212,7 @@ pub fn save_subtotals(draft: SubtotalDraftDto) -> Result<i64, String> {
 /// Naming a *new* merchant is not an error and creates nothing — the row
 /// appears on save, so abandoning a half-typed receipt leaves no debris in the
 /// picker.
-pub fn entry_context(merchant: Option<String>) -> Result<ContextDto, String> {
+pub async fn entry_context(merchant: Option<String>) -> Result<ContextDto, String> {
     let db = db::locked()?;
     let ctx = entry::entry_context(&db, merchant.as_deref()).map_err(to_message)?;
     Ok(ContextDto {
@@ -247,7 +247,7 @@ pub fn entry_context(merchant: Option<String>) -> Result<ContextDto, String> {
 /// plausible, wrong number. A name the table does not know is created at 0%:
 /// no rate has been supplied, and inventing one would be worse than a visible
 /// zero.
-pub fn ensure_location(name: String) -> Result<LocationDto, String> {
+pub async fn ensure_location(name: String) -> Result<LocationDto, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err("a location needs a name".to_string());
@@ -287,7 +287,7 @@ pub fn ensure_location(name: String) -> Result<LocationDto, String> {
 /// `None`, or a rate of zero, means the app has not been told where the user
 /// lives — and a receipt silently recording $0.00 of tax is wrong in a way
 /// nothing else surfaces.
-pub fn home_location() -> Result<Option<LocationDto>, String> {
+pub async fn home_location() -> Result<Option<LocationDto>, String> {
     let db = db::locked()?;
     Ok(locations::home(&db)
         .map_err(to_message)?
@@ -301,7 +301,7 @@ pub fn home_location() -> Result<Option<LocationDto>, String> {
 
 /// Every known store, most-recently-used first, so the places you go keep
 /// floating to the top of the picker with the untouched suggestions behind.
-pub fn list_merchants() -> Result<Vec<MerchantDto>, String> {
+pub async fn list_merchants() -> Result<Vec<MerchantDto>, String> {
     let db = db::locked()?;
     let all = merchants::list(&db).map_err(to_message)?;
     Ok(merchants::recent(&db, all.len())
@@ -315,7 +315,7 @@ pub fn list_merchants() -> Result<Vec<MerchantDto>, String> {
         .collect())
 }
 
-pub fn list_locations() -> Result<Vec<LocationDto>, String> {
+pub async fn list_locations() -> Result<Vec<LocationDto>, String> {
     let db = db::locked()?;
     Ok(locations::list(&db)
         .map_err(to_message)?
@@ -332,7 +332,7 @@ pub fn list_locations() -> Result<Vec<LocationDto>, String> {
 /// Every jurisdiction the state publishes, so a trip to another town can be
 /// taxed at that town's rate. Still starting points — a receipt's own tax
 /// always wins.
-pub fn list_areas() -> Result<Vec<AreaDto>, String> {
+pub async fn list_areas() -> Result<Vec<AreaDto>, String> {
     let db = db::locked()?;
     Ok(tax_areas::list_places(&db)
         .map_err(to_message)?
@@ -366,7 +366,7 @@ pub struct SplitDraftDto {
 ///
 /// `pacc quick-add 42.18` records a total in the checkout line and files it
 /// under Uncategorized so the decision can happen later. This is later.
-pub fn needs_categorizing() -> Result<Vec<crate::api::transactions::TxnSummaryDto>, String> {
+pub async fn needs_categorizing() -> Result<Vec<crate::api::transactions::TxnSummaryDto>, String> {
     let db = db::locked()?;
     let rows = entry::needs_categorizing(&db, None).map_err(to_message)?;
     Ok(rows
@@ -380,7 +380,7 @@ pub fn needs_categorizing() -> Result<Vec<crate::api::transactions::TxnSummaryDt
 /// The amounts are already on disk and are not re-entered; this only decides
 /// which envelopes they came out of. Re-previewing instead would derive tax
 /// from a rate and silently rewrite a total that was recorded as tax-free.
-pub fn categorize(id: i64, splits: Vec<SplitDraftDto>) -> Result<(), String> {
+pub async fn categorize(id: i64, splits: Vec<SplitDraftDto>) -> Result<(), String> {
     let drafts: Vec<SplitDraft> = splits
         .into_iter()
         .map(|split| SplitDraft {
@@ -413,7 +413,7 @@ pub fn categorize(id: i64, splits: Vec<SplitDraftDto>) -> Result<(), String> {
 /// location. A hand-typed rate sends `None`, and then nothing revises it but
 /// the person who typed it — which is why a hand-typed rate must also send a
 /// `None` food rate rather than the last area's.
-pub fn set_home_location(
+pub async fn set_home_location(
     name: String,
     area_code: Option<String>,
     tax_rate_ppm: u32,
@@ -503,7 +503,7 @@ pub struct RateReleaseDto {
 /// the quarter is the only thing on screen that can tell them apart.
 ///
 /// The clock is read here, which is this layer's business and not the core's.
-pub fn rate_release() -> Result<Option<RateReleaseDto>, String> {
+pub async fn rate_release() -> Result<Option<RateReleaseDto>, String> {
     let db = db::locked()?;
     let wanted = accounting_core::service::rates::wanted_quarter(chrono::Local::now().date_naive())
         .to_string();
