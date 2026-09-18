@@ -38,6 +38,11 @@ dependencies:
     path: rust_builder
   flutter_rust_bridge: 2.12.0
   path_provider: ^2.1.6
+  # The browser build's downloads, file picker and tab lock, through typed
+  # bindings rather than `dart:html`, which is deprecated and absent under
+  # Wasm. Already here transitively (flutter_rust_bridge uses it); named so
+  # the app's own imports do not lean on somebody else's dependency.
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

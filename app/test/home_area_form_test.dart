@@ -27,6 +27,7 @@ Future<List<Saved>> pump(
   RefreshDto? refreshResult,
   Object? refreshError,
   Object? saveError,
+  bool canRefresh = true,
 }) async {
   var refreshed = false;
   final saved = <Saved>[];
@@ -39,6 +40,7 @@ Future<List<Saved>> pump(
       home: Scaffold(
         body: HomeAreaForm(
           firstRun: firstRun,
+          canRefresh: canRefresh,
           submitLabel: 'Save',
           onSaved: () {},
           loadAreas: () async => [
@@ -262,6 +264,25 @@ void main() {
     // still works on them.
     expect(find.textContaining('Could not fetch it'), findsOneWidget);
     expect(find.textContaining('superseded'), findsOneWidget);
+  });
+
+  testWidgets('a browser offers no rate check it could never complete',
+      (tester) async {
+    // The page may talk to its own origin and nothing else, so the Tax
+    // Commission is out of reach — a button that could only ever fail is
+    // worse than none. Where the rates came from is still said.
+    await pump(
+      tester,
+      canRefresh: false,
+      release: RateReleaseDto(
+        quarter: '2026Q2',
+        effectiveOn: '2026-04-01',
+        current: true,
+      ),
+    );
+
+    expect(find.text('Check for new rates'), findsNothing);
+    expect(find.textContaining('2026Q2 publication.'), findsOneWidget);
   });
 
   testWidgets('a table that is already current says so', (tester) async {

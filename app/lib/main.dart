@@ -1,14 +1,13 @@
-import 'dart:io';
-
-import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-
-import 'src/destinations.dart';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+
 import 'src/api.dart' show homeLocation, refreshRates;
+import 'src/browser/browser.dart';
+import 'src/destinations.dart';
 import 'src/rust/api/db.dart';
-import 'src/rust/frb_generated.dart';
+import 'src/screens/blocked_screen.dart';
 import 'src/screens/budget_screen.dart';
 import 'src/screens/entry_screen.dart';
 import 'src/screens/expenses_screen.dart';
@@ -31,20 +30,53 @@ import 'src/theme.dart';
 const bool isDemo = bool.fromEnvironment('PACC_DEMO');
 
 Future<void> main() async {
-  await RustLib.init();
+  try {
+    await _start();
+  } catch (error) {
+    // A native build that cannot start has a terminal or a crash log to say
+    // why. A page has neither, and a blank tab is the least useful answer
+    // there is — so in a browser the reason goes on screen instead.
+    if (!kIsWeb) rethrow;
+    runApp(
+      BlockedApp(
+        icon: Icons.error_outline,
+        title: 'Raven could not start',
+        message: '$error',
+      ),
+    );
+  }
+}
 
-  // Desktop resolves the path in Rust, from the same environment variables the
-  // CLI reads, so the app and `pacc` share one database.
-  //
-  // Mobile cannot: there is no shared location to share *with*, and the
-  // per-app directory is the platform's answer — obtainable only through the
-  // Java `Context`, which is what `path_provider` wraps. Support rather than
-  // documents: this is a database the app manages, not a file the user is
-  // meant to browse to, and on iOS the documents directory is backed up and
-  // user-visible in ways a SQLite file with a WAL beside it should not be.
-  final String? appData = Platform.isAndroid || Platform.isIOS
-      ? (await getApplicationSupportDirectory()).path
-      : null;
+Future<void> _start() async {
+  // Before anything touches the database, because in a browser a second tab
+  // opening it would damage it (see `claimDatabase`). A native build is
+  // always the only one and goes straight through.
+  final bool sole = await claimDatabase(
+    whileWaiting: () => runApp(const BlockedApp.otherTab()),
+  );
+  if (!sole) {
+    runApp(
+      const BlockedApp(
+        icon: Icons.browser_not_supported_outlined,
+        title: 'Raven cannot run safely in this browser',
+        message: 'It cannot make sure only one tab uses your data at a time, '
+            'and two at once would damage it. Open Raven in a current version '
+            'of Chrome, Edge, Firefox or Safari.',
+      ),
+    );
+    return;
+  }
+  // Asked before the first write rather than after, and not awaited: the
+  // answer changes nothing about what happens next.
+  unawaited(askToKeepStorage());
+
+  await startRust();
+
+  // Null on desktop and in a browser, for different reasons: desktop resolves
+  // the path in Rust so the app and `pacc` share one database, and a browser
+  // has no directory at all — Rust opens its database by name inside the
+  // origin's storage. See `appDataDirectory` for the phones.
+  final String? appData = await appDataDirectory();
 
   // The demo never resolves to the real database on desktop: it has a
   // directory of its own beside the real one, and ignores $PACC_DB (see
@@ -72,13 +104,19 @@ Future<void> main() async {
   // network is a captive portal that will hold a connection open for thirty
   // seconds before failing. Nothing on screen is waiting for the result, and a
   // failure is not an error — being offline is a laptop's normal state.
-  unawaited(() async {
-    try {
-      await refreshRates();
-    } catch (_) {
-      // Being offline is a laptop's normal state, not a fault.
-    }
-  }());
+  //
+  // Never in a browser. The Tax Commission's server sends no CORS headers, so
+  // the page could not read the answer, and the page's Content-Security-Policy
+  // forbids asking: the web build talks to its own origin and nothing else.
+  if (!kIsWeb) {
+    unawaited(() async {
+      try {
+        await refreshRates();
+      } catch (_) {
+        // Being offline is a laptop's normal state, not a fault.
+      }
+    }());
+  }
 
   // Started before the first frame so a device that was told to sync is
   // already announcing itself by the time anybody looks at a screen, and so
@@ -86,8 +124,12 @@ Future<void> main() async {
   // Not awaited, for the same reason the rate refresh is not: a Wi-Fi that
   // will not carry a broadcast must cost nothing at launch, and the settings
   // screen reports whatever went wrong.
+  //
+  // Never started in a browser, which has no sockets to broadcast on or
+  // listen with. The object still exists, because the app hangs its redraws
+  // off it; left unloaded it is switched off and does nothing.
   final lan = LanSync();
-  unawaited(lan.load());
+  if (!kIsWeb) unawaited(lan.load());
 
   runApp(AccountingApp(databasePath: path, configured: configured, lan: lan));
 }
@@ -196,8 +238,12 @@ class _AccountingAppState extends State<AccountingApp> {
       Destination.expenses => const ExpensesScreen(),
       Destination.budget => const BudgetScreen(),
       Destination.inbox => const InboxScreen(),
-      Destination.settings =>
-        SettingsScreen(databasePath: widget.databasePath, lan: widget.lan),
+      // In a browser the path is a name inside IndexedDB that nobody can open,
+      // and there is no local network to sync over.
+      Destination.settings => SettingsScreen(
+          databasePath: kIsWeb ? null : widget.databasePath,
+          lan: kIsWeb ? null : widget.lan,
+        ),
     };
   }
 
