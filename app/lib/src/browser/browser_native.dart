@@ -14,11 +14,6 @@ import 'picked_file.dart';
 /// executable, or inside the app bundle.
 Future<void> startRust() => RustLib.init();
 
-/// A native build is one process with one window, so there is no second tab
-/// to keep out.
-Future<bool> claimDatabase({required void Function() whileWaiting}) async =>
-    true;
-
 /// Nothing evicts an app's own files on a desktop or a phone.
 Future<void> askToKeepStorage() async {}
 
@@ -80,3 +75,7 @@ Future<void> downloadFile(String name, Uint8List bytes) =>
 /// Never reached, for the same reason as [downloadFile].
 Future<PickedFile?> pickFile() =>
     throw UnsupportedError('The browser file picker exists only in a browser.');
+
+/// Never reached: only a page is turned away for being open twice.
+void reloadPage() =>
+    throw UnsupportedError('Only a page can be reloaded.');

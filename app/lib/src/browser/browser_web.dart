@@ -1,10 +1,8 @@
-/// The browser half of `browser.dart`: a page, with no filesystem, that any
-/// number of tabs can have open at once.
+/// The browser half of `browser.dart`: a page, with no filesystem.
 library;
 
 import 'dart:async';
 import 'dart:js_interop';
-import 'dart:js_interop_unsafe';
 import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
@@ -47,74 +45,14 @@ Future<void> startRust() async {
   );
 }
 
-/// The name every tab of this origin queues on. Anything else on the origin
-/// using the same name would share the queue, which is one more reason the
-/// site gets an origin of its own.
-const String _lockName = 'raven-database';
-
-/// Never completed: a Web Lock is held until the promise its callback returned
-/// settles, and this tab means to hold it until it closes.
-final Completer<void> _forever = Completer<void>();
-
-/// Be the only tab with the database open, or wait until this one can be.
+/// Load the page again, for the one failure a reload fixes: another tab had
+/// the database, and has since been closed.
 ///
-/// # Why a lock and not a warning
-///
-/// The database is SQLite on top of IndexedDB, and the VFS underneath keeps
-/// its working copy in each tab's memory and writes it back behind the scenes.
-/// Two tabs each writing back their own copy do not produce a conflict
-/// somebody can resolve — they produce a file that is quietly wrong. So a
-/// second tab does not open the database at all.
-///
-/// The browser releases a Web Lock when the tab holding it closes, crashes or
-/// navigates away, so a lock cannot be leaked the way a flag written to
-/// storage can. And since a waiting request is granted the moment the other
-/// tab goes, [whileWaiting] shows a page that says why, and this returns —
-/// and the app opens — as soon as it is this tab's turn.
-///
-/// False when the browser cannot promise exclusivity at all: no Web Locks, or
-/// a page context (a sandboxed frame, an opaque origin) that is refused them.
-/// Every browser that can run the app has them, so that case is refused
-/// rather than risked.
-Future<bool> claimDatabase({required void Function() whileWaiting}) async {
-  final web.Navigator navigator = web.window.navigator;
-  if (!(navigator as JSObject).has('locks')) return false;
-  final locks = navigator.locks;
-
-  if (await _request(locks, ifAvailable: true)) return true;
-  whileWaiting();
-  return _request(locks, ifAvailable: false);
-}
-
-/// Ask for the lock once. True when it is held, false when `ifAvailable`
-/// found it taken or the request was refused outright.
-Future<bool> _request(web.LockManager locks, {required bool ifAvailable}) {
-  final granted = Completer<bool>();
-
-  JSPromise<JSAny?> onGrant(web.Lock? lock) {
-    if (lock == null) {
-      granted.complete(false);
-      return Future<void>.value().toJS;
-    }
-    granted.complete(true);
-    return _forever.future.toJS;
-  }
-
-  locks
-      .request(
-        _lockName,
-        web.LockOptions(mode: 'exclusive', ifAvailable: ifAvailable),
-        onGrant.toJS,
-      )
-      .toDart
-      .then<void>(
-    (_) {},
-    onError: (Object _) {
-      if (!granted.isCompleted) granted.complete(false);
-    },
-  );
-  return granted.future;
-}
+/// Only one tab may have the database open — each keeps its own copy in
+/// memory and writes it back, and two of them interleave into a corrupt file
+/// — and the Rust side enforces that with a Web Lock when the database is
+/// opened. A tab turned away says why and offers this.
+void reloadPage() => web.window.location.reload();
 
 /// Ask the browser not to clear this site's storage when it is short of space.
 ///
