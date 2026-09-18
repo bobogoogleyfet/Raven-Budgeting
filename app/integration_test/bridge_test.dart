@@ -33,7 +33,7 @@ void main() {
   });
 
   test('opens a database at the directory it is given', () async {
-    final path = await openDatabase(appDataDir: dataDir.path);
+    final path = await openDatabase(appDataDir: dataDir.path, demo: false);
 
     expect(path, '${dataDir.path}/pacc.db');
     expect(File(path).existsSync(), isTrue);
@@ -42,14 +42,14 @@ void main() {
   test('re-opening keeps the handle it already has', () async {
     // What a Flutter hot restart does: Dart's `main()` runs again against a
     // library that was never unloaded.
-    final first = await openDatabase(appDataDir: dataDir.path);
-    final second = await openDatabase(appDataDir: dataDir.path);
+    final first = await openDatabase(appDataDir: dataDir.path, demo: false);
+    final second = await openDatabase(appDataDir: dataDir.path, demo: false);
 
     expect(second, first);
   });
 
   test('lists the seeded categories', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     final categories = await listCategories();
 
@@ -69,7 +69,7 @@ void main() {
   });
 
   test('a month with no budget lines still lists its categories', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     // Every budgeted category comes back even with no line in force: the
     // screen's most useful job is offering to budget something that is not
@@ -85,14 +85,14 @@ void main() {
   });
 
   test('a malformed month is refused, not guessed at', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     expect(() => budgetStatus('August'), throwsA(anything));
     expect(() => budgetStatus('2026-13'), throwsA(anything));
   });
 
   test('an empty database has no expenses and no filter values', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     expect(await listTransactions(const TxnQuery(limit: 200)), isEmpty);
 
@@ -104,7 +104,7 @@ void main() {
 
   test('an unknown sort order is refused rather than silently defaulted',
       () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     // A typo that quietly reorders a list is a bug nobody reports, because the
     // list still looks plausible.
@@ -115,7 +115,7 @@ void main() {
   });
 
   test('a date range narrows the list and its totals together', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
     await ensureLocation('Provo');
     final groceries =
         (await listCategories()).firstWhere((c) => c.name == 'Groceries');
@@ -158,13 +158,13 @@ void main() {
   });
 
   test('deleting an expense that is not there says so', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     expect(() => deleteTransaction(9999), throwsA(anything));
   });
 
   test('a grocery subtotal is taxed at the reduced rate, end to end', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     // The location has to be real before a draft can name it: the core refuses
     // one it does not know rather than falling back to no location, which
@@ -207,7 +207,7 @@ void main() {
   });
 
   test('a corrected tax is the users, and stops being an estimate', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
     await ensureLocation('Provo');
     final groceries =
         (await listCategories()).firstWhere((c) => c.name == 'Groceries');
@@ -232,7 +232,7 @@ void main() {
   });
 
   test('a row with no category blocks the save rather than guessing', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
     await ensureLocation('Provo');
 
     final preview = await previewSubtotals(SubtotalDraft(
@@ -252,7 +252,7 @@ void main() {
 
   test('naming a location that does not exist is refused, not guessed at',
       () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
     final groceries =
         (await listCategories()).firstWhere((c) => c.name == 'Groceries');
 
@@ -269,7 +269,7 @@ void main() {
   });
 
   test('a budget set from the app shows up in the month it starts', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
     // Hobbies rather than Groceries: an earlier test in this file files a
     // grocery receipt in the same month, and "what is left" would then depend
     // on the order the tests happened to run in.
@@ -300,7 +300,7 @@ void main() {
   });
 
   test('setting the same month again restates rather than stacking', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
     final gas = (await listCategories()).firstWhere((c) => c.name == 'Gas');
 
     await setBudget(
@@ -328,7 +328,7 @@ void main() {
 
   test('a yearly budget contributes a twelfth of the bill each month',
       () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
     final insurance =
         (await listCategories()).firstWhere((c) => c.name == 'Car Insurance');
 
@@ -349,7 +349,7 @@ void main() {
   });
 
   test('several amounts typed into one field come to their sum', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     // Three items rung up under one category. The adding is the core's: a
     // frontend that does it has to do it again for every platform.
@@ -365,7 +365,7 @@ void main() {
   });
 
   test('this device names itself once and keeps that name', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     final first = await thisDevice();
     final second = await thisDevice();
@@ -380,7 +380,7 @@ void main() {
 
   test('a sealed bundle only opens with the phrase it was sealed with',
       () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     final bytes = await exportBundle(phrase: 'seven rusty kettles');
 
@@ -409,7 +409,7 @@ void main() {
   });
 
   test('an empty phrase is refused rather than sealing an open file', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     // The phrase is the only thing protecting a whole ledger left in a synced
     // folder; an empty one derives a key anybody else can derive too.
@@ -420,7 +420,7 @@ void main() {
   });
 
   test('the first bundle of a pairing records no peer', () async {
-    await openDatabase(appDataDir: dataDir.path);
+    await openDatabase(appDataDir: dataDir.path, demo: false);
 
     final bytes = await exportBundle(phrase: 'seven rusty kettles');
     await markDelivered(phrase: 'seven rusty kettles', bytes: bytes);

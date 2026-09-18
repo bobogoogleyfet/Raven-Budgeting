@@ -177,7 +177,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<List<TxnSummaryDto>> crateApiEntryNeedsCategorizing();
 
-  Future<String> crateApiDbOpenDatabase({String? appDataDir});
+  Future<String> crateApiDbOpenDatabase({
+    String? appDataDir,
+    required bool demo,
+  });
 
   Future<PreviewDto> crateApiEntryPreviewSubtotals({
     required SubtotalDraftDto draft,
@@ -1052,12 +1055,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "needs_categorizing", argNames: []);
 
   @override
-  Future<String> crateApiDbOpenDatabase({String? appDataDir}) {
+  Future<String> crateApiDbOpenDatabase({
+    String? appDataDir,
+    required bool demo,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_opt_String(appDataDir, serializer);
+          sse_encode_bool(demo, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1070,14 +1077,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiDbOpenDatabaseConstMeta,
-        argValues: [appDataDir],
+        argValues: [appDataDir, demo],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiDbOpenDatabaseConstMeta =>
-      const TaskConstMeta(debugName: "open_database", argNames: ["appDataDir"]);
+  TaskConstMeta get kCrateApiDbOpenDatabaseConstMeta => const TaskConstMeta(
+    debugName: "open_database",
+    argNames: ["appDataDir", "demo"],
+  );
 
   @override
   Future<PreviewDto> crateApiEntryPreviewSubtotals({

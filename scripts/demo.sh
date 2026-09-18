@@ -279,16 +279,20 @@ echo
 case "$DEVICE" in
   linux)
     echo "==> running on the Linux desktop"
-    # The desktop resolves its path from the same $PACC_DB the CLI reads, so
-    # pointing the app at the demo is one variable and no code.
-    cd "$REPO/app" && PACC_DB="$DEMO_DB" exec flutter run -d linux --dart-define=PACC_DEMO=true
+    # The flag makes this build the demo app: its own GTK application id and
+    # window title (linux/CMakeLists.txt), and its own data directory, which
+    # it never shares with the real app. It reads $PACC_DEMO_DB and not
+    # $PACC_DB — that one names the real books, and may well be exported in
+    # the shell this runs from — so pointing it at the database built above is
+    # still one variable and no code.
+    cd "$REPO/app" && PACC_DEMO_DB="$DEMO_DB" exec flutter run -d linux --dart-define=PACC_DEMO=true
     ;;
   android)
-    # Mobile ignores $PACC_DB — it asks Android for its own support directory
-    # (main.dart:35) — so the only way in is to put the file where the app
-    # will look. `run-as` is what makes that legal on a debug build. That
-    # directory is the demo package's, so the real app and its data are
-    # never touched.
+    # Mobile ignores $PACC_DB and $PACC_DEMO_DB — it asks Android for its own
+    # support directory (`appData` in main.dart) — so the only way in is to
+    # put the file where the app will look. `run-as` is what makes that legal
+    # on a debug build. That directory is the demo package's, so the real app
+    # and its data are never touched.
     command -v adb >/dev/null || { echo "adb is not on PATH" >&2; exit 1; }
     SERIAL="$(adb devices | awk '$2=="device"{print $1; exit}')"
     [ -n "$SERIAL" ] || { echo "no authorized android device; check the phone for the USB dialog" >&2; exit 1; }

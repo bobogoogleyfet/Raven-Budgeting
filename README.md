@@ -101,10 +101,23 @@ scripts/demo.sh --build-only       # just the database
 It writes to `$TMPDIR/pacc-demo-$(id -u)/pacc.db` — named for your user
 because `/tmp` is shared — never to the database the app normally opens, and
 rebuilds it from nothing every run. Set `PACC_DEMO_DIR` to put it elsewhere.
-On a phone the demo is its own app, **Raven Demo**
-(`com.tannerhathaway.app.demo`), installed beside Raven Budgeting rather than
-over it, so the two can be on the phone at once and the demo never sees the
-real app's data.
+
+The demo is its own app, **Raven Demo**, on every platform, so it can be open
+beside Raven Budgeting and never sees the real app's data. One flag does it:
+`--dart-define=PACC_DEMO=true`, which `demo.sh` passes. On Android the build
+is `com.tannerhathaway.app.demo`, installed beside the real app rather than
+over it. On Linux it is GTK application `com.tannerhathaway.app.demo` in a
+window titled Raven Demo; on Windows the window and the file properties say
+Raven Demo; on macOS the bundle is `com.tannerhathaway.app.demo`. An iOS demo
+also needs the id as a build setting, which the build asks for rather than
+guess — `FLUTTER_XCODE_PRODUCT_BUNDLE_IDENTIFIER=com.tannerhathaway.app.demo`
+(see `app/tool/demo_bundle.sh`).
+
+On the desktop the demo keeps its data in `personal-accounting-demo` beside
+the real `personal-accounting` directory, and reads `$PACC_DEMO_DB` rather
+than `$PACC_DB` — which names the real books, so a demo that honoured it could
+open them. `demo.sh` sets `PACC_DEMO_DB` to the database it just built.
+
 The amounts wander so the screens do not read as generated, but they wander
 identically every time: a demo that shows different figures on each run
 cannot be rehearsed.

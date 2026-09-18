@@ -27,6 +27,14 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTT
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
 
+# Whether this is the demo; see the top-level CMakeLists.txt. A bare flag
+# rather than the name itself, because the name has a space in it and is also
+# read by the resource compiler, and a quoted string is one more thing to get
+# through two command lines intact.
+if(PACC_DEMO)
+  target_compile_definitions(${BINARY_NAME} PRIVATE "PACC_DEMO")
+endif()
+
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 

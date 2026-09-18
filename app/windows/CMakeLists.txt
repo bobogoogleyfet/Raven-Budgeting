@@ -6,6 +6,43 @@ project(app LANGUAGES CXX)
 # the on-disk name of your application.
 set(BINARY_NAME "app")
 
+# The demo is a separate app, not a mode of this one, and its window and file
+# properties say so: runner/main.cpp and runner/Runner.rc name it "Raven Demo"
+# when PACC_DEMO is defined. (The data is kept apart in Rust — see
+# `database_path` in rust/src/api/db.rs.) The binary keeps its name: the
+# flutter tool finds the executable by reading BINARY_NAME out of this file as
+# text, so it cannot depend on anything.
+#
+# Keyed on the same --dart-define=PACC_DEMO=true the Dart side reads, so no
+# build can be a demo to Dart and the real app to Windows. CMake never sees a
+# --dart-define: the flutter tool writes them into generated_config.cmake
+# before every configure, as a DART_DEFINES entry holding a comma-separated
+# list with each KEY=VALUE base64-encoded on its own. CMake has no base64, so
+# this looks for the encoding of `PACC_DEMO=true` itself — exact, because each
+# define is encoded on its own rather than the list as a whole. The same
+# reading as linux/CMakeLists.txt.
+set(PACC_DEMO_ENCODED "UEFDQ19ERU1PPXRydWU=")  # base64 of PACC_DEMO=true
+set(FLUTTER_GENERATED_CONFIG
+  "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/generated_config.cmake")
+set(DART_DEFINES "")
+if(EXISTS "${FLUTTER_GENERATED_CONFIG}")
+  file(STRINGS "${FLUTTER_GENERATED_CONFIG}" DART_DEFINES_LINE
+    REGEX "\"DART_DEFINES=")
+  string(REGEX REPLACE ".*\"DART_DEFINES=([^\"]*)\".*" "\\1"
+    DART_DEFINES "${DART_DEFINES_LINE}")
+  string(REPLACE "," ";" DART_DEFINES "${DART_DEFINES}")
+  # Reconfigure when the defines change, so switching between the two cannot
+  # leave a build carrying the other one's name.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${FLUTTER_GENERATED_CONFIG}")
+endif()
+list(FIND DART_DEFINES "${PACC_DEMO_ENCODED}" PACC_DEMO_INDEX)
+if(PACC_DEMO_INDEX EQUAL -1)
+  set(PACC_DEMO FALSE)
+else()
+  set(PACC_DEMO TRUE)
+endif()
+
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)

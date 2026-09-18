@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `database_path`, `locked`, `non_empty_env`
+// These functions are ignored because they are not marked as `pub`: `database_path`, `locked`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Handle`
 
 /// Open (creating if absent), migrate and seed the database.
@@ -22,5 +22,11 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 /// `app_data_dir` is the platform's per-app directory, which only Dart can ask
 /// for (`path_provider`) and Rust has no business guessing. Desktop passes
 /// `null` and the XDG rules apply.
-Future<String> openDatabase({String? appDataDir}) =>
-    RustLib.instance.api.crateApiDbOpenDatabase(appDataDir: appDataDir);
+///
+/// `demo` is the `PACC_DEMO` build flag, which only Dart can see: it is a
+/// `--dart-define`, compiled into the Dart snapshot, and this library is built
+/// by Cargo without it. `database_path` says what it changes.
+Future<String> openDatabase({String? appDataDir, required bool demo}) => RustLib
+    .instance
+    .api
+    .crateApiDbOpenDatabase(appDataDir: appDataDir, demo: demo);

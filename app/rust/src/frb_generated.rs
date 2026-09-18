@@ -949,10 +949,11 @@ fn wire__crate__api__db__open_database_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_app_data_dir = <Option<String>>::sse_decode(&mut deserializer);
+            let api_demo = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
-                    let output_ok = crate::api::db::open_database(api_app_data_dir)?;
+                    let output_ok = crate::api::db::open_database(api_app_data_dir, api_demo)?;
                     Ok(output_ok)
                 })())
             }

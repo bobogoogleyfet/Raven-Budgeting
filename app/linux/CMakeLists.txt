@@ -8,6 +8,43 @@ set(BINARY_NAME "app")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
 set(APPLICATION_ID "com.tannerhathaway.app")
+# What the window says, and what the desktop calls it.
+set(APPLICATION_NAME "Raven Budgeting")
+
+# The demo is a separate app, not a mode of this one: its own application id,
+# so the desktop shows the two as two apps rather than stacking a demo window
+# under the real one's icon, and its own name, so the window says which one it
+# is. (The data is kept apart in Rust — see `database_path` in
+# rust/src/api/db.rs.)
+#
+# Keyed on the same --dart-define=PACC_DEMO=true the Dart side reads, so no
+# build can be a demo to Dart and the real app to the desktop. CMake never sees
+# a --dart-define: the flutter tool writes them into generated_config.cmake
+# before every configure, as a DART_DEFINES entry holding a comma-separated
+# list with each KEY=VALUE base64-encoded on its own. CMake has no base64, so
+# this looks for the encoding of `PACC_DEMO=true` itself — exact, because each
+# define is encoded on its own rather than the list as a whole.
+set(PACC_DEMO_ENCODED "UEFDQ19ERU1PPXRydWU=")  # base64 of PACC_DEMO=true
+set(FLUTTER_GENERATED_CONFIG
+  "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/generated_config.cmake")
+set(DART_DEFINES "")
+if(EXISTS "${FLUTTER_GENERATED_CONFIG}")
+  file(STRINGS "${FLUTTER_GENERATED_CONFIG}" DART_DEFINES_LINE
+    REGEX "\"DART_DEFINES=")
+  string(REGEX REPLACE ".*\"DART_DEFINES=([^\"]*)\".*" "\\1"
+    DART_DEFINES "${DART_DEFINES_LINE}")
+  string(REPLACE "," ";" DART_DEFINES "${DART_DEFINES}")
+  # Reconfigure when the defines change, so switching between the two cannot
+  # leave a build carrying the other one's id.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${FLUTTER_GENERATED_CONFIG}")
+endif()
+list(FIND DART_DEFINES "${PACC_DEMO_ENCODED}" PACC_DEMO_INDEX)
+if(NOT PACC_DEMO_INDEX EQUAL -1)
+  set(APPLICATION_ID "${APPLICATION_ID}.demo")
+  set(APPLICATION_NAME "Raven Demo")
+endif()
+message(STATUS "Application: ${APPLICATION_NAME} (${APPLICATION_ID})")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

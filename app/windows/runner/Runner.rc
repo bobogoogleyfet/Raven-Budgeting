@@ -72,6 +72,15 @@ IDI_APP_ICON            ICON                    "resources\\app_icon.ico"
 #define VERSION_AS_STRING "1.0.0"
 #endif
 
+// The name Explorer and Task Manager show. The demo is a separate app, so it
+// says so here too; PACC_DEMO comes from --dart-define=PACC_DEMO=true, by way
+// of CMakeLists.txt.
+#if defined(PACC_DEMO)
+#define APP_NAME "Raven Demo"
+#else
+#define APP_NAME "Raven Budgeting"
+#endif
+
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION VERSION_AS_NUMBER
  PRODUCTVERSION VERSION_AS_NUMBER
@@ -90,12 +99,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.tannerhathaway" "\0"
-            VALUE "FileDescription", "Raven Budgeting" "\0"
+            VALUE "FileDescription", APP_NAME "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "app" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.tannerhathaway. All rights reserved." "\0"
             VALUE "OriginalFilename", "app.exe" "\0"
-            VALUE "ProductName", "Raven Budgeting" "\0"
+            VALUE "ProductName", APP_NAME "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -21,6 +21,15 @@ import 'src/sync/lan_sync.dart';
 import 'src/sync/redraw.dart';
 import 'src/theme.dart';
 
+/// Whether this build is the demo: `--dart-define=PACC_DEMO=true`, which is
+/// what `scripts/demo.sh` passes.
+///
+/// The demo is a separate app rather than a mode of this one, and this is the
+/// flag every layer keys on — the Android package, the Linux and Windows
+/// window, the Apple bundle, and here the database — so that no build can be
+/// the demo to one of them and the real app to another.
+const bool isDemo = bool.fromEnvironment('PACC_DEMO');
+
 Future<void> main() async {
   await RustLib.init();
 
@@ -37,7 +46,10 @@ Future<void> main() async {
       ? (await getApplicationSupportDirectory()).path
       : null;
 
-  final String path = await openDatabase(appDataDir: appData);
+  // The demo never resolves to the real database on desktop: it has a
+  // directory of its own beside the real one, and ignores $PACC_DB (see
+  // `database_path` in rust/src/api/db.rs).
+  final String path = await openDatabase(appDataDir: appData, demo: isDemo);
   // First run asks where the user lives before anything else.
   //
   // Detected by the home location still carrying a 0% rate, which is what the
@@ -141,13 +153,16 @@ class _AccountingAppState extends State<AccountingApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Raven Budgeting',
+      // What the system calls the app while it runs — the task switcher on
+      // Android, the tab on the web. The drawer keeps "Raven Budgeting",
+      // because the demo is a demonstration of that app, not a different one.
+      title: isDemo ? 'Raven Demo' : 'Raven Budgeting',
       // The demo has to run on a debug build — `run-as`, which is the only
       // legal way to put the demo database where the Android app looks for
       // it, works on nothing else — so the banner cannot be dropped by
       // building for release. `scripts/demo.sh` passes this instead, and an
       // ordinary debug run still gets the banner.
-      debugShowCheckedModeBanner: !const bool.fromEnvironment('PACC_DEMO'),
+      debugShowCheckedModeBanner: !isDemo,
       theme: lightTheme(),
       darkTheme: darkTheme(),
       home: _configured

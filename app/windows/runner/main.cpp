@@ -27,7 +27,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"Raven Budgeting", origin, size)) {
+  // The demo is a separate app and its window says so; PACC_DEMO comes from
+  // --dart-define=PACC_DEMO=true, by way of CMakeLists.txt.
+#ifdef PACC_DEMO
+  const wchar_t* title = L"Raven Demo";
+#else
+  const wchar_t* title = L"Raven Budgeting";
+#endif
+  if (!window.Create(title, origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
