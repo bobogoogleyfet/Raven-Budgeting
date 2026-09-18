@@ -122,6 +122,83 @@ The amounts wander so the screens do not read as generated, but they wander
 identically every time: a demo that shows different figures on each run
 cannot be rehearsed.
 
+### The web app
+
+The same app as a static page: the core compiled to WebAssembly, the database
+SQLite inside the browser's IndexedDB. There is no server behind it and
+nothing is sent anywhere — no account, no analytics, no fonts or scripts from
+anybody else's servers. The page talks to its own origin and nothing else,
+and its Content-Security-Policy (in `app/web/index.html`) has the browser
+enforce that rather than take the code's word for it.
+
+```sh
+scripts/build-web.sh                   # Rust → app/web/pkg/, Flutter → app/build/web, then checks
+scripts/publish-web.sh ../raven-site   # copy into a clone of the site repo; prints the git commands
+```
+
+`build-web.sh` needs what `scripts/build-web-bridge.sh` lists (the
+`wasm32-unknown-unknown` target, clang, `wasm-bindgen-cli`), and fails the
+build if the output mentions a host it has not been told about, has lost its
+policy, or contains anything shaped like data. To try a build locally:
+`python3 -m http.server -d app/build/web 8080` and open
+`http://localhost:8080` — localhost, because the storage and locking APIs the
+app needs exist only in a secure context, and a LAN address is not one.
+
+What is different in a browser:
+
+- **Sync is the sealed file and nothing else.** Export downloads it and
+  Import opens the browser's file picker. A page cannot tell a saved download
+  from a cancelled one, so an export is not counted as sent until you press
+  *Mark as sent*. There is no Wi-Fi sync: a page has no sockets.
+- **Rates are the ones it was built with.** The Tax Commission's server
+  does not allow pages from other sites to read it, and the policy would not
+  let the page ask. A new quarter reaches the web app by rebuilding and
+  republishing.
+- **One tab at a time.** A second tab waits, says why, and opens by itself
+  when the first one closes; two tabs writing the same database would corrupt
+  it.
+- Characters outside Roboto — CJK, emoji — show as boxes. The engine would
+  otherwise fetch fallback fonts from Google.
+
+#### Your data can disappear
+
+A browser's storage belongs to the browser. **Safari deletes everything a site
+has stored after seven days of use without a visit to it**, on macOS and iOS
+alike. Clearing browsing data deletes it in any browser, and a private window
+forgets it on closing. The app asks for persistent storage, which Chrome, Edge
+and Firefox may grant, but nothing overrides Safari's rule. Settings says so
+beside the sync section; treat the browser as one device of a pair, never the
+only copy.
+
+#### Hosting: a GitHub organisation of its own
+
+GitHub Pages is free and serves static files, which is all this needs. The
+catch is the origin. A browser keeps storage per origin, and every Pages site
+under one account shares that account's: `<user>.github.io/raven` and
+`<user>.github.io/anything-else` are the same origin, so any page ever
+published under the account could open Raven's database and read the ledger
+in it. So the site gets an origin nobody else can publish to:
+
+1. Create a free GitHub organisation used for this and nothing else — no other
+   repositories with Pages, now or later.
+2. In it, create a **public** repository named `<org>.github.io` (free Pages
+   needs a public repository). It holds the built site only: never source,
+   never data. `publish-web.sh` refuses to copy anything that looks like a
+   database, a sync file or an export, into it or out of the build.
+3. In its settings, under Pages, deploy from the `main` branch, root folder.
+4. Clone it beside this repository. Each release is then `build-web.sh`,
+   `publish-web.sh ../<org>.github.io`, a look at `git status`, a commit and a
+   push.
+
+The app is served from the root of `https://<org>.github.io/`, which is why
+the build's base href is `/`. The source repository stays wherever it is and
+is never published.
+
+Pages cannot set response headers, so the policy is a `<meta>` tag, and a
+`<meta>` policy cannot forbid framing. Another site can embed the page, but in
+current browsers an embedded copy gets storage of its own — an empty
+database — rather than yours.
+
 ## Platform status
 
 | Platform | Status |
@@ -130,3 +207,4 @@ cannot be rehearsed.
 | Windows | Planned — build on Windows or CI, not cross-compiled |
 | Android | Planned — buildable from Linux via `cargo-ndk` |
 | iOS | Designed for, **not buildable without macOS** (Xcode is macOS-only) |
+| Web | Static site on GitHub Pages — see [The web app](#the-web-app) |
