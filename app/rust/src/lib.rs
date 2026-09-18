@@ -6,5 +6,7 @@
 //! which is the thing the core exists to prevent.
 
 pub mod api;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+mod browser;
 mod error;
 mod frb_generated;

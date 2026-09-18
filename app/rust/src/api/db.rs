@@ -8,6 +8,7 @@
 //! fourth answer would read to the user as data loss. The demo build is the
 //! one deliberate fourth answer — it must never land on that file.
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -40,11 +41,14 @@ static HANDLE: OnceLock<Handle> = OnceLock::new();
 ///
 /// `app_data_dir` is the platform's per-app directory, which only Dart can ask
 /// for (`path_provider`) and Rust has no business guessing. Desktop passes
-/// `null` and the XDG rules apply.
+/// `null` and the XDG rules apply. A browser passes `null` too, and there it
+/// is ignored along with the rules: the database is a name in IndexedDB, and
+/// the returned "path" is that name.
 ///
 /// `demo` is the `PACC_DEMO` build flag, which only Dart can see: it is a
 /// `--dart-define`, compiled into the Dart snapshot, and this library is built
-/// by Cargo without it. `database_path` says what it changes.
+/// by Cargo without it. `database_path` says what it changes, and
+/// `browser::database_file` what it changes on the web.
 pub async fn open_database(app_data_dir: Option<String>, demo: bool) -> Result<String, String> {
     if let Some(open) = HANDLE.get() {
         // A hot restart re-runs Dart's `main()` against a library that is
@@ -53,16 +57,29 @@ pub async fn open_database(app_data_dir: Option<String>, demo: bool) -> Result<S
         return Ok(open.path.display().to_string());
     }
 
-    let path = database_path(app_data_dir, demo, |key| {
-        std::env::var_os(key).filter(|v| !v.is_empty())
-    })?;
+    // In a browser there is no directory and no environment to consult, and
+    // `app_data_dir` is always null: the file is a name inside IndexedDB.
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    let path = {
+        let _ = app_data_dir;
+        let file = crate::browser::database_file(demo);
+        crate::browser::prepare(file).await?;
+        PathBuf::from(file)
+    };
 
-    // `Db::open` takes the path it is given and will not create the directory
-    // above it — that is a filesystem policy decision, and policy belongs to
-    // the frontend.
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(to_message)?;
-    }
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    let path = {
+        let path = database_path(app_data_dir, demo, |key| {
+            std::env::var_os(key).filter(|v| !v.is_empty())
+        })?;
+        // `Db::open` takes the path it is given and will not create the
+        // directory above it — that is a filesystem policy decision, and
+        // policy belongs to the frontend.
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(to_message)?;
+        }
+        path
+    };
 
     let db = Db::open(&path).map_err(to_message)?;
     seed_defaults(&db).map_err(to_message)?;
@@ -101,6 +118,7 @@ pub(crate) fn locked() -> Result<MutexGuard<'static, Db>, String> {
 ///
 /// `env` is the environment, passed in so the rules can be tested without
 /// mutating the process's own — which every other test thread can see.
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 fn database_path(
     app_data_dir: Option<String>,
     demo: bool,

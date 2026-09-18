@@ -28,6 +28,17 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<RefreshDto> refreshRates() =>
     RustLib.instance.api.crateApiRatesRefreshRates();
 
+/// Install a rate workbook the user fetched themselves, as this quarter's.
+///
+/// The browser's way to a newer table, and a desktop's without a route out;
+/// the CLI's `pacc rates --file` is the same thing. `bytes` is the `.xlsx`
+/// exactly as Utah publishes it; in a browser, [`refresh_rates`] names the URL.
+/// The core refuses a workbook that is not the current quarter's,
+/// and that refusal is thrown rather than reported: unlike a refresh this is
+/// something the user asked for, with a file they chose.
+Future<RefreshDto> installRateWorkbook({required List<int> bytes}) =>
+    RustLib.instance.api.crateApiRatesInstallRateWorkbook(bytes: bytes);
+
 /// What a refresh did.
 class RefreshDto {
   /// Whether a refresh was even due. False on the 361 days a year when the

@@ -5,6 +5,11 @@
 //! file is the one that was asked for, and what to write — and this module
 //! does the one thing the core is not allowed to do: fetch bytes off the
 //! network.
+//!
+//! Except in a browser, where it does not do that either. The web build has no
+//! HTTP client compiled in at all — see `Cargo.toml` — so a refresh there
+//! reports why it could not happen, and [`install_rate_workbook`] takes a
+//! workbook the user downloaded themselves.
 
 use accounting_core::repo::tax_areas;
 use accounting_core::service::rates as rates_service;
@@ -128,12 +133,54 @@ pub async fn refresh_rates() -> Result<RefreshDto, String> {
 /// and tokio's workers also carry the calls queued behind it, so this one goes
 /// to tokio's pool for blocking work instead. A panic in it is re-raised here,
 /// so it still reaches Dart as the bridge's `PanicException`.
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 async fn fetch(url: String) -> Result<Vec<u8>, String> {
     match flutter_rust_bridge::spawn_blocking_with(move || download(&url), ()).await {
         Ok(result) => result,
         Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
         Err(error) => Err(to_message(error)),
     }
+}
+
+/// The browser's answer to a download: there is none.
+///
+/// The web app sends nothing anywhere, and it could not fetch this file if it
+/// tried — the page is only allowed to connect to its own origin, and Utah's
+/// server sends no CORS headers. Returned as the refresh's `problem`, so the
+/// screen that offered a refresh says why it did not happen, and where the
+/// file it should import instead can be had.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+async fn fetch(url: String) -> Result<Vec<u8>, String> {
+    Err(format!(
+        "rate downloads are not available in the browser; import the workbook file \
+         instead (Utah publishes it at {url})"
+    ))
+}
+
+/// Install a rate workbook the user fetched themselves, as this quarter's.
+///
+/// The browser's way to a newer table, and a desktop's without a route out;
+/// the CLI's `pacc rates --file` is the same thing. `bytes` is the `.xlsx`
+/// exactly as Utah publishes it; in a browser, [`refresh_rates`] names the URL.
+/// The core refuses a workbook that is not the current quarter's,
+/// and that refusal is thrown rather than reported: unlike a refresh this is
+/// something the user asked for, with a file they chose.
+pub async fn install_rate_workbook(bytes: Vec<u8>) -> Result<RefreshDto, String> {
+    let quarter = rates_service::wanted_quarter(chrono::Local::now().date_naive());
+    let db = db::locked()?;
+    let installed = rates_service::install_workbook(&db, &bytes, quarter).map_err(to_message)?;
+    log::info!(
+        "installed {quarter} from a file: {} areas, {} locations updated",
+        installed.areas,
+        installed.locations_updated
+    );
+    Ok(RefreshDto {
+        attempted: true,
+        installed: true,
+        areas: installed.areas as u32,
+        locations_updated: installed.locations_updated as u32,
+        problem: None,
+    })
 }
 
 /// Fetch a URL into memory.
@@ -145,6 +192,7 @@ async fn fetch(url: String) -> Result<Vec<u8>, String> {
 /// decision worth getting right is shared instead: which quarter, which URL,
 /// whether the file is the one that was asked for, and what to write all live
 /// in `service::rates`.
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 fn download(url: &str) -> Result<Vec<u8>, String> {
     let mut response = ureq::get(url).call().map_err(to_message)?;
     // A quarter's workbook is a quarter of a megabyte. The cap is thirty times

@@ -13,10 +13,6 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 accounting-core.workspace = true
-# Downloading the quarterly rate workbook. A *frontend* dependency: the core
-# does no networking, because an HTTP client is exactly the sort of thing that
-# differs between a desktop binary and an Android service.
-ureq.workspace = true
 chrono.workspace = true
 # All four flutter_rust_bridge artifacts — this crate, the macros, the Dart
 # package and the codegen binary — must stay on one version. A minor version
@@ -24,11 +20,47 @@ chrono.workspace = true
 # runtime rather than a compile error.
 flutter_rust_bridge = "=2.12.0"
 log = "0.4"
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+# Downloading the quarterly rate workbook. A *frontend* dependency: the core
+# does no networking, because an HTTP client is exactly the sort of thing that
+# differs between a desktop binary and an Android service.
+#
+# Not in the browser build at all, rather than compiled in and never called:
+# the web app must not be able to send anything anywhere, and code that is not
+# there cannot be reached. (It could not reach Utah's server anyway: the page
+# only allows connections to its own origin, and the server sends no CORS
+# headers.)
+ureq.workspace = true
 # `setup_default_user_utils()` routes logs through `setup_log_to_console`,
 # which has arms for Android, iOS/macOS and wasm and ends in
 # `// TODO add more platforms`. On Linux and Windows it is a no-op, so without
 # this every `log::` call from Rust vanishes on the platform we develop on.
+# Not in the browser, where the bridge's console logger is the one that works
+# and this one, installed first, would take its place and write to nowhere.
 env_logger = "0.11"
+
+# The browser build: `wasm32-unknown-unknown` is the only wasm target the app
+# ships to, and the only one with a browser around it.
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+# A browser has no filesystem for SQLite, so the database lives in IndexedDB.
+# relaxed-idb keeps the whole file in memory and writes changed pages back
+# after each commit, which is what lets the synchronous core run unchanged
+# against storage that is only reachable asynchronously. `sqlite-wasm-rs` is
+# already rusqlite's SQLite on this target; it is named here for the callback
+# type the VFS is installed with, and must stay the version rusqlite uses.
+sqlite-wasm-vfs = "0.2"
+sqlite-wasm-rs = { version = "0.5", default-features = false }
+# `Date.now()` for the sync clock, and the Web Locks call that keeps a second
+# tab from opening the same database.
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+# `chrono::Local::now()` reads the clock and the timezone. In a browser both
+# come from JavaScript's `Date`, and only with this feature; without it the
+# first call panics. Something else in the tree turns it on today, which is
+# not a reason to depend on that staying true.
+chrono = { workspace = true, features = ["wasmbind"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

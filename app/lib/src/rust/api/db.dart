@@ -21,11 +21,14 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 ///
 /// `app_data_dir` is the platform's per-app directory, which only Dart can ask
 /// for (`path_provider`) and Rust has no business guessing. Desktop passes
-/// `null` and the XDG rules apply.
+/// `null` and the XDG rules apply. A browser passes `null` too, and there it
+/// is ignored along with the rules: the database is a name in IndexedDB, and
+/// the returned "path" is that name.
 ///
 /// `demo` is the `PACC_DEMO` build flag, which only Dart can see: it is a
 /// `--dart-define`, compiled into the Dart snapshot, and this library is built
-/// by Cargo without it. `database_path` says what it changes.
+/// by Cargo without it. `database_path` says what it changes, and
+/// `browser::database_file` what it changes on the web.
 Future<String> openDatabase({String? appDataDir, required bool demo}) => RustLib
     .instance
     .api

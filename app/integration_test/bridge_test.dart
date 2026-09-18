@@ -5,6 +5,7 @@
 // faster.
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:app/src/api.dart';
 import 'package:app/src/money.dart';
@@ -436,5 +437,21 @@ void main() {
     // a different name.
     final status = await syncStatus();
     expect(status.peers.where((peer) => peer != status.thisDevice), isEmpty);
+  });
+
+  test('a file that is not a rate workbook is refused and the rates stay',
+      () async {
+    await openDatabase(appDataDir: dataDir.path, demo: false);
+    final before = await rateRelease();
+
+    // Thrown, not reported as a refresh's `problem`: the user chose this
+    // file, and a quiet "not installed" would read as if it had worked.
+    await expectLater(
+      installRateWorkbook(Uint8List.fromList('not a workbook'.codeUnits)),
+      throwsA(isA<Object>()),
+    );
+
+    final after = await rateRelease();
+    expect(after?.quarter, before?.quarter);
   });
 }

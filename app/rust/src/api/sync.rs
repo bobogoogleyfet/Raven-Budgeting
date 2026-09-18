@@ -9,6 +9,7 @@
 //! is that frontend's half of the boundary: it moves bytes across the bridge
 //! and does no merging, no crypto and no policy of its own.
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use accounting_core::repo::settings;
@@ -304,9 +305,17 @@ fn checked_phrase(phrase: String) -> Result<String, String> {
 /// moves forward — it takes the greater of its own reading and the wall clock
 /// — so a nonsense wall clock costs nothing but the physical component
 /// standing still, which is precisely what the logical counter is for.
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(0)
+}
+
+/// The same, in a browser, where `SystemTime` has no clock behind it and
+/// panics — so the web build asks JavaScript's.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+fn now_millis() -> u64 {
+    crate::browser::now_millis()
 }

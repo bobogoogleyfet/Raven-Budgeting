@@ -661,6 +661,15 @@ Future<rust_entry.RateReleaseDto?> rateRelease() => rust_entry.rateRelease();
 /// anyway. The staleness is what gets surfaced, by [rateRelease].
 Future<rust_rates.RefreshDto> refreshRates() => rust_rates.refreshRates();
 
+/// Install this quarter's rate workbook from a file the user picked.
+///
+/// The browser cannot download it — [refreshRates] says so, and names the URL
+/// — so on the web this is the only way to a newer table. Throws when the file
+/// is not the current quarter's workbook, because unlike a refresh the user
+/// asked for this one.
+Future<rust_rates.RefreshDto> installRateWorkbook(Uint8List bytes) =>
+    rust_rates.installRateWorkbook(bytes: bytes);
+
 /// What setting a budget did.
 class Superseded {
   const Superseded({required this.restated, required this.closedAfter});
